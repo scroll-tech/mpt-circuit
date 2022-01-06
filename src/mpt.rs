@@ -176,7 +176,7 @@ impl<Fp: FieldExt> MPTChip<Fp> {
 #[cfg(test)]
 mod test {
     #![allow(unused_imports)]
-    
+
     use super::*;
     use halo2::{
         circuit::{Region, Cell, SimpleFloorPlanner},
@@ -249,8 +249,8 @@ mod test {
         }
 
         fn synthesize(&self, config: Self::Config, mut layouter: impl Layouter<Fp>) -> Result<(), Error> {
-            let fill_ret = layouter.assign_region(||"layer", |region|
-                self.fill_layer(&config, region, mock_hash)
+            let fill_ret = layouter.assign_region(||"main", |mut region|
+                self.fill_layer(&config, &mut region, mock_hash)
             )?;
             let mpt_chip = MPTChip::<Fp>::construct(config);
             mpt_chip.load(&mut layouter, fill_ret.hashs)?;
@@ -283,7 +283,7 @@ mod test {
         pub fn fill_layer<F: FnMut(&Fp, &Fp) -> Fp>(
             &self,
             config: &MPTChipConfig,
-            mut region: Region<'_, Fp>,
+            region: &mut Region<'_, Fp>,
             mut hasher: F,
         ) -> Result<LayerFillTrace, Error> {
 
@@ -312,6 +312,7 @@ mod test {
             //the root row
             region.assign_advice(||"val", config.val, offset, ||Ok(path_trace[offset]))?;
             region.assign_advice(||"path", config.path, offset, ||Ok(Fp::zero()))?;
+            region.assign_advice(||"sibling", config.sibling, offset, ||Ok(Fp::zero()))?;
             region.assign_advice(||"isfirst", config.is_first, offset, ||Ok(Fp::one()))?;
             offset += 1;
 
@@ -323,6 +324,7 @@ mod test {
                 offset += 1;
             }
 
+            println!("assigned till {}, {} traces", offset, hash_trace.len());
             Ok(LayerFillTrace{hashs: hash_trace})
         }
     }
@@ -342,6 +344,35 @@ mod test {
             path,
         };
 
+        // Generate layout graph
+        /*
+        use plotters::prelude::*;
+        let root = BitMapBackend::new("layout.png", (1024, 768)).into_drawing_area();
+        root.fill(&WHITE).unwrap();
+        let root = root
+            .titled("Test Circuit Layout", ("sans-serif", 60))
+            .unwrap();
+    
+        halo2::dev::CircuitLayout::default()
+            // You can optionally render only a section of the circuit.
+            //.view_width(0..2)
+            //.view_height(0..16)
+            // You can hide labels, which can be useful with smaller areas.
+            .show_labels(true)
+            // Render the circuit onto your area!
+            // The first argument is the size parameter for the circuit.
+            .render(11, &circuit, &root)
+            .unwrap();
+        */
+        /*
+        // Generate the DOT graph string.
+     
+        let dot_string = halo2::dev::circuit_dot_graph(&circuit);
+
+        // Now you can either handle it in Rust, or just
+        // print it out to use with command-line tools.
+        print!("{}", dot_string);
+        */
         let prover = MockProver::<Fp>::run(11, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
     }
