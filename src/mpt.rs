@@ -44,34 +44,6 @@ struct MPTChipConfig {
     hash: TableColumn,
 }
 
-/*
-struct Alloc {
-    cell: Cell,
-    value: Fp,
-}
-
-enum MaybeAlloc {
-    Alloc(Alloc),
-    Unalloc(Fp),
-}
-
-impl MaybeAlloc {
-    fn value(&self) -> Fp {
-        match self {
-            MaybeAlloc::Alloc(alloc) => alloc.value.clone(),
-            MaybeAlloc::Unalloc(value) => value.clone(),
-        }
-    }
-
-    fn cell(&self) -> Cell {
-        match self {
-            MaybeAlloc::Alloc(alloc) => alloc.cell.clone(),
-            MaybeAlloc::Unalloc(_) => unreachable!(),
-        }
-    }
-}
-*/
-
 impl<Fp: FieldExt> Chip<Fp> for MPTChip<Fp> {
     type Config = MPTChipConfig;
     type Loaded = ();
@@ -203,21 +175,51 @@ impl<Fp: FieldExt> MPTChip<Fp> {
 
 #[cfg(test)]
 mod test {
-
+    #![allow(unused_imports)]
+    
     use super::*;
-    use ff::Field;
     use halo2::{
-        circuit::SimpleFloorPlanner,
+        circuit::{Region, Cell, SimpleFloorPlanner},
         dev::{MockProver, VerifyFailure},
-        pairing::bn256::Fr as Fp, // why halo2-merkle tree use Fp?
+        pairing::bn256::Fr as Fp, // why halo2-merkle tree use base field?
         plonk::Circuit,
     };
+    use ff::Field;
+    use lazy_static::lazy_static;
+    use rand_chacha::ChaCha8Rng;
+    use rand::{random, SeedableRng};
+
+    lazy_static! {
+        static ref GAMMA: Fp = Fp::random(ChaCha8Rng::from_seed([101u8; 32]));
+    }
+
+    fn mock_hash(a: &Fp, b: &Fp) -> Fp {
+        (a + *GAMMA) * (b + *GAMMA)
+    }
+
+    fn rand_bytes(n: usize) -> Vec<u8> {
+        vec![random(); n]
+    }
+
+    fn rand_bytes_array<const N: usize>() -> [u8; N] {
+        [(); N].map(|_| random())
+    }
+
+    fn rand_fp() -> Fp {
+        let mut arr = rand_bytes_array::<32>();
+        //avoiding failure in unwrap
+        arr[31] &= 31;
+        Fp::from_bytes(&arr).unwrap()
+    }
+
+    const MAX_PATH_DEPTH: usize = 16;
+    const MAX_KEY: usize = (2 as usize).pow(MAX_PATH_DEPTH as u32);
 
     #[derive(Clone, Default)]
     struct MPTTestSinglePathCircuit {
-        last: Fp, //the bottom node
-        siblings: Vec<Fp>,
-        path: u32, //the path key simply expressed by u32
+        pub leaf: Fp, //the hash of leaf
+        pub siblings: Vec<Fp>, //siblings from top to bottom
+        pub path: u32, //the path key simply expressed by u32
     }
     
     impl Circuit<Fp> for MPTTestSinglePathCircuit {
@@ -247,11 +249,101 @@ mod test {
         }
 
         fn synthesize(&self, config: Self::Config, mut layouter: impl Layouter<Fp>) -> Result<(), Error> {
+            let fill_ret = layouter.assign_region(||"layer", |region|
+                self.fill_layer(&config, region, mock_hash)
+            )?;
             let mpt_chip = MPTChip::<Fp>::construct(config);
-            //mpt_chip.load(&mut layouter)?;
+            mpt_chip.load(&mut layouter, fill_ret.hashs)?;
             Ok(())
         }
 
+    }
+
+    struct LayerFillTrace {
+        pub hashs : Vec<(Fp, Fp, Fp)>,
+    }
+
+    impl MPTTestSinglePathCircuit {
+
+        //decompose path to bits, start from smallest, return the
+        //two parts which reside on path and the leaf
+        fn decompose_path(&self) -> (Vec<bool>, Vec<bool>) {
+            let mut path_bits = Vec::new();
+            assert!(MAX_PATH_DEPTH >= self.siblings.len(), "more siblings than max depth");
+
+            for layer in 1..(MAX_PATH_DEPTH + 1) {
+                let has_bit = (self.path & 2u32.pow((MAX_PATH_DEPTH - layer) as u32)) != 0;
+                path_bits.push(has_bit);
+            }
+
+            let leaf_bits = path_bits.split_off(self.siblings.len());
+            (path_bits, leaf_bits)
+        }
+
+        pub fn fill_layer<F: FnMut(&Fp, &Fp) -> Fp>(
+            &self,
+            config: &MPTChipConfig,
+            mut region: Region<'_, Fp>,
+            mut hasher: F,
+        ) -> Result<LayerFillTrace, Error> {
+
+            // build all required data
+            let mut path_trace = vec![self.leaf];
+            let mut hash_trace = Vec::new();
+            let (path_bits, _) = self.decompose_path();
+
+            assert_eq!(path_bits.len(), self.siblings.len());
+
+            for (sibling, bit) in self.siblings.iter().rev().zip(path_bits.iter().rev()) {
+                let (l, r) = if *bit {
+                    (sibling, path_trace.last().unwrap())
+                }else {
+                    (path_trace.last().unwrap(), sibling)
+                };
+
+                let h = hasher(l, r);
+                hash_trace.push((*l, *r, h));
+                path_trace.push(h);
+            }
+
+            path_trace.reverse();
+
+            let mut offset = 0;
+            //the root row
+            region.assign_advice(||"val", config.val, offset, ||Ok(path_trace[offset]))?;
+            region.assign_advice(||"path", config.path, offset, ||Ok(Fp::zero()))?;
+            region.assign_advice(||"isfirst", config.is_first, offset, ||Ok(Fp::one()))?;
+            offset += 1;
+
+            for bit in path_bits {
+                region.assign_advice(||"val", config.val, offset, ||Ok(path_trace[offset]))?;
+                region.assign_advice(||"sibling", config.sibling, offset, ||Ok(self.siblings[offset - 1]))?;
+                region.assign_advice(||"path", config.path, offset, ||Ok(if bit {Fp::one()} else {Fp::zero()}))?;
+                region.assign_advice(||"isfirst", config.is_first, offset, ||Ok(Fp::zero()))?;
+                offset += 1;
+            }
+
+            Ok(LayerFillTrace{hashs: hash_trace})
+        }
+    }
+
+    #[test]
+    fn test_single_path(){
+        let leaf = rand_fp();
+        let mut siblings = Vec::new();
+        for _ in 0..4 {
+            siblings.push(rand_fp());
+        }
+        let path = u32::from_be_bytes(rand_bytes_array()) % MAX_KEY as u32;
+
+        let circuit = MPTTestSinglePathCircuit {
+            leaf,
+            siblings,
+            path,
+        };
+
+        let prover = MockProver::<Fp>::run(11, &circuit, vec![]).unwrap();
+        assert_eq!(prover.verify(), Ok(()));
     }
 }
 
