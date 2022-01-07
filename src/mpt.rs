@@ -1,14 +1,15 @@
 //! The constraint system matrix for an arity-2 Merkle Patricia Tree using lookup-table for hashing
 //  The lookup table is formed by <left, right, hash> and the input can be 
-//  <val_col, sibling_col, val_col@Rotation::(-1)]>
+//  <val_col@Rotation::(1), sibling_col, val_col]>
+//  s_path act as selector for lookup arguments
 
 //  |-----||--------|------------------|------------------|---------|----------------|----------------|--------|
-//  | row ||IsFirst |       val        |     sibling      |  path   |     left       |     right      |  hash  |
-//  |-----||--------|------------------|------------------|---------|----------------|--=-------------|--------|
-//  |  0  ||   1    |       root1      |                  |         |                |                |        |
-//  |  1  ||   0    |     digest_1     |      elem_11     | cbit_11 |digest_1/elem_11|digest_1/elem_11| hash1  |
-//  |  2  ||   0    |     digest_2     |      elem_12     | cbit_12 |digest_1/elem_12|digest_1/elem_12| hash2  |
-//  |  3  ||   0    |       leaf1      |      elem_13     | cbit_13 |  leaf1/elem_13 |  leaf1/elem_13 | hash3  |
+//  | row || s_path |       val        |     sibling      |  path   |     left       |     right      |  hash  |
+//  |-----||--------|------------------|------------------|---------|----------------|----------------|--------|
+//  |  0  ||   1    |       root1      |      elem_11     | cbit_11 |                |                |        |
+//  |  1  ||   1    |     digest_1     |      elem_12     | cbit_12 |digest_1/elem_11|digest_1/elem_11| hash1  |
+//  |  2  ||   1    |     digest_2     |      elem_13     | cbit_13 |digest_1/elem_12|digest_1/elem_12| hash2  |
+//  |  3  ||   0    |       leaf1      |                  |         |  leaf1/elem_13 |  leaf1/elem_13 | hash3  |
 //  |  4  ||   1    |       root2      |                  |         |                |                |        |
 //  |-----||--------|------------------|------------------|---------|----------------|----------------|--------|
 
@@ -16,7 +17,7 @@
 use halo2::{
     circuit::{Chip, Layouter},
     plonk::{
-        Advice, Column, TableColumn, ConstraintSystem, Error, Expression,
+        Advice, Column, TableColumn, ConstraintSystem, Error,
     },
     poly::Rotation,
     arithmetic::FieldExt,
@@ -35,10 +36,6 @@ struct MPTChip<F> {
 /// Config a chip for verify mutiple merkle path in MPT
 #[derive(Clone, Debug)]
 struct MPTChipConfig {
-    is_first: Column<Advice>,
-    val: Column<Advice>,
-    sibling: Column<Advice>,
-    path: Column<Advice>,
     left: TableColumn,
     right: TableColumn,
     hash: TableColumn,
@@ -61,7 +58,7 @@ impl<Fp: FieldExt> MPTChip<Fp> {
 
     fn configure(
         meta: &mut ConstraintSystem<Fp>,
-        is_first: Column<Advice>,
+        s_path: Column<Advice>,
         val: Column<Advice>,
         sibling: Column<Advice>,
         path: Column<Advice>,        
@@ -94,14 +91,14 @@ impl<Fp: FieldExt> MPTChip<Fp> {
         //
         // from table formed by (left, right, hash)
         meta.lookup(|meta|{
-            let not_first = Expression::Constant(Fp::one()) - meta.query_advice(is_first, Rotation::cur());
+            let s_path = meta.query_advice(s_path, Rotation::cur());
 
             let path_bit = meta.query_advice(path, Rotation::cur());
-            let val_col = meta.query_advice(val, Rotation::cur());
+            let val_col = meta.query_advice(val, Rotation::next());
             let sibling_col = meta.query_advice(sibling, Rotation::cur());
-            let right_lookup = not_first.clone() * (path_bit.clone() * (val_col.clone() - sibling_col.clone()) + sibling_col.clone());
-            let left_lookup = not_first.clone() * (path_bit * (sibling_col - val_col.clone()) + val_col);
-            let hash_lookup = not_first * meta.query_advice(val, Rotation::prev());
+            let right_lookup = s_path.clone() * (path_bit.clone() * (val_col.clone() - sibling_col.clone()) + sibling_col.clone());
+            let left_lookup = s_path.clone() * (path_bit * (sibling_col - val_col.clone()) + val_col);
+            let hash_lookup = s_path * meta.query_advice(val, Rotation::cur());
 
             vec![(left_lookup, left), 
             (right_lookup, right), 
@@ -109,10 +106,6 @@ impl<Fp: FieldExt> MPTChip<Fp> {
         });
 
         MPTChipConfig {
-            is_first,
-            val,
-            sibling,
-            path,
             left,
             right,
             hash,
@@ -183,7 +176,7 @@ mod test {
         circuit::{Region, Cell, SimpleFloorPlanner},
         dev::{MockProver, VerifyFailure},
         pairing::bn256::Fr as Fp, // why halo2-merkle tree use base field?
-        plonk::{Selector, Circuit},
+        plonk::{Selector, Circuit, Expression},
     };
     use ff::Field;
     use lazy_static::lazy_static;
@@ -219,6 +212,10 @@ mod test {
     #[derive(Clone, Debug)]
     struct MPTTestConfig {
         s_row: Selector,
+        s_path: Column<Advice>,
+        val: Column<Advice>,
+        sibling: Column<Advice>,
+        path: Column<Advice>,        
         chip: MPTChipConfig,
     }
 
@@ -240,7 +237,7 @@ mod test {
 
         fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
 
-            let is_first = meta.advice_column();
+            let s_path = meta.advice_column();
             let val = meta.advice_column();
             let sibling = meta.advice_column();
             let path = meta.advice_column();
@@ -248,16 +245,20 @@ mod test {
             let one = Expression::Constant(Fp::one());
 
             meta.create_gate("boolean/bit", |meta| {
-                let is_first_col = meta.query_advice(is_first, Rotation::cur());
+                let s_path_col = meta.query_advice(s_path, Rotation::cur());
                 let path_col = meta.query_advice(path, Rotation::cur());
                 let s_row = meta.query_selector(s_row);
-                vec![s_row.clone() * is_first_col.clone() * (is_first_col - one.clone()),
-                s_row * path_col.clone() * (path_col - one.clone())]
+                vec![s_row.clone() * s_path_col.clone() * (s_path_col.clone() - one.clone()),
+                    s_row.clone() * s_path_col * path_col.clone() * (path_col - one.clone())]
             });
 
             MPTTestConfig {
                 s_row,
-                chip: MPTChip::configure(meta, is_first, val, sibling, path),
+                s_path,
+                val,
+                sibling,
+                path,
+                chip: MPTChip::configure(meta, s_path, val, sibling, path),
             }
         }
 
@@ -301,11 +302,9 @@ mod test {
             mut hasher: F,
         ) -> Result<LayerFillTrace, Error> {
 
-            let chip_cfg = &config.chip;
-
             // build all required data
             let mut path_trace = vec![self.leaf];
-            let mut hash_trace = vec![(Fp::zero(), Fp::zero(), self.leaf)];
+            let mut hash_trace = vec![];
             let (path_bits, _) = self.decompose_path();
 
             assert_eq!(path_bits.len(), self.siblings.len());
@@ -325,21 +324,17 @@ mod test {
             path_trace.reverse();
 
             let mut offset = 0;
-            //the root row
-            region.assign_advice(||"val", chip_cfg.val, offset, ||Ok(path_trace[offset]))?;
-            region.assign_advice(||"path", chip_cfg.path, offset, ||Ok(Fp::zero()))?;
-            region.assign_advice(||"sibling", chip_cfg.sibling, offset, ||Ok(Fp::zero()))?;
-            region.assign_advice(||"isfirst", chip_cfg.is_first, offset, ||Ok(Fp::one()))?;
-            offset += 1;
-
             for bit in path_bits {
-                region.assign_advice(||"val", chip_cfg.val, offset, ||Ok(path_trace[offset]))?;
-                region.assign_advice(||"sibling", chip_cfg.sibling, offset, ||Ok(self.siblings[offset - 1]))?;
-                let path_bit = if bit {Fp::one()} else {Fp::zero()};
-                region.assign_advice(||"path", chip_cfg.path, offset, ||Ok(path_bit))?;
-                region.assign_advice(||"isfirst", chip_cfg.is_first, offset, ||Ok(Fp::zero()))?;
+                region.assign_advice(||"val", config.val, offset, ||Ok(path_trace[offset]))?;
+                region.assign_advice(||"sibling", config.sibling, offset, ||Ok(self.siblings[offset]))?;
+                region.assign_advice(||"path", config.path, offset, ||Ok(if bit {Fp::one()} else {Fp::zero()}))?;
+                region.assign_advice(||"isfirst", config.s_path, offset, ||Ok(Fp::one()))?;
                 offset += 1;
             }
+            region.assign_advice(||"val", config.val, offset, ||Ok(path_trace[offset]))?;
+            region.assign_advice(||"isfirst", config.s_path, offset, ||Ok(Fp::zero()))?;
+            region.assign_advice(||"path", config.path, offset, ||Ok(Fp::from(42)))?;
+            offset += 1;
 
             //enable all
             for row in 0..offset {
