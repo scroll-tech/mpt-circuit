@@ -129,12 +129,13 @@ impl<Fp: FieldExt> MPTChip<Fp> {
     pub fn load(
         &self,
         layouter: &mut impl Layouter<Fp>,
-        hashing_records: Vec<(Fp, Fp, Fp)>,
+        mut hashing_records: Vec<(Fp, Fp, Fp)>,
     ) -> Result<(), Error> {
 
         let left = self.config().left;
         let right = self.config().right;
         let hash = self.config().hash;
+        hashing_records.push((Fp::zero(), Fp::zero(), Fp::zero()));
 
         layouter.assign_table(
             ||"hash table",
@@ -182,7 +183,7 @@ mod test {
         circuit::{Region, Cell, SimpleFloorPlanner},
         dev::{MockProver, VerifyFailure},
         pairing::bn256::Fr as Fp, // why halo2-merkle tree use base field?
-        plonk::Circuit,
+        plonk::{Selector, Circuit},
     };
     use ff::Field;
     use lazy_static::lazy_static;
@@ -215,15 +216,22 @@ mod test {
     const MAX_PATH_DEPTH: usize = 16;
     const MAX_KEY: usize = (2 as usize).pow(MAX_PATH_DEPTH as u32);
 
+    #[derive(Clone, Debug)]
+    struct MPTTestConfig {
+        s_row: Selector,
+        chip: MPTChipConfig,
+    }
+
     #[derive(Clone, Default)]
     struct MPTTestSinglePathCircuit {
         pub leaf: Fp, //the hash of leaf
         pub siblings: Vec<Fp>, //siblings from top to bottom
         pub path: u32, //the path key simply expressed by u32
     }
-    
+
+
     impl Circuit<Fp> for MPTTestSinglePathCircuit {
-        type Config = MPTChipConfig;
+        type Config = MPTTestConfig;
         type FloorPlanner = SimpleFloorPlanner;
         
         fn without_witnesses(&self) -> Self {
@@ -236,23 +244,29 @@ mod test {
             let val = meta.advice_column();
             let sibling = meta.advice_column();
             let path = meta.advice_column();
+            let s_row = meta.selector();
             let one = Expression::Constant(Fp::one());
 
             meta.create_gate("boolean/bit", |meta| {
                 let is_first_col = meta.query_advice(is_first, Rotation::cur());
                 let path_col = meta.query_advice(path, Rotation::cur());
-                vec![is_first_col.clone() * (is_first_col - one.clone()),
-                path_col.clone() * (path_col - one.clone())]
+                let s_row = meta.query_selector(s_row);
+                vec![s_row.clone() * is_first_col.clone() * (is_first_col - one.clone()),
+                s_row * path_col.clone() * (path_col - one.clone())]
             });
 
-            MPTChip::configure(meta, is_first, val, sibling, path)
+            MPTTestConfig {
+                s_row,
+                chip: MPTChip::configure(meta, is_first, val, sibling, path),
+            }
         }
 
         fn synthesize(&self, config: Self::Config, mut layouter: impl Layouter<Fp>) -> Result<(), Error> {
             let fill_ret = layouter.assign_region(||"main", |mut region|
                 self.fill_layer(&config, &mut region, mock_hash)
             )?;
-            let mpt_chip = MPTChip::<Fp>::construct(config);
+
+            let mpt_chip = MPTChip::<Fp>::construct(config.chip);
             mpt_chip.load(&mut layouter, fill_ret.hashs)?;
             Ok(())
         }
@@ -282,14 +296,16 @@ mod test {
 
         pub fn fill_layer<F: FnMut(&Fp, &Fp) -> Fp>(
             &self,
-            config: &MPTChipConfig,
+            config: &MPTTestConfig,
             region: &mut Region<'_, Fp>,
             mut hasher: F,
         ) -> Result<LayerFillTrace, Error> {
 
+            let chip_cfg = &config.chip;
+
             // build all required data
             let mut path_trace = vec![self.leaf];
-            let mut hash_trace = Vec::new();
+            let mut hash_trace = vec![(Fp::zero(), Fp::zero(), self.leaf)];
             let (path_bits, _) = self.decompose_path();
 
             assert_eq!(path_bits.len(), self.siblings.len());
@@ -310,21 +326,26 @@ mod test {
 
             let mut offset = 0;
             //the root row
-            region.assign_advice(||"val", config.val, offset, ||Ok(path_trace[offset]))?;
-            region.assign_advice(||"path", config.path, offset, ||Ok(Fp::zero()))?;
-            region.assign_advice(||"sibling", config.sibling, offset, ||Ok(Fp::zero()))?;
-            region.assign_advice(||"isfirst", config.is_first, offset, ||Ok(Fp::one()))?;
+            region.assign_advice(||"val", chip_cfg.val, offset, ||Ok(path_trace[offset]))?;
+            region.assign_advice(||"path", chip_cfg.path, offset, ||Ok(Fp::zero()))?;
+            region.assign_advice(||"sibling", chip_cfg.sibling, offset, ||Ok(Fp::zero()))?;
+            region.assign_advice(||"isfirst", chip_cfg.is_first, offset, ||Ok(Fp::one()))?;
             offset += 1;
 
             for bit in path_bits {
-                region.assign_advice(||"val", config.val, offset, ||Ok(path_trace[offset]))?;
-                region.assign_advice(||"sibling", config.sibling, offset, ||Ok(self.siblings[offset - 1]))?;
-                region.assign_advice(||"path", config.path, offset, ||Ok(if bit {Fp::one()} else {Fp::zero()}))?;
-                region.assign_advice(||"isfirst", config.is_first, offset, ||Ok(Fp::zero()))?;
+                region.assign_advice(||"val", chip_cfg.val, offset, ||Ok(path_trace[offset]))?;
+                region.assign_advice(||"sibling", chip_cfg.sibling, offset, ||Ok(self.siblings[offset - 1]))?;
+                let path_bit = if bit {Fp::one()} else {Fp::zero()};
+                region.assign_advice(||"path", chip_cfg.path, offset, ||Ok(path_bit))?;
+                region.assign_advice(||"isfirst", chip_cfg.is_first, offset, ||Ok(Fp::zero()))?;
                 offset += 1;
             }
 
-            println!("assigned till {}, {} traces", offset, hash_trace.len());
+            //enable all
+            for row in 0..offset {
+                config.s_row.enable(region, row)?;
+            }
+
             Ok(LayerFillTrace{hashs: hash_trace})
         }
     }
@@ -343,15 +364,16 @@ mod test {
             siblings,
             path,
         };
+        let k = 4; //at least 16 rows
 
         // Generate layout graph
-        /*
+/*    
         use plotters::prelude::*;
         let root = BitMapBackend::new("layout.png", (1024, 768)).into_drawing_area();
         root.fill(&WHITE).unwrap();
-        let root = root
-            .titled("Test Circuit Layout", ("sans-serif", 60))
-            .unwrap();
+        //let root = root
+            //.titled("Test Circuit Layout", ("sans-serif", 60))
+            //.unwrap();
     
         halo2::dev::CircuitLayout::default()
             // You can optionally render only a section of the circuit.
@@ -361,19 +383,11 @@ mod test {
             .show_labels(true)
             // Render the circuit onto your area!
             // The first argument is the size parameter for the circuit.
-            .render(11, &circuit, &root)
+            .render(k, &circuit, &root)
             .unwrap();
-        */
-        /*
-        // Generate the DOT graph string.
-     
-        let dot_string = halo2::dev::circuit_dot_graph(&circuit);
-
-        // Now you can either handle it in Rust, or just
-        // print it out to use with command-line tools.
-        print!("{}", dot_string);
-        */
-        let prover = MockProver::<Fp>::run(11, &circuit, vec![]).unwrap();
+*/        
+        
+        let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
     }
 }
