@@ -362,7 +362,7 @@ mod test {
         let k = 4; //at least 16 rows
 
         // Generate layout graph
-/*    
+        /*
         use plotters::prelude::*;
         let root = BitMapBackend::new("layout.png", (1024, 768)).into_drawing_area();
         root.fill(&WHITE).unwrap();
@@ -380,7 +380,7 @@ mod test {
             // The first argument is the size parameter for the circuit.
             .render(k, &circuit, &root)
             .unwrap();
-*/        
+        */
         
         let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
