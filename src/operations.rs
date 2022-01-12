@@ -1,10 +1,12 @@
 //! The constraint system matrix for operations inside the arity-2 Merkle Patricia Tree, it would:
-//  * constraint hashType transition for both old and new hashtype from the lookup table
-//  * constraint old <-> New hashType from the lookup table
-//  * constraint the rowtype to leafType is IsLeaf is marked
+//  * constraint hashType transition for both old and new hashtype from the lookup table ☑ 
+//  * constraint old <-> New hashType from the lookup table ☑
+//  * assign and constraint IsFirst row according to NewHashType ☑
 //  * constraint the root of each first row must be the new root hash of prevs opeartion by inducing
-//    a auxing "roots" column
-//  * verify the key column by accumulating the path bit and LeafPath bits
+//    a auxing "roots" column ☑
+//  * inducing a depth column for accumulating path ☑
+//  * constraint path as bit except when newhashtype is leaf ☑
+//  * verify the key column by accumulating the path bit and LeafPath bits ☑
 //  * (TODO) verify the sibling and oldhash when "leaf extension" hashtype is encountered
 //
 //  |-----||--------|------------------|------------------|---------|-------|--------|--------|--------|--------|--------|----------------|----------------|
@@ -172,24 +174,72 @@ impl<Fp: FieldExt> MPTOpChip<Fp> {
             let new_hash_type = meta.query_advice(new_hash_type, Rotation::cur());
             let leaf_type = Expression::Constant(Fp::from(HashType::Leaf as u64));
 
+            // is_first.next ∈ {0, 1}
+            // if is_leaf is_first.next = 1
+            // notice we need extra constraint to set the first row is 1
+            // this constraint also enforce the first row of unused region must set is_first to 1
             vec![
                 sel.clone()* (Expression::Constant(Fp::one()) - is_first.clone()) * is_first.clone(),
-                sel* (new_hash_type - leaf_type) * is_first,
+                sel* is_first * (new_hash_type - leaf_type),
             ]
         });
 
-        //notice we need to enforce the row 0's equality
+        meta.create_gate("path bit", |meta|{
+            let sel = meta.query_selector(s_row);
+            let new_hash_type = meta.query_advice(new_hash_type, Rotation::cur());
+            let leaf_type = Expression::Constant(Fp::from(HashType::Leaf as u64));
+            
+            let path = meta.query_advice(path, Rotation::cur());
+            let path_bit = (Expression::Constant(Fp::one()) - path.clone()) * path;
+
+            // if (new_hash_type is not leaf) path ∈ {0, 1}
+            vec![sel * path_bit * (new_hash_type - leaf_type)]
+        });
+
         meta.create_gate("root aux", |meta|{
             let sel = meta.query_selector(s_row);
             let is_first = meta.query_advice(is_first, Rotation::cur());
             let root_aux_cur = meta.query_advice(root_aux, Rotation::cur());
             let root_aux_next = meta.query_advice(root_aux, Rotation::next());
             let hash = meta.query_advice(new_hash, Rotation::next());
+            let old_hash = meta.query_advice(old_hash, Rotation::next());
 
-            vec![sel.clone() * (Expression::Constant(Fp::one()) - is_first.clone()) * (root_aux_cur - root_aux_next.clone()),
-                sel * (root_aux_next - hash) * is_first,
+            // if is_first root_aux == hash
+            // else root_aux == root_aux.next
+            // if is_first old_hash.next == root_aux
+            vec![sel.clone() * (Expression::Constant(Fp::one()) - is_first.clone()) * (root_aux_cur.clone() - root_aux_next.clone()),
+                sel.clone() * is_first.clone() * (root_aux_next - hash),
+                sel * is_first.clone() * (old_hash - root_aux_cur),
             ]
         });
+
+        meta.create_gate("depth aux", |meta|{
+            let sel = meta.query_selector(s_row);
+            let is_first = meta.query_advice(is_first, Rotation::cur());
+            let depth_aux_cur = meta.query_advice(depth_aux, Rotation::cur());
+            let depth_aux_next = meta.query_advice(depth_aux, Rotation::next());
+
+            // if is_first depth == 1
+            // else depth * 2 = depth.next
+            vec![sel.clone() * is_first.clone() * (Expression::Constant(Fp::one()) - depth_aux_cur.clone()),
+                sel * (Expression::Constant(Fp::one()) - is_first) * (depth_aux_cur * Expression::Constant(Fp::from(2u64)) - depth_aux_next),
+            ]
+        });
+
+        meta.create_gate("calc key", |meta|{
+            let sel = meta.query_selector(s_row);
+            let is_first = meta.query_advice(is_first, Rotation::cur());
+            let path_cur = meta.query_advice(path, Rotation::cur()) * meta.query_advice(depth_aux, Rotation::cur());
+            let key_cur = path_cur - meta.query_advice(key, Rotation::cur());
+
+            // if is_first key = path * depth
+            // else key = path * depth + key.prev
+            vec![sel.clone() * is_first.clone() * key_cur.clone(),
+                sel * (Expression::Constant(Fp::one()) - is_first) * (meta.query_advice(key, Rotation::prev()) + key_cur),
+            ]
+        });        
+
+        //TODO: verify sibling
 
         MPTOpChipConfig {
             is_first,
@@ -204,7 +254,117 @@ impl<Fp: FieldExt> MPTOpChip<Fp> {
     pub fn load(
         &self,
         layouter: &mut impl Layouter<Fp>,
+        new_hash_types: &Vec<HashType>,
+        hash: &Vec<Fp>,
     ) -> Result<(), Error> {
+
+        assert_eq!(new_hash_types.len(), hash.len());
+        assert!(hash.len() > 0, "input must not empty");
+
+        layouter.assign_region(
+            ||"aux region",
+            |mut region|{
+
+                let is_first = self.config().is_first;
+                let root_aux = self.config().root_aux;
+                let depth_aux = self.config().depth_aux;
+
+                region.assign_advice_from_constant(
+                    ||"top of is_first",
+                    is_first,
+                    0,
+                    Fp::one(),
+                )?;
+
+                let mut cur_root = Fp::zero();
+                let mut cur_depth = 0u64;
+                let mut is_first_col = true;
+                //assign rest of is_first according to hashtypes
+                for (index, val) in new_hash_types.iter().zip(hash.iter()).enumerate() {
+                    let (hash_type, hash) = val;
+                    region.assign_advice(
+                        ||"is_first",
+                        is_first,
+                        index + 1,
+                        ||Ok(match *hash_type {
+                            HashType::Leaf => Fp::one(), 
+                            _ => Fp::zero(),
+                            })
+                    )?;
+
+                    cur_root = if is_first_col {*hash} else {cur_root};
+                    cur_depth  = if is_first_col {1u64} else {cur_depth * 2};
+
+                    region.assign_advice(
+                        ||"root",
+                        root_aux,
+                        index,
+                        ||Ok(cur_root)
+                    )?;
+
+                    region.assign_advice(
+                        ||"depth",
+                        depth_aux,
+                        index,
+                        ||Ok(Fp::from(cur_depth))
+                    )?;
+                    
+                    is_first_col = match *hash_type {
+                        HashType::Leaf => true, 
+                        _ => false,
+                    };
+                }
+                Ok(())
+            }            
+        )?;
+
+        layouter.assign_table(
+            ||"trans table",
+            |mut table| {
+                let (cur_col, next_col) = self.config().trans_table;
+                for (offset, trans) in self.loaded().trans.iter().enumerate() {
+                    let (cur, next) = trans;
+                    table.assign_cell(
+                        || "cur hash",
+                        cur_col,
+                        offset,
+                        || Ok(Fp::from(*cur as u64))
+                    )?;
+
+                    table.assign_cell(
+                        || "next hash",
+                        next_col,
+                        offset,
+                        || Ok(Fp::from(*next as u64))
+                    )?;
+                }
+                Ok(())
+            }
+        )?;
+
+        layouter.assign_table(
+            ||"op table",
+            |mut table| {
+                let (old_col, new_col) = self.config().type_table;
+                for (offset, op) in self.loaded().op.iter().enumerate() {
+                    let (old, new) = op;
+                    table.assign_cell(
+                        || "old hash",
+                        old_col,
+                        offset,
+                        || Ok(Fp::from(*old as u64))
+                    )?;
+
+                    table.assign_cell(
+                        || "new hash",
+                        new_col,
+                        offset,
+                        || Ok(Fp::from(*new as u64))
+                    )?;
+                }
+                Ok(())
+            }
+        )?;
 
         Ok(())
     }
@@ -218,3 +378,92 @@ impl<Fp: FieldExt> MPTOpChip<Fp> {
 }
 
 
+
+#[cfg(test)]
+mod test {
+    #![allow(unused_imports)]
+
+    use super::*;
+    use halo2::{
+        circuit::{Region, Cell, SimpleFloorPlanner},
+        dev::{MockProver, VerifyFailure},
+        pairing::bn256::Fr as Fp, // why halo2-merkle tree use base field?
+        plonk::{Selector, Circuit, Expression},
+    };
+    use ff::Field;
+    use rand_chacha::ChaCha8Rng;
+    use rand::{random, SeedableRng};
+    
+    
+    #[derive(Clone, Debug)]
+    struct MPTTestConfig {
+        s_row: Selector,
+        sibling: Column<Advice>,
+        path: Column<Advice>,
+        key: Column<Advice>,
+        old_hash_type: Column<Advice>,
+        new_hash_type: Column<Advice>,
+        old_hash: Column<Advice>,
+        new_hash: Column<Advice>,        
+        chip: MPTOpChipConfig,
+    }
+
+    #[derive(Clone, Default)]
+    struct MPTTestSingleOpCircuit {
+        pub old_hash_type: Vec<HashType>,
+        pub new_hash_type: Vec<HashType>,
+        pub path: Vec<Fp>,
+        pub old_hash: Vec<Fp>,
+        pub new_hash: Vec<Fp>,
+        pub siblings: Vec<Fp>, //siblings from top to bottom
+    }
+
+    impl Circuit<Fp> for MPTTestSingleOpCircuit {
+        type Config = MPTTestConfig;
+        type FloorPlanner = SimpleFloorPlanner;
+        
+        fn without_witnesses(&self) -> Self {
+            Self::default()
+        }
+
+        fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
+
+            let s_row = meta.selector();
+            let sibling = meta.advice_column();
+            let path = meta.advice_column();
+            let key = meta.advice_column();
+            let old_hash_type = meta.advice_column();
+            let new_hash_type = meta.advice_column();
+            let old_hash = meta.advice_column();
+            let new_hash = meta.advice_column();
+
+            MPTTestConfig {
+                s_row,
+                sibling,
+                path,
+                key,
+                old_hash_type,
+                new_hash_type,
+                old_hash,
+                new_hash,
+                chip: MPTOpChip::configure(meta, s_row, sibling, path, key, old_hash_type, new_hash_type, old_hash, new_hash),
+            }
+        }
+
+        fn synthesize(&self, config: Self::Config, mut layouter: impl Layouter<Fp>) -> Result<(), Error> {
+            layouter.assign_region(||"main", |mut region|
+               Ok(()) 
+            )?;
+
+            let op_chip = MPTOpChip::<Fp>::construct(config.chip);
+            op_chip.load(&mut layouter, &self.new_hash_type, &self.new_hash)?;
+            Ok(())
+        }
+
+    }    
+
+
+    #[test]
+    fn test_single_path(){
+    }
+}
