@@ -384,15 +384,12 @@ mod test {
     #![allow(unused_imports)]
 
     use super::*;
+    use crate::test_utils::*;
     use halo2::{
         circuit::{Region, Cell, SimpleFloorPlanner},
         dev::{MockProver, VerifyFailure},
-        pairing::bn256::Fr as Fp, // why halo2-merkle tree use base field?
         plonk::{Selector, Circuit, Expression},
     };
-    use ff::Field;
-    use rand_chacha::ChaCha8Rng;
-    use rand::{random, SeedableRng};
     
     
     #[derive(Clone, Debug)]
@@ -416,6 +413,7 @@ mod test {
         pub old_hash: Vec<Fp>,
         pub new_hash: Vec<Fp>,
         pub siblings: Vec<Fp>, //siblings from top to bottom
+        pub key: Fp,
     }
 
     impl Circuit<Fp> for MPTTestSingleOpCircuit {
@@ -437,6 +435,12 @@ mod test {
             let old_hash = meta.advice_column();
             let new_hash = meta.advice_column();
 
+            let debug_depth = meta.fixed_column();
+            let debug_root = meta.fixed_column();
+
+            let constant = meta.fixed_column();
+            meta.enable_constant(constant);
+
             MPTTestConfig {
                 s_row,
                 sibling,
@@ -452,7 +456,7 @@ mod test {
 
         fn synthesize(&self, config: Self::Config, mut layouter: impl Layouter<Fp>) -> Result<(), Error> {
             layouter.assign_region(||"main", |mut region|
-               Ok(()) 
+                self.fill_layer(&config, &mut region)
             )?;
 
             let op_chip = MPTOpChip::<Fp>::construct(config.chip);
@@ -462,8 +466,74 @@ mod test {
 
     }    
 
+    impl MPTTestSingleOpCircuit {
+        pub fn fill_layer(
+            &self,
+            config: &MPTTestConfig,
+            region: &mut Region<'_, Fp>,
+        ) -> Result<(), Error> {
+
+            for offset in 0..self.path.len() {
+
+                config.s_row.enable(region, offset)?;
+
+                region.assign_advice(||"path", config.path, offset, ||Ok(self.path[offset]))?;
+                region.assign_advice(||"sibling", config.sibling, offset, ||Ok(self.siblings[offset]))?;
+                region.assign_advice(||"hash_old", config.old_hash, offset, ||Ok(self.old_hash[offset]))?;
+                region.assign_advice(||"hash_new", config.new_hash, offset, ||Ok(self.new_hash[offset]))?;
+                region.assign_advice(||"hash_type_old", config.old_hash_type, offset, ||Ok(Fp::from(self.old_hash_type[offset] as u64)))?;
+                region.assign_advice(||"hash_type_new", config.new_hash_type, offset, ||Ok(Fp::from(self.new_hash_type[offset] as u64)))?;
+                
+            }
+
+            Ok(())
+        }
+    }
 
     #[test]
-    fn test_single_path(){
+    fn test_single_op(){
+        let mut siblings = Vec::new();
+        let mut old_hash = Vec::new();
+        let mut new_hash = Vec::new();
+        for _ in 0..4 {
+            siblings.push(rand_fp());
+            old_hash.push(rand_fp());
+            new_hash.push(rand_fp());
+        }
+
+        let circuit = MPTTestSingleOpCircuit {
+            siblings,
+            old_hash,
+            new_hash,
+            path: vec![Fp::zero(), Fp::zero(), Fp::one(), Fp::from(5u64)], //101100
+            key: Fp::from(0b101100u64),
+            old_hash_type: vec![HashType::Middle, HashType::LeafExt, HashType::LeafExtFinal, HashType::Empty],
+            new_hash_type: vec![HashType::Middle, HashType::Middle, HashType::Middle, HashType::Leaf],
+        };
+        let k = 4;
+
+        // Generate layout graph
+        /*
+        use plotters::prelude::*;
+        let root = BitMapBackend::new("layout.png", (1024, 768)).into_drawing_area();
+        root.fill(&WHITE).unwrap();
+        //let root = root
+            //.titled("Test Circuit Layout", ("sans-serif", 60))
+            //.unwrap();
+    
+        halo2::dev::CircuitLayout::default()
+            // You can optionally render only a section of the circuit.
+            //.view_width(0..2)
+            //.view_height(0..16)
+            // You can hide labels, which can be useful with smaller areas.
+            .show_labels(true)
+            // Render the circuit onto your area!
+            // The first argument is the size parameter for the circuit.
+            .render(k, &circuit, &root)
+            .unwrap();
+        */
+
+        let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
+        assert_eq!(prover.verify(), Ok(()));        
     }
 }

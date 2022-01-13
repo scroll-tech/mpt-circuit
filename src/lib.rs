@@ -19,5 +19,7 @@ pub enum HashType {
     Leaf,
 }
 
+#[cfg(test)]
+mod test_utils;
 pub mod operations;
 pub mod mpt;

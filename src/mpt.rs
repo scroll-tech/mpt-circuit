@@ -172,40 +172,13 @@ mod test {
     #![allow(unused_imports)]
 
     use super::*;
+    use crate::test_utils::*;
     use halo2::{
         circuit::{Region, Cell, SimpleFloorPlanner},
         dev::{MockProver, VerifyFailure},
-        pairing::bn256::Fr as Fp, // why halo2-merkle tree use base field?
         plonk::{Selector, Circuit, Expression},
     };
-    use ff::Field;
-    use lazy_static::lazy_static;
-    use rand_chacha::ChaCha8Rng;
-    use rand::{random, SeedableRng};
-
-    lazy_static! {
-        static ref GAMMA: Fp = Fp::random(ChaCha8Rng::from_seed([101u8; 32]));
-    }
-
-    fn mock_hash(a: &Fp, b: &Fp) -> Fp {
-        (a + *GAMMA) * (b + *GAMMA)
-    }
-
-    fn rand_bytes(n: usize) -> Vec<u8> {
-        vec![random(); n]
-    }
-
-    fn rand_bytes_array<const N: usize>() -> [u8; N] {
-        [(); N].map(|_| random())
-    }
-
-    fn rand_fp() -> Fp {
-        let mut arr = rand_bytes_array::<32>();
-        //avoiding failure in unwrap
-        arr[31] &= 31;
-        Fp::from_bytes(&arr).unwrap()
-    }
-
+    
     const MAX_PATH_DEPTH: usize = 16;
     const MAX_KEY: usize = (2 as usize).pow(MAX_PATH_DEPTH as u32);
 
