@@ -10,6 +10,11 @@ ff = "0.11"
 halo2 = { git = "https://github.com/appliedzkp/halo2.git", rev = "b78c39cacc1c79d287032f1b5f94beb661b3fb42", features = ["dev-graph"] }
 rand = "0.8"
 lazy_static = "1.4.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+num-bigint = "0.4"
+hex = "0.4"
+thiserror = "1.0"
 
 [dev-dependencies]
 poseidon-rs = "0.0.8"
