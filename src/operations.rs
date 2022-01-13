@@ -1,5 +1,5 @@
 //! The constraint system matrix for operations inside the arity-2 Merkle Patricia Tree, it would:
-//  * constraint hashType transition for both old and new hashtype from the lookup table ☑ 
+//  * constraint hashType transition for both old and new hashtype from the lookup table ☑
 //  * constraint old <-> New hashType from the lookup table ☑
 //  * assign and constraint IsFirst row according to NewHashType ☑
 //  * constraint the root of each first row must be the new root hash of prevs opeartion by inducing
@@ -23,23 +23,22 @@
 //  * indicate a "controlled" column (being queried and assigned inside chip)
 //  ** indicate a "private" column (a controlled column which is only used in the chip)
 
-
 #![allow(unused_imports)]
 
+use crate::serde::HashType;
 use ff::Field;
 use halo2::{
+    arithmetic::FieldExt,
     circuit::{Cell, Chip, Layouter},
     dev::{MockProver, VerifyFailure},
     plonk::{
-        Advice, TableColumn, Assignment, Circuit, Column, ConstraintSystem, Error, Expression, Instance,
-        Selector,
+        Advice, Assignment, Circuit, Column, ConstraintSystem, Error, Expression, Instance,
+        Selector, TableColumn,
     },
     poly::Rotation,
-    arithmetic::FieldExt,
 };
 use lazy_static::lazy_static;
 use std::marker::PhantomData;
-use super::HashType;
 
 pub(crate) struct MPTOpChip<F> {
     config: MPTOpChipConfig,
@@ -88,7 +87,6 @@ lazy_static! {
 }
 
 impl<Fp: FieldExt> Chip<Fp> for MPTOpChip<Fp> {
-
     type Config = MPTOpChipConfig;
     type Loaded = Mappings;
 
@@ -102,7 +100,6 @@ impl<Fp: FieldExt> Chip<Fp> for MPTOpChip<Fp> {
 }
 
 impl<Fp: FieldExt> MPTOpChip<Fp> {
-
     ///
     ///  OpChip suppose:
     ///  + the range of col in arguments has been constrainted (like is_leaf is {0, 1})
@@ -116,59 +113,45 @@ impl<Fp: FieldExt> MPTOpChip<Fp> {
         old_hash_type: Column<Advice>,
         new_hash_type: Column<Advice>,
         old_hash: Column<Advice>,
-        new_hash: Column<Advice>,       
+        new_hash: Column<Advice>,
     ) -> <Self as Chip<Fp>>::Config {
-
         let is_first = meta.advice_column();
         let root_aux = meta.advice_column();
         let depth_aux = meta.advice_column();
-        let type_table = (
-            meta.lookup_table_column(),
-            meta.lookup_table_column(),
-        );
-        let trans_table = (
-            meta.lookup_table_column(),
-            meta.lookup_table_column(),
-        );
+        let type_table = (meta.lookup_table_column(), meta.lookup_table_column());
+        let trans_table = (meta.lookup_table_column(), meta.lookup_table_column());
 
         //transition - old
-        meta.lookup(|meta|{
-            let border = Expression::Constant(Fp::one()) - meta.query_advice(is_first, Rotation::cur()); 
+        meta.lookup(|meta| {
+            let border =
+                Expression::Constant(Fp::one()) - meta.query_advice(is_first, Rotation::cur());
             let hash = border.clone() * meta.query_advice(old_hash_type, Rotation::cur());
             let prev_hash = border * meta.query_advice(old_hash_type, Rotation::prev());
 
-            vec![
-                (prev_hash, trans_table.0),
-                (hash, trans_table.1),
-            ]
+            vec![(prev_hash, trans_table.0), (hash, trans_table.1)]
         });
-        
+
         //transition - new
-        meta.lookup(|meta|{
-            let border = Expression::Constant(Fp::one()) - meta.query_advice(is_first, Rotation::cur());
+        meta.lookup(|meta| {
+            let border =
+                Expression::Constant(Fp::one()) - meta.query_advice(is_first, Rotation::cur());
             let hash = border.clone() * meta.query_advice(new_hash_type, Rotation::cur());
             let prev_hash = border * meta.query_advice(new_hash_type, Rotation::prev());
 
-            vec![
-                (prev_hash, trans_table.0),
-                (hash, trans_table.1),
-            ]
+            vec![(prev_hash, trans_table.0), (hash, trans_table.1)]
         });
 
-        //old - new 
-        meta.lookup(|meta|{
+        //old - new
+        meta.lookup(|meta| {
             let old_hash = meta.query_advice(old_hash_type, Rotation::cur());
             let new_hash = meta.query_advice(new_hash_type, Rotation::cur());
 
-            vec![
-                (old_hash, type_table.0),
-                (new_hash, type_table.1),
-            ]
+            vec![(old_hash, type_table.0), (new_hash, type_table.1)]
         });
 
         //notice we need to enforce the row 0's equality to constraint it as 1
         meta.enable_equality(is_first.into());
-        meta.create_gate("is first", |meta|{
+        meta.create_gate("is first", |meta| {
             let sel = meta.query_selector(s_row);
             let is_first = meta.query_advice(is_first, Rotation::next());
             let new_hash_type = meta.query_advice(new_hash_type, Rotation::cur());
@@ -179,16 +162,18 @@ impl<Fp: FieldExt> MPTOpChip<Fp> {
             // notice we need extra constraint to set the first row is 1
             // this constraint also enforce the first row of unused region must set is_first to 1
             vec![
-                sel.clone()* (Expression::Constant(Fp::one()) - is_first.clone()) * is_first.clone(),
-                sel* is_first * (new_hash_type - leaf_type),
+                sel.clone()
+                    * (Expression::Constant(Fp::one()) - is_first.clone())
+                    * is_first.clone(),
+                sel * is_first * (new_hash_type - leaf_type),
             ]
         });
 
-        meta.create_gate("path bit", |meta|{
+        meta.create_gate("path bit", |meta| {
             let sel = meta.query_selector(s_row);
             let new_hash_type = meta.query_advice(new_hash_type, Rotation::cur());
             let leaf_type = Expression::Constant(Fp::from(HashType::Leaf as u64));
-            
+
             let path = meta.query_advice(path, Rotation::cur());
             let path_bit = (Expression::Constant(Fp::one()) - path.clone()) * path;
 
@@ -196,7 +181,7 @@ impl<Fp: FieldExt> MPTOpChip<Fp> {
             vec![sel * path_bit * (new_hash_type - leaf_type)]
         });
 
-        meta.create_gate("root aux", |meta|{
+        meta.create_gate("root aux", |meta| {
             let sel = meta.query_selector(s_row);
             let is_first = meta.query_advice(is_first, Rotation::cur());
             let root_aux_cur = meta.query_advice(root_aux, Rotation::cur());
@@ -207,13 +192,16 @@ impl<Fp: FieldExt> MPTOpChip<Fp> {
             // if is_first root_aux == hash
             // else root_aux == root_aux.next
             // if is_first old_hash.next == root_aux
-            vec![sel.clone() * (Expression::Constant(Fp::one()) - is_first.clone()) * (root_aux_cur.clone() - root_aux_next.clone()),
+            vec![
+                sel.clone()
+                    * (Expression::Constant(Fp::one()) - is_first.clone())
+                    * (root_aux_cur.clone() - root_aux_next.clone()),
                 sel.clone() * is_first.clone() * (root_aux_next - hash),
                 sel * is_first.clone() * (old_hash - root_aux_cur),
             ]
         });
 
-        meta.create_gate("depth aux", |meta|{
+        meta.create_gate("depth aux", |meta| {
             let sel = meta.query_selector(s_row);
             let is_first = meta.query_advice(is_first, Rotation::cur());
             let depth_aux_cur = meta.query_advice(depth_aux, Rotation::cur());
@@ -221,23 +209,30 @@ impl<Fp: FieldExt> MPTOpChip<Fp> {
 
             // if is_first depth == 1
             // else depth * 2 = depth.next
-            vec![sel.clone() * is_first.clone() * (Expression::Constant(Fp::one()) - depth_aux_cur.clone()),
-                sel * (Expression::Constant(Fp::one()) - is_first) * (depth_aux_cur * Expression::Constant(Fp::from(2u64)) - depth_aux_next),
+            vec![
+                sel.clone()
+                    * is_first.clone()
+                    * (Expression::Constant(Fp::one()) - depth_aux_cur.clone()),
+                sel * (Expression::Constant(Fp::one()) - is_first)
+                    * (depth_aux_cur * Expression::Constant(Fp::from(2u64)) - depth_aux_next),
             ]
         });
 
-        meta.create_gate("calc key", |meta|{
+        meta.create_gate("calc key", |meta| {
             let sel = meta.query_selector(s_row);
             let is_first = meta.query_advice(is_first, Rotation::cur());
-            let path_cur = meta.query_advice(path, Rotation::cur()) * meta.query_advice(depth_aux, Rotation::cur());
+            let path_cur = meta.query_advice(path, Rotation::cur())
+                * meta.query_advice(depth_aux, Rotation::cur());
             let key_cur = path_cur - meta.query_advice(key, Rotation::cur());
 
             // if is_first key = path * depth
             // else key = path * depth + key.prev
-            vec![sel.clone() * is_first.clone() * key_cur.clone(),
-                sel * (Expression::Constant(Fp::one()) - is_first) * (meta.query_advice(key, Rotation::prev()) + key_cur),
+            vec![
+                sel.clone() * is_first.clone() * key_cur.clone(),
+                sel * (Expression::Constant(Fp::one()) - is_first)
+                    * (meta.query_advice(key, Rotation::prev()) + key_cur),
             ]
-        });        
+        });
 
         //TODO: verify sibling
 
@@ -246,7 +241,7 @@ impl<Fp: FieldExt> MPTOpChip<Fp> {
             root_aux,
             depth_aux,
             type_table,
-            trans_table,          
+            trans_table,
         }
     }
 
@@ -257,24 +252,17 @@ impl<Fp: FieldExt> MPTOpChip<Fp> {
         new_hash_types: &Vec<HashType>,
         hash: &Vec<Fp>,
     ) -> Result<(), Error> {
-
         assert_eq!(new_hash_types.len(), hash.len());
         assert!(hash.len() > 0, "input must not empty");
 
         layouter.assign_region(
-            ||"aux region",
-            |mut region|{
-
+            || "aux region",
+            |mut region| {
                 let is_first = self.config().is_first;
                 let root_aux = self.config().root_aux;
                 let depth_aux = self.config().depth_aux;
 
-                region.assign_advice_from_constant(
-                    ||"top of is_first",
-                    is_first,
-                    0,
-                    Fp::one(),
-                )?;
+                region.assign_advice_from_constant(|| "top of is_first", is_first, 0, Fp::one())?;
 
                 let mut cur_root = Fp::zero();
                 let mut cur_depth = 0u64;
@@ -283,43 +271,40 @@ impl<Fp: FieldExt> MPTOpChip<Fp> {
                 for (index, val) in new_hash_types.iter().zip(hash.iter()).enumerate() {
                     let (hash_type, hash) = val;
                     region.assign_advice(
-                        ||"is_first",
+                        || "is_first",
                         is_first,
                         index + 1,
-                        ||Ok(match *hash_type {
-                            HashType::Leaf => Fp::one(), 
-                            _ => Fp::zero(),
+                        || {
+                            Ok(match *hash_type {
+                                HashType::Leaf => Fp::one(),
+                                _ => Fp::zero(),
                             })
+                        },
                     )?;
 
-                    cur_root = if is_first_col {*hash} else {cur_root};
-                    cur_depth  = if is_first_col {1u64} else {cur_depth * 2};
+                    cur_root = if is_first_col { *hash } else { cur_root };
+                    cur_depth = if is_first_col { 1u64 } else { cur_depth * 2 };
+
+                    region.assign_advice(|| "root", root_aux, index, || Ok(cur_root))?;
 
                     region.assign_advice(
-                        ||"root",
-                        root_aux,
-                        index,
-                        ||Ok(cur_root)
-                    )?;
-
-                    region.assign_advice(
-                        ||"depth",
+                        || "depth",
                         depth_aux,
                         index,
-                        ||Ok(Fp::from(cur_depth))
+                        || Ok(Fp::from(cur_depth)),
                     )?;
-                    
+
                     is_first_col = match *hash_type {
-                        HashType::Leaf => true, 
+                        HashType::Leaf => true,
                         _ => false,
                     };
                 }
                 Ok(())
-            }            
+            },
         )?;
 
         layouter.assign_table(
-            ||"trans table",
+            || "trans table",
             |mut table| {
                 let (cur_col, next_col) = self.config().trans_table;
                 for (offset, trans) in self.loaded().trans.iter().enumerate() {
@@ -328,22 +313,22 @@ impl<Fp: FieldExt> MPTOpChip<Fp> {
                         || "cur hash",
                         cur_col,
                         offset,
-                        || Ok(Fp::from(*cur as u64))
+                        || Ok(Fp::from(*cur as u64)),
                     )?;
 
                     table.assign_cell(
                         || "next hash",
                         next_col,
                         offset,
-                        || Ok(Fp::from(*next as u64))
+                        || Ok(Fp::from(*next as u64)),
                     )?;
                 }
                 Ok(())
-            }
+            },
         )?;
 
         layouter.assign_table(
-            ||"op table",
+            || "op table",
             |mut table| {
                 let (old_col, new_col) = self.config().type_table;
                 for (offset, op) in self.loaded().op.iter().enumerate() {
@@ -352,32 +337,30 @@ impl<Fp: FieldExt> MPTOpChip<Fp> {
                         || "old hash",
                         old_col,
                         offset,
-                        || Ok(Fp::from(*old as u64))
+                        || Ok(Fp::from(*old as u64)),
                     )?;
 
                     table.assign_cell(
                         || "new hash",
                         new_col,
                         offset,
-                        || Ok(Fp::from(*new as u64))
+                        || Ok(Fp::from(*new as u64)),
                     )?;
                 }
                 Ok(())
-            }
+            },
         )?;
 
         Ok(())
     }
 
     pub fn construct(config: MPTOpChipConfig) -> Self {
-        Self { 
+        Self {
             config,
             _marker: PhantomData,
         }
     }
 }
-
-
 
 #[cfg(test)]
 mod test {
@@ -386,12 +369,11 @@ mod test {
     use super::*;
     use crate::test_utils::*;
     use halo2::{
-        circuit::{Region, Cell, SimpleFloorPlanner},
+        circuit::{Cell, Region, SimpleFloorPlanner},
         dev::{MockProver, VerifyFailure},
-        plonk::{Selector, Circuit, Expression},
+        plonk::{Circuit, Expression, Selector},
     };
-    
-    
+
     #[derive(Clone, Debug)]
     struct MPTTestConfig {
         s_row: Selector,
@@ -401,7 +383,7 @@ mod test {
         old_hash_type: Column<Advice>,
         new_hash_type: Column<Advice>,
         old_hash: Column<Advice>,
-        new_hash: Column<Advice>,        
+        new_hash: Column<Advice>,
         chip: MPTOpChipConfig,
     }
 
@@ -419,13 +401,12 @@ mod test {
     impl Circuit<Fp> for MPTTestSingleOpCircuit {
         type Config = MPTTestConfig;
         type FloorPlanner = SimpleFloorPlanner;
-        
+
         fn without_witnesses(&self) -> Self {
             Self::default()
         }
 
         fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
-
             let s_row = meta.selector();
             let sibling = meta.advice_column();
             let path = meta.advice_column();
@@ -450,21 +431,35 @@ mod test {
                 new_hash_type,
                 old_hash,
                 new_hash,
-                chip: MPTOpChip::configure(meta, s_row, sibling, path, key, old_hash_type, new_hash_type, old_hash, new_hash),
+                chip: MPTOpChip::configure(
+                    meta,
+                    s_row,
+                    sibling,
+                    path,
+                    key,
+                    old_hash_type,
+                    new_hash_type,
+                    old_hash,
+                    new_hash,
+                ),
             }
         }
 
-        fn synthesize(&self, config: Self::Config, mut layouter: impl Layouter<Fp>) -> Result<(), Error> {
-            layouter.assign_region(||"main", |mut region|
-                self.fill_layer(&config, &mut region)
+        fn synthesize(
+            &self,
+            config: Self::Config,
+            mut layouter: impl Layouter<Fp>,
+        ) -> Result<(), Error> {
+            layouter.assign_region(
+                || "main",
+                |mut region| self.fill_layer(&config, &mut region),
             )?;
 
             let op_chip = MPTOpChip::<Fp>::construct(config.chip);
             op_chip.load(&mut layouter, &self.new_hash_type, &self.new_hash)?;
             Ok(())
         }
-
-    }    
+    }
 
     impl MPTTestSingleOpCircuit {
         pub fn fill_layer(
@@ -472,18 +467,40 @@ mod test {
             config: &MPTTestConfig,
             region: &mut Region<'_, Fp>,
         ) -> Result<(), Error> {
-
             for offset in 0..self.path.len() {
-
                 config.s_row.enable(region, offset)?;
 
-                region.assign_advice(||"path", config.path, offset, ||Ok(self.path[offset]))?;
-                region.assign_advice(||"sibling", config.sibling, offset, ||Ok(self.siblings[offset]))?;
-                region.assign_advice(||"hash_old", config.old_hash, offset, ||Ok(self.old_hash[offset]))?;
-                region.assign_advice(||"hash_new", config.new_hash, offset, ||Ok(self.new_hash[offset]))?;
-                region.assign_advice(||"hash_type_old", config.old_hash_type, offset, ||Ok(Fp::from(self.old_hash_type[offset] as u64)))?;
-                region.assign_advice(||"hash_type_new", config.new_hash_type, offset, ||Ok(Fp::from(self.new_hash_type[offset] as u64)))?;
-                
+                region.assign_advice(|| "path", config.path, offset, || Ok(self.path[offset]))?;
+                region.assign_advice(
+                    || "sibling",
+                    config.sibling,
+                    offset,
+                    || Ok(self.siblings[offset]),
+                )?;
+                region.assign_advice(
+                    || "hash_old",
+                    config.old_hash,
+                    offset,
+                    || Ok(self.old_hash[offset]),
+                )?;
+                region.assign_advice(
+                    || "hash_new",
+                    config.new_hash,
+                    offset,
+                    || Ok(self.new_hash[offset]),
+                )?;
+                region.assign_advice(
+                    || "hash_type_old",
+                    config.old_hash_type,
+                    offset,
+                    || Ok(Fp::from(self.old_hash_type[offset] as u64)),
+                )?;
+                region.assign_advice(
+                    || "hash_type_new",
+                    config.new_hash_type,
+                    offset,
+                    || Ok(Fp::from(self.new_hash_type[offset] as u64)),
+                )?;
             }
 
             Ok(())
@@ -491,7 +508,7 @@ mod test {
     }
 
     #[test]
-    fn test_single_op(){
+    fn test_single_op() {
         let mut siblings = Vec::new();
         let mut old_hash = Vec::new();
         let mut new_hash = Vec::new();
@@ -507,8 +524,18 @@ mod test {
             new_hash,
             path: vec![Fp::zero(), Fp::zero(), Fp::one(), Fp::from(5u64)], //101100
             key: Fp::from(0b101100u64),
-            old_hash_type: vec![HashType::Middle, HashType::LeafExt, HashType::LeafExtFinal, HashType::Empty],
-            new_hash_type: vec![HashType::Middle, HashType::Middle, HashType::Middle, HashType::Leaf],
+            old_hash_type: vec![
+                HashType::Middle,
+                HashType::LeafExt,
+                HashType::LeafExtFinal,
+                HashType::Empty,
+            ],
+            new_hash_type: vec![
+                HashType::Middle,
+                HashType::Middle,
+                HashType::Middle,
+                HashType::Leaf,
+            ],
         };
         let k = 4;
 
@@ -520,7 +547,7 @@ mod test {
         //let root = root
             //.titled("Test Circuit Layout", ("sans-serif", 60))
             //.unwrap();
-    
+
         halo2::dev::CircuitLayout::default()
             // You can optionally render only a section of the circuit.
             //.view_width(0..2)
@@ -534,6 +561,6 @@ mod test {
         */
 
         let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
-        assert_eq!(prover.verify(), Ok(()));        
+        assert_eq!(prover.verify(), Ok(()));
     }
 }

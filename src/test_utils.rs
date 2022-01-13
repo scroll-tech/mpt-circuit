@@ -1,8 +1,8 @@
-use rand::{random, SeedableRng};
-use lazy_static::lazy_static;
-use rand_chacha::ChaCha8Rng;
 use ff::Field;
-pub use halo2::{arithmetic::FieldExt, pairing::bn256::Fr as Fp}; // why halo2-merkle tree use base field?
+pub use halo2::{arithmetic::FieldExt, pairing::bn256::Fr as Fp};
+use lazy_static::lazy_static;
+use rand::{random, SeedableRng};
+use rand_chacha::ChaCha8Rng; // why halo2-merkle tree use base field?
 
 lazy_static! {
     static ref GAMMA: Fp = Fp::random(ChaCha8Rng::from_seed([101u8; 32]));
@@ -26,4 +26,3 @@ pub fn rand_fp() -> Fp {
     arr[31] &= 31;
     Fp::from_bytes(&arr).unwrap()
 }
-

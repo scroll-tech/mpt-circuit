@@ -1,5 +1,5 @@
 //! The constraint system matrix for an arity-2 Merkle Patricia Tree using lookup-table for hashing
-//  The lookup table is formed by <left, right, hash> and the input can be 
+//  The lookup table is formed by <left, right, hash> and the input can be
 //  <val_col@Rotation::(1), sibling_col, val_col]>
 //  s_path act as selector for lookup arguments
 
@@ -13,14 +13,11 @@
 //  |  4  ||   1    |       root2      |                  |         |                |                |        |
 //  |-----||--------|------------------|------------------|---------|----------------|----------------|--------|
 
-
 use halo2::{
-    circuit::{Chip, Layouter},
-    plonk::{
-        Advice, Column, TableColumn, ConstraintSystem, Error,
-    },
-    poly::Rotation,
     arithmetic::FieldExt,
+    circuit::{Chip, Layouter},
+    plonk::{Advice, Column, ConstraintSystem, Error, TableColumn},
+    poly::Rotation,
 };
 use std::marker::PhantomData;
 
@@ -30,7 +27,7 @@ use std::marker::PhantomData;
 
 struct MPTChip<F> {
     config: MPTChipConfig,
-    _marker: PhantomData<F>
+    _marker: PhantomData<F>,
 }
 
 /// Config a chip for verify mutiple merkle path in MPT
@@ -55,13 +52,12 @@ impl<Fp: FieldExt> Chip<Fp> for MPTChip<Fp> {
 }
 
 impl<Fp: FieldExt> MPTChip<Fp> {
-
     fn configure(
         meta: &mut ConstraintSystem<Fp>,
         s_path: Column<Advice>,
         val: Column<Advice>,
         sibling: Column<Advice>,
-        path: Column<Advice>,        
+        path: Column<Advice>,
     ) -> <Self as Chip<Fp>>::Config {
         let left = meta.lookup_table_column();
         let right = meta.lookup_table_column();
@@ -90,30 +86,31 @@ impl<Fp: FieldExt> MPTChip<Fp> {
         // )
         //
         // from table formed by (left, right, hash)
-        meta.lookup(|meta|{
+        meta.lookup(|meta| {
             let s_path = meta.query_advice(s_path, Rotation::cur());
 
             let path_bit = meta.query_advice(path, Rotation::cur());
             let val_col = meta.query_advice(val, Rotation::next());
             let sibling_col = meta.query_advice(sibling, Rotation::cur());
-            let right_lookup = s_path.clone() * (path_bit.clone() * (val_col.clone() - sibling_col.clone()) + sibling_col.clone());
-            let left_lookup = s_path.clone() * (path_bit * (sibling_col - val_col.clone()) + val_col);
+            let right_lookup = s_path.clone()
+                * (path_bit.clone() * (val_col.clone() - sibling_col.clone())
+                    + sibling_col.clone());
+            let left_lookup =
+                s_path.clone() * (path_bit * (sibling_col - val_col.clone()) + val_col);
             let hash_lookup = s_path * meta.query_advice(val, Rotation::cur());
 
-            vec![(left_lookup, left), 
-            (right_lookup, right), 
-            (hash_lookup, hash)]
+            vec![
+                (left_lookup, left),
+                (right_lookup, right),
+                (hash_lookup, hash),
+            ]
         });
 
-        MPTChipConfig {
-            left,
-            right,
-            hash,
-        }
+        MPTChipConfig { left, right, hash }
     }
 
     pub fn construct(config: MPTChipConfig) -> Self {
-        MPTChip { 
+        MPTChip {
             config,
             _marker: PhantomData,
         }
@@ -124,43 +121,29 @@ impl<Fp: FieldExt> MPTChip<Fp> {
         layouter: &mut impl Layouter<Fp>,
         mut hashing_records: Vec<(Fp, Fp, Fp)>,
     ) -> Result<(), Error> {
-
         let left = self.config().left;
         let right = self.config().right;
         let hash = self.config().hash;
         hashing_records.push((Fp::zero(), Fp::zero(), Fp::zero()));
 
         layouter.assign_table(
-            ||"hash table",
-            |mut table|{
+            || "hash table",
+            |mut table| {
+                hashing_records
+                    .iter()
+                    .enumerate()
+                    .try_for_each(|(offset, val)| {
+                        let (lh, rh, h) = val;
 
-                hashing_records.iter().enumerate().try_for_each(|(offset, val)|{
-                    let (lh, rh, h) = val;
+                        table.assign_cell(|| "left", left, offset, || Ok(*lh))?;
 
-                    table.assign_cell(
-                        || "left",
-                        left,
-                        offset,
-                        || Ok(*lh)
-                    )?;
+                        table.assign_cell(|| "right", right, offset, || Ok(*rh))?;
 
-                    table.assign_cell(
-                        || "right",
-                        right,
-                        offset,
-                        || Ok(*rh)
-                    )?;
+                        table.assign_cell(|| "result", hash, offset, || Ok(*h))?;
 
-                    table.assign_cell(
-                        || "result",
-                        hash,
-                        offset,
-                        || Ok(*h)
-                    )?;                    
-
-                    Ok(())
-                })
-            }
+                        Ok(())
+                    })
+            },
         )?;
 
         Ok(())
@@ -174,11 +157,11 @@ mod test {
     use super::*;
     use crate::test_utils::*;
     use halo2::{
-        circuit::{Region, Cell, SimpleFloorPlanner},
+        circuit::{Cell, Region, SimpleFloorPlanner},
         dev::{MockProver, VerifyFailure},
-        plonk::{Selector, Circuit, Expression},
+        plonk::{Circuit, Expression, Selector},
     };
-    
+
     const MAX_PATH_DEPTH: usize = 16;
     const MAX_KEY: usize = (2 as usize).pow(MAX_PATH_DEPTH as u32);
 
@@ -188,28 +171,26 @@ mod test {
         s_path: Column<Advice>,
         val: Column<Advice>,
         sibling: Column<Advice>,
-        path: Column<Advice>,        
+        path: Column<Advice>,
         chip: MPTChipConfig,
     }
 
     #[derive(Clone, Default)]
     struct MPTTestSinglePathCircuit {
-        pub leaf: Fp, //the hash of leaf
+        pub leaf: Fp,          //the hash of leaf
         pub siblings: Vec<Fp>, //siblings from top to bottom
-        pub path: u32, //the path key simply expressed by u32
+        pub path: u32,         //the path key simply expressed by u32
     }
-
 
     impl Circuit<Fp> for MPTTestSinglePathCircuit {
         type Config = MPTTestConfig;
         type FloorPlanner = SimpleFloorPlanner;
-        
+
         fn without_witnesses(&self) -> Self {
             Self::default()
         }
 
         fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
-
             let s_path = meta.advice_column();
             let val = meta.advice_column();
             let sibling = meta.advice_column();
@@ -221,8 +202,10 @@ mod test {
                 let s_path_col = meta.query_advice(s_path, Rotation::cur());
                 let path_col = meta.query_advice(path, Rotation::cur());
                 let s_row = meta.query_selector(s_row);
-                vec![s_row.clone() * s_path_col.clone() * (s_path_col.clone() - one.clone()),
-                    s_row.clone() * s_path_col * path_col.clone() * (path_col - one.clone())]
+                vec![
+                    s_row.clone() * s_path_col.clone() * (s_path_col.clone() - one.clone()),
+                    s_row.clone() * s_path_col * path_col.clone() * (path_col - one.clone()),
+                ]
             });
 
             MPTTestConfig {
@@ -235,29 +218,35 @@ mod test {
             }
         }
 
-        fn synthesize(&self, config: Self::Config, mut layouter: impl Layouter<Fp>) -> Result<(), Error> {
-            let fill_ret = layouter.assign_region(||"main", |mut region|
-                self.fill_layer(&config, &mut region, mock_hash)
+        fn synthesize(
+            &self,
+            config: Self::Config,
+            mut layouter: impl Layouter<Fp>,
+        ) -> Result<(), Error> {
+            let fill_ret = layouter.assign_region(
+                || "main",
+                |mut region| self.fill_layer(&config, &mut region, mock_hash),
             )?;
 
             let mpt_chip = MPTChip::<Fp>::construct(config.chip);
             mpt_chip.load(&mut layouter, fill_ret.hashs)?;
             Ok(())
         }
-
     }
 
     struct LayerFillTrace {
-        pub hashs : Vec<(Fp, Fp, Fp)>,
+        pub hashs: Vec<(Fp, Fp, Fp)>,
     }
 
     impl MPTTestSinglePathCircuit {
-
         //decompose path to bits, start from smallest, return the
         //two parts which reside on path and the leaf
         fn decompose_path(&self) -> (Vec<bool>, Vec<bool>) {
             let mut path_bits = Vec::new();
-            assert!(MAX_PATH_DEPTH >= self.siblings.len(), "more siblings than max depth");
+            assert!(
+                MAX_PATH_DEPTH >= self.siblings.len(),
+                "more siblings than max depth"
+            );
 
             for layer in 1..(MAX_PATH_DEPTH + 1) {
                 let has_bit = (self.path & 2u32.pow((MAX_PATH_DEPTH - layer) as u32)) != 0;
@@ -274,7 +263,6 @@ mod test {
             region: &mut Region<'_, Fp>,
             mut hasher: F,
         ) -> Result<LayerFillTrace, Error> {
-
             // build all required data
             let mut path_trace = vec![self.leaf];
             let mut hash_trace = vec![];
@@ -285,7 +273,7 @@ mod test {
             for (sibling, bit) in self.siblings.iter().rev().zip(path_bits.iter().rev()) {
                 let (l, r) = if *bit {
                     (sibling, path_trace.last().unwrap())
-                }else {
+                } else {
                     (path_trace.last().unwrap(), sibling)
                 };
 
@@ -298,15 +286,25 @@ mod test {
 
             let mut offset = 0;
             for bit in path_bits {
-                region.assign_advice(||"val", config.val, offset, ||Ok(path_trace[offset]))?;
-                region.assign_advice(||"sibling", config.sibling, offset, ||Ok(self.siblings[offset]))?;
-                region.assign_advice(||"path", config.path, offset, ||Ok(if bit {Fp::one()} else {Fp::zero()}))?;
-                region.assign_advice(||"isfirst", config.s_path, offset, ||Ok(Fp::one()))?;
+                region.assign_advice(|| "val", config.val, offset, || Ok(path_trace[offset]))?;
+                region.assign_advice(
+                    || "sibling",
+                    config.sibling,
+                    offset,
+                    || Ok(self.siblings[offset]),
+                )?;
+                region.assign_advice(
+                    || "path",
+                    config.path,
+                    offset,
+                    || Ok(if bit { Fp::one() } else { Fp::zero() }),
+                )?;
+                region.assign_advice(|| "isfirst", config.s_path, offset, || Ok(Fp::one()))?;
                 offset += 1;
             }
-            region.assign_advice(||"val", config.val, offset, ||Ok(path_trace[offset]))?;
-            region.assign_advice(||"isfirst", config.s_path, offset, ||Ok(Fp::zero()))?;
-            region.assign_advice(||"path", config.path, offset, ||Ok(Fp::from(42)))?;
+            region.assign_advice(|| "val", config.val, offset, || Ok(path_trace[offset]))?;
+            region.assign_advice(|| "isfirst", config.s_path, offset, || Ok(Fp::zero()))?;
+            region.assign_advice(|| "path", config.path, offset, || Ok(Fp::from(42)))?;
             offset += 1;
 
             //enable all
@@ -314,12 +312,12 @@ mod test {
                 config.s_row.enable(region, row)?;
             }
 
-            Ok(LayerFillTrace{hashs: hash_trace})
+            Ok(LayerFillTrace { hashs: hash_trace })
         }
     }
 
     #[test]
-    fn test_single_path(){
+    fn test_single_path() {
         let leaf = rand_fp();
         let mut siblings = Vec::new();
         for _ in 0..4 {
@@ -342,7 +340,7 @@ mod test {
         //let root = root
             //.titled("Test Circuit Layout", ("sans-serif", 60))
             //.unwrap();
-    
+
         halo2::dev::CircuitLayout::default()
             // You can optionally render only a section of the circuit.
             //.view_width(0..2)
@@ -354,9 +352,8 @@ mod test {
             .render(k, &circuit, &root)
             .unwrap();
         */
-        
+
         let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
     }
 }
-
