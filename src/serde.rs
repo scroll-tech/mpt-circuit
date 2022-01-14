@@ -14,19 +14,33 @@ pub enum RowDeError {
 }
 
 #[derive(Debug)]
+/// Row type
 pub struct Row {
+    /// maker
     pub is_first: bool,
+    /// siblings
     pub sib: Hash,
+    /// (aux col, should not used)
     pub depth: usize,
+    /// path: bit for mid and int for leaf
     pub path: BigUint,
+    /// (aux col, should not used)
     pub path_acc: BigUint,
+    /// hash type (before op)
     pub old_hash_type: HashType,
+    /// hashs in path (before op)
     pub old_hash: Hash,
+    /// values in path (before op)
     pub old_value: Hash,
+    /// hash type (after op)
     pub new_hash_type: HashType,
+    /// hashs in path (after op)
     pub new_hash: Hash,
+    /// values in path (after op)
     pub new_value: Hash,
+    /// the key of leaf
     pub key: Hash,
+    /// (aux col, should not used)
     pub new_root: Hash,
 }
 
@@ -76,6 +90,7 @@ impl TryFrom<&RowDe> for Row {
 }
 
 #[derive(Default, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+/// Hash expressed by 256bit integer for a Fp repr
 pub struct Hash([u8; 32]);
 
 impl Hash {
