@@ -29,7 +29,7 @@ use crate::serde::HashType;
 use ff::Field;
 use halo2::{
     arithmetic::FieldExt,
-    circuit::{Cell, Chip, Layouter},
+    circuit::{Cell, Chip, Region, Layouter},
     dev::{MockProver, VerifyFailure},
     plonk::{
         Advice, Assignment, Circuit, Column, ConstraintSystem, Error, Expression, Instance,
@@ -51,6 +51,7 @@ pub(crate) struct MPTOpChipConfig {
 
     root_aux: Column<Advice>,
     depth_aux: Column<Advice>,
+    key_aux: Column<Advice>,
     type_table: (TableColumn, TableColumn),
     trans_table: (TableColumn, TableColumn),
 }
@@ -109,13 +110,13 @@ impl<Fp: FieldExt> MPTOpChip<Fp> {
         s_row: Selector,
         sibling: Column<Advice>,
         path: Column<Advice>,
-        key: Column<Advice>,
         old_hash_type: Column<Advice>,
         new_hash_type: Column<Advice>,
         old_hash: Column<Advice>,
         new_hash: Column<Advice>,
     ) -> <Self as Chip<Fp>>::Config {
         let is_first = meta.advice_column();
+        let key_aux = meta.advice_column();
         let root_aux = meta.advice_column();
         let depth_aux = meta.advice_column();
         let type_table = (meta.lookup_table_column(), meta.lookup_table_column());
@@ -130,6 +131,9 @@ impl<Fp: FieldExt> MPTOpChip<Fp> {
 
             vec![(prev_hash, trans_table.0), (hash, trans_table.1)]
         });
+
+        println!("col index of depth aux: {:?}", depth_aux);
+        println!("col index of key: {:?}", key_aux);
 
         //transition - new
         meta.lookup(|meta| {
@@ -181,6 +185,22 @@ impl<Fp: FieldExt> MPTOpChip<Fp> {
             vec![sel * path_bit * (new_hash_type - leaf_type)]
         });
 
+        meta.create_gate("calc key", |meta| {
+            let sel = meta.query_selector(s_row);
+            let is_first = meta.query_advice(is_first, Rotation::cur());
+            let path_cur = meta.query_advice(path, Rotation::cur())
+                * meta.query_advice(depth_aux, Rotation::cur());
+            let key_cur = path_cur - meta.query_advice(key_aux, Rotation::cur());
+
+            // if is_first key = path * depth
+            // else key = path * depth + key.prev
+            vec![
+                sel.clone() * is_first.clone() * key_cur.clone(),
+                sel * (Expression::Constant(Fp::one()) - is_first)
+                    * (meta.query_advice(key_aux, Rotation::prev()) + key_cur),
+            ]
+        });
+
         meta.create_gate("root aux", |meta| {
             let sel = meta.query_selector(s_row);
             let is_first = meta.query_advice(is_first, Rotation::cur());
@@ -218,26 +238,11 @@ impl<Fp: FieldExt> MPTOpChip<Fp> {
             ]
         });
 
-        meta.create_gate("calc key", |meta| {
-            let sel = meta.query_selector(s_row);
-            let is_first = meta.query_advice(is_first, Rotation::cur());
-            let path_cur = meta.query_advice(path, Rotation::cur())
-                * meta.query_advice(depth_aux, Rotation::cur());
-            let key_cur = path_cur - meta.query_advice(key, Rotation::cur());
-
-            // if is_first key = path * depth
-            // else key = path * depth + key.prev
-            vec![
-                sel.clone() * is_first.clone() * key_cur.clone(),
-                sel * (Expression::Constant(Fp::one()) - is_first)
-                    * (meta.query_advice(key, Rotation::prev()) + key_cur),
-            ]
-        });
-
         //TODO: verify sibling
 
         MPTOpChipConfig {
             is_first,
+            key_aux,
             root_aux,
             depth_aux,
             type_table,
@@ -245,63 +250,83 @@ impl<Fp: FieldExt> MPTOpChip<Fp> {
         }
     }
 
-    //fill hashtype table and aux col
-    pub fn load(
+    // fill a region for aux col
+    pub fn fill_aux(
         &self,
-        layouter: &mut impl Layouter<Fp>,
+        region: &mut Region<'_, Fp>,
         new_hash_types: &Vec<HashType>,
         hash: &Vec<Fp>,
+        path: &Vec<Fp>,
     ) -> Result<(), Error> {
+
         assert_eq!(new_hash_types.len(), hash.len());
         assert!(hash.len() > 0, "input must not empty");
 
-        layouter.assign_region(
-            || "aux region",
-            |mut region| {
-                let is_first = self.config().is_first;
-                let root_aux = self.config().root_aux;
-                let depth_aux = self.config().depth_aux;
+        let is_first = self.config().is_first;
+        let key_aux = self.config().key_aux;
+        let root_aux = self.config().root_aux;
+        let depth_aux = self.config().depth_aux;
 
-                region.assign_advice_from_constant(|| "top of is_first", is_first, 0, Fp::one())?;
+        region.assign_advice_from_constant(|| "top of is_first", is_first, 0, Fp::one())?;
 
-                let mut cur_root = Fp::zero();
-                let mut cur_depth = 0u64;
-                let mut is_first_col = true;
-                //assign rest of is_first according to hashtypes
-                for (index, val) in new_hash_types.iter().zip(hash.iter()).enumerate() {
-                    let (hash_type, hash) = val;
-                    region.assign_advice(
-                        || "is_first",
-                        is_first,
-                        index + 1,
-                        || {
-                            Ok(match *hash_type {
-                                HashType::Leaf => Fp::one(),
-                                _ => Fp::zero(),
-                            })
-                        },
-                    )?;
+        let mut cur_root = Fp::zero();
+        let mut cur_depth = Fp::zero();
+        let mut acc_key = Fp::zero();
+        let mut is_first_col = true;
+        //assign rest of is_first according to hashtypes
+        for (index, val) in new_hash_types
+                            .iter()
+                            .zip(hash.iter())
+                            .zip(path.iter())
+                            .enumerate() 
+        {
+            let ((hash_type, hash), path) = val;
+            region.assign_advice(
+                || "is_first",
+                is_first,
+                index + 1,
+                || {
+                    Ok(match *hash_type {
+                        HashType::Leaf => Fp::one(),
+                        _ => Fp::zero(),
+                    })
+                },
+            )?;
 
-                    cur_root = if is_first_col { *hash } else { cur_root };
-                    cur_depth = if is_first_col { 1u64 } else { cur_depth * 2 };
+            cur_root = if is_first_col { *hash } else { cur_root };
+            cur_depth = if is_first_col { Fp::one() } else { cur_depth.double() };
+            acc_key = *path * cur_depth +
+                if is_first_col { Fp::zero() } else { acc_key };
 
-                    region.assign_advice(|| "root", root_aux, index, || Ok(cur_root))?;
+            region.assign_advice(|| "root", root_aux, index, || Ok(cur_root))?;
 
-                    region.assign_advice(
-                        || "depth",
-                        depth_aux,
-                        index,
-                        || Ok(Fp::from(cur_depth)),
-                    )?;
+            region.assign_advice(
+                || "depth",
+                depth_aux,
+                index,
+                || Ok(cur_depth),
+            )?;
 
-                    is_first_col = match *hash_type {
-                        HashType::Leaf => true,
-                        _ => false,
-                    };
-                }
-                Ok(())
-            },
-        )?;
+            region.assign_advice(
+                || "key",
+                key_aux,
+                index,
+                || Ok(acc_key),
+            )?;
+
+            is_first_col = match *hash_type {
+                HashType::Leaf => true,
+                _ => false,
+            };
+        }
+        Ok(())        
+    }
+
+    //fill hashtype table
+    pub fn load(
+        &self,
+        layouter: &mut impl Layouter<Fp>,
+    ) -> Result<(), Error> {
 
         layouter.assign_table(
             || "trans table",
@@ -369,7 +394,7 @@ mod test {
     use super::*;
     use crate::test_utils::*;
     use halo2::{
-        circuit::{Cell, Region, SimpleFloorPlanner},
+        circuit::{Cell, SimpleFloorPlanner},
         dev::{MockProver, VerifyFailure},
         plonk::{Circuit, Expression, Selector},
     };
@@ -379,7 +404,6 @@ mod test {
         s_row: Selector,
         sibling: Column<Advice>,
         path: Column<Advice>,
-        key: Column<Advice>,
         old_hash_type: Column<Advice>,
         new_hash_type: Column<Advice>,
         old_hash: Column<Advice>,
@@ -426,7 +450,6 @@ mod test {
                 s_row,
                 sibling,
                 path,
-                key,
                 old_hash_type,
                 new_hash_type,
                 old_hash,
@@ -436,7 +459,6 @@ mod test {
                     s_row,
                     sibling,
                     path,
-                    key,
                     old_hash_type,
                     new_hash_type,
                     old_hash,
@@ -450,13 +472,18 @@ mod test {
             config: Self::Config,
             mut layouter: impl Layouter<Fp>,
         ) -> Result<(), Error> {
+
+            let op_chip = MPTOpChip::<Fp>::construct(config.chip.clone());
             layouter.assign_region(
                 || "main",
-                |mut region| self.fill_layer(&config, &mut region),
+                |mut region| {
+                    op_chip.fill_aux(&mut region, &self.new_hash_type, &self.new_hash, &self.path)?;
+                    self.fill_layer(&config, &mut region)
+                },
+                
             )?;
 
-            let op_chip = MPTOpChip::<Fp>::construct(config.chip);
-            op_chip.load(&mut layouter, &self.new_hash_type, &self.new_hash)?;
+            op_chip.load(&mut layouter)?;
             Ok(())
         }
     }
@@ -470,7 +497,11 @@ mod test {
             for offset in 0..self.path.len() {
                 config.s_row.enable(region, offset)?;
 
-                region.assign_advice(|| "path", config.path, offset, || Ok(self.path[offset]))?;
+                region.assign_advice(
+                    || "path", 
+                    config.path,
+                    offset,
+                    || Ok(self.path[offset]))?;
                 region.assign_advice(
                     || "sibling",
                     config.sibling,
