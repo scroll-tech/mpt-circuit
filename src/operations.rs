@@ -9,19 +9,24 @@
 //  * verify the key column by accumulating the path bit and LeafPath bits ☑
 //  * (TODO) verify the sibling and oldhash when "leaf extension" hashtype is encountered
 //
+//  Following is the EXPECTED layout of the chip
+//
 //  |-----||--------|------------------|------------------|---------|-------|--------|--------|--------|--------|--------|----------------|----------------|
 //  | row ||IsFirst*|    OldHashType   |    NewHashType   |  path   |  key  |siblings|OldHash |  hash  | depth**| roots**| TypePairTable**|TypeTransTable**|
 //  |-----||--------|------------------|------------------|---------|-------|--------|--------|--------|--------|--------|----------------|--=-------------|
-//  |  0  ||   1    |       Empty      |      Leaf        | LeafPath|Leafkey|        | rootx  | root0  |   1    | root0  |                |                |
-//  |  1  ||   1    |        Mid       |      Mid         | cbit_1  |       |        | root0  | root1  |   1    | root1  |                |                |
-//  |  2  ||   0    |      LeafExt     |      Mid         | cbit_2  |       |        |        | hash1  |   2    | root1  |                |                |
-//  |  3  ||   0    |   LeafExtFinal   |      Mid         | cbit_3  |       |        |        | hash2  |   4    | root1  |                |                |
-//  |  4  ||   0    |       Empty      |      Leaf        | LeafPath|Leafkey|        |        | hash3  |   8    | root1  |                |                |
-//  |  5  ||   1    |        Mid       |      Mid         | cbit_4  |       |        | root1  | root2  |   1    | root2  |                |                |
+//  |  0  ||  -------------------------------------------------------- padding row --------------------------------------------------------------------    |
+//  |  1  ||   1    |       Empty      |      Leaf        | LeafPath|Leafkey|        | rootx  | root0  |   1    | root0  |                |                |
+//  |  2  ||   1    |        Mid       |      Mid         | cbit_1  |       |        | root0  | root1  |   1    | root1  |                |                |
+//  |  3  ||   0    |      LeafExt     |      Mid         | cbit_2  |       |        |        | hash1  |   2    | root1  |                |                |
+//  |  4  ||   0    |   LeafExtFinal   |      Mid         | cbit_3  |       |        |        | hash2  |   4    | root1  |                |                |
+//  |  5  ||   0    |       Empty      |      Leaf        | LeafPath|Leafkey|        |        | hash3  |   8    | root1  |                |                |
+//  |  6  ||   1    |        Mid       |      Mid         | cbit_4  |       |        | root1  | root2  |   1    | root2  |                |                |
 //  |-----||--------|------------------|------------------|---------|-------|--------|--------|--------|--------|--------|----------------|----------------|
 //
 //  * indicate a "controlled" column (being queried and assigned inside chip)
 //  ** indicate a "private" column (a controlled column which is only used in the chip)
+//
+
 
 #![allow(unused_imports)]
 
@@ -132,9 +137,6 @@ impl<Fp: FieldExt> MPTOpChip<Fp> {
             vec![(prev_hash, trans_table.0), (hash, trans_table.1)]
         });
 
-        println!("col index of depth aux: {:?}", depth_aux);
-        println!("col index of key: {:?}", key_aux);
-
         //transition - new
         meta.lookup(|meta| {
             let border =
@@ -205,19 +207,27 @@ impl<Fp: FieldExt> MPTOpChip<Fp> {
             let sel = meta.query_selector(s_row);
             let is_first = meta.query_advice(is_first, Rotation::cur());
             let root_aux_cur = meta.query_advice(root_aux, Rotation::cur());
-            let root_aux_next = meta.query_advice(root_aux, Rotation::next());
-            let hash = meta.query_advice(new_hash, Rotation::next());
-            let old_hash = meta.query_advice(old_hash, Rotation::next());
+            let root_aux_prev = meta.query_advice(root_aux, Rotation::prev());
+            let hash = meta.query_advice(new_hash, Rotation::cur());
 
             // if is_first root_aux == hash
-            // else root_aux == root_aux.next
-            // if is_first old_hash.next == root_aux
+            // else root_aux == root_aux.prev
             vec![
-                sel.clone()
-                    * (Expression::Constant(Fp::one()) - is_first.clone())
-                    * (root_aux_cur.clone() - root_aux_next.clone()),
-                sel.clone() * is_first.clone() * (root_aux_next - hash),
-                sel * is_first.clone() * (old_hash - root_aux_cur),
+                sel.clone() * is_first.clone() * (root_aux_cur.clone() - hash),
+                sel
+                    * (Expression::Constant(Fp::one()) - is_first)
+                    * (root_aux_cur - root_aux_prev),
+            ]
+        });
+
+        meta.create_gate("op continue", |meta| {
+            let sel = meta.query_selector(s_row);
+            let is_first = meta.query_advice(is_first, Rotation::cur());
+            let old_hash = meta.query_advice(old_hash, Rotation::cur());
+            let root_aux = meta.query_advice(root_aux, Rotation::prev());
+
+            vec![
+                sel * is_first * (old_hash - root_aux),
             ]
         });
 
@@ -225,16 +235,16 @@ impl<Fp: FieldExt> MPTOpChip<Fp> {
             let sel = meta.query_selector(s_row);
             let is_first = meta.query_advice(is_first, Rotation::cur());
             let depth_aux_cur = meta.query_advice(depth_aux, Rotation::cur());
-            let depth_aux_next = meta.query_advice(depth_aux, Rotation::next());
+            let depth_aux_prev = meta.query_advice(depth_aux, Rotation::prev());
 
             // if is_first depth == 1
-            // else depth * 2 = depth.next
+            // else depth = depth.prev * 2
             vec![
                 sel.clone()
                     * is_first.clone()
                     * (Expression::Constant(Fp::one()) - depth_aux_cur.clone()),
                 sel * (Expression::Constant(Fp::one()) - is_first)
-                    * (depth_aux_cur * Expression::Constant(Fp::from(2u64)) - depth_aux_next),
+                    * (depth_aux_prev * Expression::Constant(Fp::from(2u64)) - depth_aux_cur),
             ]
         });
 
@@ -257,6 +267,7 @@ impl<Fp: FieldExt> MPTOpChip<Fp> {
         new_hash_types: &Vec<HashType>,
         hash: &Vec<Fp>,
         path: &Vec<Fp>,
+        old_hash: Fp,
     ) -> Result<(), Error> {
 
         assert_eq!(new_hash_types.len(), hash.len());
@@ -267,12 +278,19 @@ impl<Fp: FieldExt> MPTOpChip<Fp> {
         let root_aux = self.config().root_aux;
         let depth_aux = self.config().depth_aux;
 
-        region.assign_advice_from_constant(|| "top of is_first", is_first, 0, Fp::one())?;
+        region.assign_advice(|| "depth padding", depth_aux, 0, || Ok(Fp::zero()))?;
+        region.assign_advice(|| "key padding", key_aux, 0, || Ok(Fp::zero()))?;
+        region.assign_advice(|| "root padding", root_aux, 0, || Ok(old_hash))?;
+        //need to pad it as 1 to depress unexpected lookup
+        region.assign_advice(|| "is_first padding", is_first, 0, || Ok(Fp::one()))?;
+
+        //the working regoin start from offset 1
+        region.assign_advice_from_constant(|| "top of is_first", is_first, 1, Fp::one())?;
 
         let mut cur_root = Fp::zero();
         let mut cur_depth = Fp::zero();
         let mut acc_key = Fp::zero();
-        let mut is_first_col = true;
+        let mut is_first_col = true;        
         //assign rest of is_first according to hashtypes
         for (index, val) in new_hash_types
                             .iter()
@@ -281,6 +299,7 @@ impl<Fp: FieldExt> MPTOpChip<Fp> {
                             .enumerate() 
         {
             let ((hash_type, hash), path) = val;
+            let index = index + 1;
             region.assign_advice(
                 || "is_first",
                 is_first,
@@ -319,6 +338,7 @@ impl<Fp: FieldExt> MPTOpChip<Fp> {
                 _ => false,
             };
         }
+
         Ok(())        
     }
 
@@ -434,7 +454,6 @@ mod test {
             let s_row = meta.selector();
             let sibling = meta.advice_column();
             let path = meta.advice_column();
-            let key = meta.advice_column();
             let old_hash_type = meta.advice_column();
             let new_hash_type = meta.advice_column();
             let old_hash = meta.advice_column();
@@ -477,7 +496,7 @@ mod test {
             layouter.assign_region(
                 || "main",
                 |mut region| {
-                    op_chip.fill_aux(&mut region, &self.new_hash_type, &self.new_hash, &self.path)?;
+                    op_chip.fill_aux(&mut region, &self.new_hash_type, &self.new_hash, &self.path, self.old_hash[0])?;
                     self.fill_layer(&config, &mut region)
                 },
                 
@@ -494,43 +513,51 @@ mod test {
             config: &MPTTestConfig,
             region: &mut Region<'_, Fp>,
         ) -> Result<(), Error> {
-            for offset in 0..self.path.len() {
+
+            region.assign_advice(
+                || "path padding", 
+                config.path,
+                0,
+                || Ok(Fp::zero()))?;
+
+            for offset in 1..self.path.len() + 1 {
+                let ind = offset - 1;
                 config.s_row.enable(region, offset)?;
 
                 region.assign_advice(
                     || "path", 
                     config.path,
                     offset,
-                    || Ok(self.path[offset]))?;
+                    || Ok(self.path[ind]))?;
                 region.assign_advice(
                     || "sibling",
                     config.sibling,
                     offset,
-                    || Ok(self.siblings[offset]),
+                    || Ok(self.siblings[ind]),
                 )?;
                 region.assign_advice(
                     || "hash_old",
                     config.old_hash,
                     offset,
-                    || Ok(self.old_hash[offset]),
+                    || Ok(self.old_hash[ind]),
                 )?;
                 region.assign_advice(
                     || "hash_new",
                     config.new_hash,
                     offset,
-                    || Ok(self.new_hash[offset]),
+                    || Ok(self.new_hash[ind]),
                 )?;
                 region.assign_advice(
                     || "hash_type_old",
                     config.old_hash_type,
                     offset,
-                    || Ok(Fp::from(self.old_hash_type[offset] as u64)),
+                    || Ok(Fp::from(self.old_hash_type[ind] as u64)),
                 )?;
                 region.assign_advice(
                     || "hash_type_new",
                     config.new_hash_type,
                     offset,
-                    || Ok(Fp::from(self.new_hash_type[offset] as u64)),
+                    || Ok(Fp::from(self.new_hash_type[ind] as u64)),
                 )?;
             }
 
@@ -575,9 +602,9 @@ mod test {
         use plotters::prelude::*;
         let root = BitMapBackend::new("layout.png", (1024, 768)).into_drawing_area();
         root.fill(&WHITE).unwrap();
-        //let root = root
-            //.titled("Test Circuit Layout", ("sans-serif", 60))
-            //.unwrap();
+        let root = root
+            .titled("Test Circuit Layout", ("sans-serif", 60))
+            .unwrap();
 
         halo2::dev::CircuitLayout::default()
             // You can optionally render only a section of the circuit.
