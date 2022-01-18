@@ -260,15 +260,35 @@ impl<Fp: FieldExt> MPTOpChip<Fp> {
         }
     }
 
-    // fill a region for aux col
+    // fill region for the first row (head row for padding)
+    pub fn fill_heading(
+        &self,
+        region: &mut Region<'_, Fp>,
+        old_hash: Fp,
+    ) -> Result<(), Error> {
+
+        region.assign_advice(|| "depth padding",  self.config().key_aux, 0, || Ok(Fp::zero()))?;
+        region.assign_advice(|| "key padding", self.config().depth_aux, 0, || Ok(Fp::zero()))?;
+        region.assign_advice(|| "root padding", self.config().root_aux, 0, || Ok(old_hash))?;
+        //need to pad it as 1 to depress unexpected lookup
+        region.assign_advice(|| "is_first padding", self.config().is_first, 0, || Ok(Fp::one()))?;
+        //also need to fix the "is_first" flag in first working row
+        region.assign_advice_from_constant(|| "top of is_first", self.config().is_first, 1, Fp::one())?;
+
+        Ok(())
+    }
+
+    // fill data for a single op in spec position of the region, 
+    // notice the first op lay in offset = 1
+    // should return how many rows has been filled
     pub fn fill_aux(
         &self,
         region: &mut Region<'_, Fp>,
+        offset: usize,
         new_hash_types: &Vec<HashType>,
         hash: &Vec<Fp>,
         path: &Vec<Fp>,
-        old_hash: Fp,
-    ) -> Result<(), Error> {
+    ) -> Result<usize, Error> {
 
         assert_eq!(new_hash_types.len(), hash.len());
         assert!(hash.len() > 0, "input must not empty");
@@ -277,15 +297,6 @@ impl<Fp: FieldExt> MPTOpChip<Fp> {
         let key_aux = self.config().key_aux;
         let root_aux = self.config().root_aux;
         let depth_aux = self.config().depth_aux;
-
-        region.assign_advice(|| "depth padding", depth_aux, 0, || Ok(Fp::zero()))?;
-        region.assign_advice(|| "key padding", key_aux, 0, || Ok(Fp::zero()))?;
-        region.assign_advice(|| "root padding", root_aux, 0, || Ok(old_hash))?;
-        //need to pad it as 1 to depress unexpected lookup
-        region.assign_advice(|| "is_first padding", is_first, 0, || Ok(Fp::one()))?;
-
-        //the working regoin start from offset 1
-        region.assign_advice_from_constant(|| "top of is_first", is_first, 1, Fp::one())?;
 
         let mut cur_root = Fp::zero();
         let mut cur_depth = Fp::zero();
@@ -299,7 +310,7 @@ impl<Fp: FieldExt> MPTOpChip<Fp> {
                             .enumerate() 
         {
             let ((hash_type, hash), path) = val;
-            let index = index + 1;
+            let index = index + offset;
             region.assign_advice(
                 || "is_first",
                 is_first,
@@ -339,7 +350,7 @@ impl<Fp: FieldExt> MPTOpChip<Fp> {
             };
         }
 
-        Ok(())        
+        Ok(hash.len())     
     }
 
     //fill hashtype table
@@ -439,7 +450,6 @@ mod test {
         pub old_hash: Vec<Fp>,
         pub new_hash: Vec<Fp>,
         pub siblings: Vec<Fp>, //siblings from top to bottom
-        pub key: Fp,
     }
 
     impl Circuit<Fp> for MPTTestSingleOpCircuit {
@@ -458,9 +468,6 @@ mod test {
             let new_hash_type = meta.advice_column();
             let old_hash = meta.advice_column();
             let new_hash = meta.advice_column();
-
-            let debug_depth = meta.fixed_column();
-            let debug_root = meta.fixed_column();
 
             let constant = meta.fixed_column();
             meta.enable_constant(constant);
@@ -494,10 +501,18 @@ mod test {
 
             let op_chip = MPTOpChip::<Fp>::construct(config.chip.clone());
             layouter.assign_region(
-                || "main",
+                || "op main",
                 |mut region| {
-                    op_chip.fill_aux(&mut region, &self.new_hash_type, &self.new_hash, &self.path, self.old_hash[0])?;
-                    self.fill_layer(&config, &mut region)
+
+                    region.assign_advice(
+                        || "path padding", 
+                        config.path,
+                        0,
+                        || Ok(Fp::zero()))?;
+
+                    op_chip.fill_heading(&mut region, self.old_hash[0])?;
+                    op_chip.fill_aux(&mut region, 1, &self.new_hash_type, &self.new_hash, &self.path)?;
+                    self.fill_layer(&config, &mut region, 1)
                 },
                 
             )?;
@@ -507,21 +522,17 @@ mod test {
         }
     }
 
+
     impl MPTTestSingleOpCircuit {
         pub fn fill_layer(
             &self,
             config: &MPTTestConfig,
             region: &mut Region<'_, Fp>,
-        ) -> Result<(), Error> {
+            offset: usize,
+        ) -> Result<usize, Error> {
 
-            region.assign_advice(
-                || "path padding", 
-                config.path,
-                0,
-                || Ok(Fp::zero()))?;
-
-            for offset in 1..self.path.len() + 1 {
-                let ind = offset - 1;
+            for ind in 0..self.path.len() {
+                let offset = offset + ind;
                 config.s_row.enable(region, offset)?;
 
                 region.assign_advice(
@@ -561,44 +572,143 @@ mod test {
                 )?;
             }
 
+            Ok(self.path.len())
+        }
+    }
+
+    lazy_static! {
+
+        static ref DEMOCIRCUIT1: MPTTestSingleOpCircuit = {
+            MPTTestSingleOpCircuit {
+                siblings: vec![Fp::zero()],
+                old_hash: vec![Fp::zero()],
+                new_hash: vec![Fp::from(11u64)],
+                path: vec![Fp::from(4u64)], //the key is 0b100u64
+                old_hash_type: vec![HashType::Empty],
+                new_hash_type: vec![HashType::Leaf],
+            }            
+        };
+
+        static ref DEMOCIRCUIT2: MPTTestSingleOpCircuit = {    
+            MPTTestSingleOpCircuit {
+                siblings: vec![Fp::from(11u64), rand_fp()],
+                old_hash: vec![Fp::from(11u64), Fp::zero()],
+                new_hash: vec![Fp::from(22u64), rand_fp()],
+                path: vec![Fp::one(), Fp::from(8u64)], //the key is 0b10001u64
+                old_hash_type: vec![HashType::LeafExtFinal, HashType::Empty],
+                new_hash_type: vec![HashType::Middle, HashType::Leaf],
+            }            
+        };
+
+        static ref DEMOCIRCUIT3: MPTTestSingleOpCircuit = {
+            let siblings = vec![Fp::from(11u64), Fp::zero(), Fp::from(22u64), rand_fp()];
+            let mut old_hash = vec![Fp::from(22u64)];
+            let mut new_hash = vec![Fp::from(33u64)];
+            for _ in 0..3 {
+                old_hash.push(rand_fp());
+                new_hash.push(rand_fp());
+            }
+    
+            MPTTestSingleOpCircuit {
+                siblings,
+                old_hash,
+                new_hash,
+                path: vec![Fp::one(), Fp::zero(), Fp::one(), Fp::from(5u64)], //the key is 0b101101u64
+                old_hash_type: vec![
+                    HashType::Middle,
+                    HashType::LeafExt,
+                    HashType::LeafExtFinal,
+                    HashType::Empty,
+                ],
+                new_hash_type: vec![
+                    HashType::Middle,
+                    HashType::Middle,
+                    HashType::Middle,
+                    HashType::Leaf,
+                ],
+            }            
+        };
+    }    
+
+
+    #[test]
+    fn test_single_op() {
+        let k = 4;
+        let prover = MockProver::<Fp>::run(k, &*DEMOCIRCUIT1, vec![]).unwrap();
+        assert_eq!(prover.verify(), Ok(()));           
+        let prover = MockProver::<Fp>::run(k, &*DEMOCIRCUIT2, vec![]).unwrap();
+        assert_eq!(prover.verify(), Ok(()));        
+        let prover = MockProver::<Fp>::run(k, &*DEMOCIRCUIT3, vec![]).unwrap();
+        assert_eq!(prover.verify(), Ok(()));
+    }
+
+    #[derive(Clone, Default)]
+    struct MPTTestOpCircuit {
+        pub ops: Vec<MPTTestSingleOpCircuit>,
+    }
+
+    impl Circuit<Fp> for MPTTestOpCircuit {
+        type Config = MPTTestConfig;
+        type FloorPlanner = SimpleFloorPlanner;
+
+        fn without_witnesses(&self) -> Self {
+            Self::default()
+        }
+
+        fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
+            MPTTestSingleOpCircuit::configure(meta)
+        }
+
+        fn synthesize(
+            &self,
+            config: Self::Config,
+            mut layouter: impl Layouter<Fp>,
+        ) -> Result<(), Error> {
+
+            let op_chip = MPTOpChip::<Fp>::construct(config.chip.clone());
+
+            layouter.assign_region(
+                || "multi op main",
+                |mut region| {
+
+                    region.assign_advice(
+                        || "path padding", 
+                        config.path,
+                        0,
+                        || Ok(Fp::zero()))?;
+
+                    let start_root = self.ops[0].old_hash[0];
+                    op_chip.fill_heading(&mut region, start_root)?;
+
+                    let mut offset = 1;
+                    for op in self.ops.iter() {
+
+                        op_chip.fill_aux(&mut region, offset, &op.new_hash_type, &op.new_hash, &op.path)?;
+                        offset += op.fill_layer(&config, &mut region, offset)?; 
+                    }
+                    
+                    Ok(())
+                },
+                
+            )?;
+
+            op_chip.load(&mut layouter)?;
+
             Ok(())
         }
     }
 
     #[test]
-    fn test_single_op() {
-        let mut siblings = Vec::new();
-        let mut old_hash = Vec::new();
-        let mut new_hash = Vec::new();
-        for _ in 0..4 {
-            siblings.push(rand_fp());
-            old_hash.push(rand_fp());
-            new_hash.push(rand_fp());
-        }
+    fn test_mutiple_op() {
 
-        let circuit = MPTTestSingleOpCircuit {
-            siblings,
-            old_hash,
-            new_hash,
-            path: vec![Fp::zero(), Fp::zero(), Fp::one(), Fp::from(5u64)], //101100
-            key: Fp::from(0b101100u64),
-            old_hash_type: vec![
-                HashType::Middle,
-                HashType::LeafExt,
-                HashType::LeafExtFinal,
-                HashType::Empty,
-            ],
-            new_hash_type: vec![
-                HashType::Middle,
-                HashType::Middle,
-                HashType::Middle,
-                HashType::Leaf,
-            ],
-        };
         let k = 4;
 
+        let circuit = MPTTestOpCircuit {
+            ops: vec![DEMOCIRCUIT1.clone(), DEMOCIRCUIT2.clone(), DEMOCIRCUIT3.clone()],
+        };
+
         // Generate layout graph
-        /*
+        
         use plotters::prelude::*;
         let root = BitMapBackend::new("layout.png", (1024, 768)).into_drawing_area();
         root.fill(&WHITE).unwrap();
@@ -616,9 +726,11 @@ mod test {
             // The first argument is the size parameter for the circuit.
             .render(k, &circuit, &root)
             .unwrap();
-        */
+        
 
         let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
-    }
+
+    }    
+    
 }
