@@ -183,14 +183,19 @@ impl<Fp: FieldExt> MPTOpChip<Fp> {
             ]
         });
 
-        meta.create_gate("leaf start new op", |meta| {
+        meta.create_gate("start new op", |meta| {
             let sel = meta.query_selector(s_row);
-            let is_first = meta.query_advice(is_first, Rotation::next());
-            let new_hash_type = meta.query_advice(new_hash_type, Rotation::cur());
+            let is_first = meta.query_advice(is_first, Rotation::cur());
+            let new_hash_type = meta.query_advice(new_hash_type, Rotation::prev());
             let leaf_type = Expression::Constant(Fp::from(HashType::Leaf as u64));
 
-            // if is_leaf then is_first.next = 1, aka we sart a new op
-            vec![sel * is_first * (new_hash_type - leaf_type)]
+            let old_hash = meta.query_advice(old_hash, Rotation::prev());
+            let new_hash = meta.query_advice(new_hash, Rotation::prev());
+
+            // how new op (a row marked as "is_first") can be opened:
+            // + new_hash_type.prev is leaf ||
+            // + prev row has an "identify op": old_hash == new_hash
+            vec![sel * is_first * (new_hash_type - leaf_type) * (old_hash - new_hash)]
         });
 
         meta.create_gate("path bit", |meta| {
@@ -322,7 +327,7 @@ impl<Fp: FieldExt> MPTOpChip<Fp> {
 
         offset += path.len();
         //always prepare for next op (mutiple assignation is ok)
-        self.padding_aux(region, offset)?;
+        // self.padding_aux(region, offset)?;
         
         Ok(offset)     
     }
@@ -478,7 +483,7 @@ mod test {
             layouter.assign_region(|| "op main", |mut region| {
                 self.fill_layer(&config, &mut region, 0)?;
                 let last = op_chip.fill_aux(&mut region, 0, &self.path, self.new_val[0])?;
-                Self::pad_row(&config, &mut region, last)?;
+                Self::pad_row(&config, &mut region, last, Fp::zero())?;
                 Ok(())
             })?;
 
@@ -494,10 +499,18 @@ mod test {
             config: &MPTTestConfig,
             region: &mut Region<'_, Fp>,
             offset: usize,
+            final_root: Fp,
         ) -> Result<(), Error> {
+            region.assign_advice(|| "extend first", config.chip.is_first, offset, || Ok(Fp::one()))?;
+            region.assign_advice(|| "key padding",  config.chip.key, offset, || Ok(Fp::zero()))?;
+            region.assign_advice(|| "depth padding", config.chip.depth_aux, offset, || Ok(Fp::zero()))?;
+            region.assign_advice(|| "root padding", config.chip.root_aux, offset, || Ok(final_root))?;
+
             region.assign_advice(|| "padding path", config.path, offset, || Ok(Fp::zero()))?;
             region.assign_advice(|| "padding hash type", config.new_hash_type, offset, || Ok(Fp::zero()))?;
             region.assign_advice(|| "padding old type", config.old_hash_type, offset, || Ok(Fp::zero()))?;
+            region.assign_advice(|| "padding old root", config.old_val, offset, || Ok(final_root))?;
+            region.assign_advice(|| "padding new root", config.new_val, offset, || Ok(final_root))?;
             Ok(())
         }
 
@@ -656,13 +669,22 @@ mod test {
                 || "multi op main",
                 |mut region| {
                     let mut offset = 0;
+                    let mut last_root = Fp::zero();
                     for op in self.ops.iter() {
                         op.fill_layer(&config, &mut region, offset)?;
                         offset = op_chip.fill_aux(&mut region, offset, &op.path, op.new_val[0])?;
+                        last_root = op.new_val[0];
                     }
+                
+                    //2 more "real" padding
+                    config.s_row.enable(&mut region, offset)?;
+                    MPTTestSingleOpCircuit::pad_row(&config, &mut region, offset, last_root)?;
+                    config.s_row.enable(&mut region, offset + 1)?;
+                    MPTTestSingleOpCircuit::pad_row(&config, &mut region, offset + 1, last_root)?;
                     
                     Ok(())
                 },
+                
                 
             )?;
 
