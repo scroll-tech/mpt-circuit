@@ -163,8 +163,10 @@ mod tests {
 #[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum HashType {
+    /// Marking the start of node
+    Start = 0,
     /// Empty node
-    Empty = 1,
+    Empty,
     /// middle node
     Middle,
     /// leaf node which is extended to middle in insert
