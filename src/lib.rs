@@ -5,7 +5,7 @@
 #![deny(missing_docs)]
 #![deny(unsafe_code)]
 
-pub use crate::serde::{Hash, HashType, Row, RowDeError};
+pub use crate::serde::{Hash, Row, RowDeError};
 
 pub mod mpt;
 pub mod operations;
@@ -13,6 +13,24 @@ mod serde;
 
 #[cfg(test)]
 mod test_utils;
+
+/// Indicate the type of a row
+#[derive(Clone, Copy, Debug)]
+pub enum HashType {
+    /// Marking the start of node
+    Start = 0,
+    /// Empty node
+    Empty,
+    /// middle node
+    Middle,
+    /// leaf node which is extended to middle in insert
+    LeafExt,
+    /// leaf node which is extended to middle in insert, which is the last node in new path
+    LeafExtFinal,
+    /// leaf node
+    Leaf,
+}
+
 
 use ff::PrimeField;
 use halo2::{

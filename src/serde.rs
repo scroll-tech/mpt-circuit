@@ -1,6 +1,42 @@
 use num_bigint::BigUint;
-use serde::Deserialize;
+use serde::{Deserialize, de::{Error, Deserializer}};
 use std::fmt::{Debug, Display, Formatter};
+use super::HashType;
+
+impl<'de> Deserialize<'de> for HashType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        match <&'de str>::deserialize(deserializer)? {
+            "empty" => Ok(HashType::Empty),
+            "middle" => Ok(HashType::Middle),
+            "leafExt" => Ok(HashType::LeafExt),
+            "leafExtFinal" => Ok(HashType::LeafExtFinal),
+            "leaf" => Ok(HashType::Leaf),
+            s => Err(D::Error::unknown_variant(s, &["empty","middle","leafExt","leafExtFinal","leaf"]))
+        }
+    }
+}
+
+
+impl<'de> Deserialize<'de> for Hash {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let de_str = <&'de str>::deserialize(deserializer)?;
+
+        de_str.try_into().map_err(D::Error::custom)
+    }
+}
+
+fn de_uint_bin<'de, D>(deserializer: D) -> Result<BigUint, D::Error>
+where D: Deserializer<'de>
+{
+    let de_str = <&'de str>::deserialize(deserializer)?;
+    BigUint::parse_bytes(de_str.as_bytes(), 2).ok_or(D::Error::custom(RowDeError::BigInt))
+}
 
 #[derive(Debug, thiserror::Error)]
 /// Row type deserialization errors.
@@ -13,7 +49,7 @@ pub enum RowDeError {
     BigInt,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize)]
 /// Row type
 pub struct Row {
     /// maker
@@ -23,8 +59,10 @@ pub struct Row {
     /// (aux col, should not used)
     pub depth: usize,
     /// path: bit for mid and int for leaf
+    #[serde(deserialize_with = "de_uint_bin")]
     pub path: BigUint,
     /// (aux col, should not used)
+    #[serde(deserialize_with = "de_uint_bin")]
     pub path_acc: BigUint,
     /// hash type (before op)
     pub old_hash_type: HashType,
@@ -44,48 +82,10 @@ pub struct Row {
     pub new_root: Hash,
 }
 
-#[derive(Debug, Deserialize)]
-struct RowDe {
-    is_first: bool,
-    sib: String,
-    depth: usize,
-    path: String,
-    path_acc: String,
-    old_hash_type: HashType,
-    old_hash: String,
-    old_value: String,
-    new_hash_type: HashType,
-    new_hash: String,
-    new_value: String,
-    key: String,
-    new_root: String,
-}
-
-impl RowDe {
-    pub fn from_lines(lines: &str) -> Result<Vec<RowDe>, serde_json::Error> {
+impl Row {
+    /// parse rows from JSON array with mutiple records
+    pub fn from_lines(lines: &str) -> Result<Vec<Row>, serde_json::Error> {
         lines.trim().split('\n').map(serde_json::from_str).collect()
-    }
-}
-
-impl TryFrom<&RowDe> for Row {
-    type Error = RowDeError;
-
-    fn try_from(r: &RowDe) -> Result<Self, Self::Error> {
-        Ok(Self {
-            is_first: r.is_first,
-            sib: Hash::try_from(r.sib.as_str())?,
-            depth: r.depth,
-            path: BigUint::parse_bytes(r.path.as_bytes(), 2).ok_or(RowDeError::BigInt)?,
-            path_acc: BigUint::parse_bytes(r.path_acc.as_bytes(), 2).ok_or(RowDeError::BigInt)?,
-            old_hash_type: r.old_hash_type,
-            old_hash: Hash::try_from(r.old_hash.as_str())?,
-            old_value: Hash::try_from(r.old_value.as_str())?,
-            new_hash_type: r.new_hash_type,
-            new_hash: Hash::try_from(r.new_hash.as_str())?,
-            new_value: Hash::try_from(r.new_value.as_str())?,
-            key: Hash::try_from(r.key.as_str())?,
-            new_root: Hash::try_from(r.new_root.as_str())?,
-        })
     }
 }
 
@@ -141,38 +141,15 @@ mod tests {
     const TEST_FILE: &'static str = include_str!("../rows.jsonl");
 
     #[test]
-    fn test_de() {
-        RowDe::from_lines(TEST_FILE).unwrap();
+    fn row_de() {
+        Row::from_lines(TEST_FILE).unwrap();
     }
 
     #[test]
-    fn test_parse() {
-        let rows: Result<Vec<Row>, RowDeError> = RowDe::from_lines(TEST_FILE)
-            .unwrap()
-            .iter()
-            .map(Row::try_from)
-            .collect();
-        let rows = rows.unwrap();
+    fn row_parse() {
+        let rows = Row::from_lines(TEST_FILE).unwrap();
         for row in rows.iter() {
             println!("{:?}", row);
         }
     }
-}
-
-/// Indicate the type of a row
-#[derive(Clone, Copy, Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum HashType {
-    /// Marking the start of node
-    Start = 0,
-    /// Empty node
-    Empty,
-    /// middle node
-    Middle,
-    /// leaf node which is extended to middle in insert
-    LeafExt,
-    /// leaf node which is extended to middle in insert, which is the last node in new path
-    LeafExtFinal,
-    /// leaf node
-    Leaf,
 }
