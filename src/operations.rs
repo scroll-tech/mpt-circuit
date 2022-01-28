@@ -274,11 +274,12 @@ impl<Fp: FieldExt> MPTOpChip<Fp> {
         &self,
         region: &mut Region<'_, Fp>,
         offset: usize,
+        pad_root: Fp,
     ) -> Result<usize, Error> {
 
         region.assign_advice(|| "key padding",  self.config().key, offset, || Ok(Fp::zero()))?;
         region.assign_advice(|| "depth padding", self.config().depth_aux, offset, || Ok(Fp::zero()))?;
-        region.assign_advice(|| "root padding", self.config().root_aux, offset, || Ok(Fp::zero()))?;
+        region.assign_advice(|| "root padding", self.config().root_aux, offset, || Ok(pad_root))?;
         if offset == 0 {
             //need to fix the "is_first" flag in first working row
             region.assign_advice_from_constant(|| "top of is_first", self.config().is_first, 0, Fp::one())?;
@@ -301,7 +302,7 @@ impl<Fp: FieldExt> MPTOpChip<Fp> {
 
         assert!(path.len() > 0, "input must not empty");
         // padding first row
-        offset = self.padding_aux(region, offset)?;
+        offset = self.padding_aux(region, offset, new_root)?;
 
         let is_first = self.config().is_first;
         let key_aux = self.config().key;
@@ -481,9 +482,8 @@ mod test {
             let op_chip = MPTOpChip::<Fp>::construct(config.chip.clone());
 
             layouter.assign_region(|| "op main", |mut region| {
-                self.fill_layer(&config, &mut region, 0)?;
-                let last = op_chip.fill_aux(&mut region, 0, &self.path, self.new_val[0])?;
-                Self::pad_row(&config, &mut region, last, Fp::zero())?;
+                let last = self.fill_layer(&config, &mut region, 0, &op_chip)?;
+                self.pad_row(&config, &mut region, last, &op_chip)?;
                 Ok(())
             })?;
 
@@ -496,22 +496,22 @@ mod test {
     impl MPTTestSingleOpCircuit {
 
         pub fn pad_row(
+            &self,
             config: &MPTTestConfig,
             region: &mut Region<'_, Fp>,
             offset: usize,
-            final_root: Fp,
-        ) -> Result<(), Error> {
-            region.assign_advice(|| "extend first", config.chip.is_first, offset, || Ok(Fp::one()))?;
-            region.assign_advice(|| "key padding",  config.chip.key, offset, || Ok(Fp::zero()))?;
-            region.assign_advice(|| "depth padding", config.chip.depth_aux, offset, || Ok(Fp::zero()))?;
-            region.assign_advice(|| "root padding", config.chip.root_aux, offset, || Ok(final_root))?;
+            aux_chip: &MPTOpChip<Fp>,
+        ) -> Result<usize, Error> {
+
+            let final_root = self.new_val[0];
 
             region.assign_advice(|| "padding path", config.path, offset, || Ok(Fp::zero()))?;
             region.assign_advice(|| "padding hash type", config.new_hash_type, offset, || Ok(Fp::zero()))?;
             region.assign_advice(|| "padding old type", config.old_hash_type, offset, || Ok(Fp::zero()))?;
             region.assign_advice(|| "padding old root", config.old_val, offset, || Ok(final_root))?;
             region.assign_advice(|| "padding new root", config.new_val, offset, || Ok(final_root))?;
-            Ok(())
+
+            aux_chip.padding_aux(region, offset, final_root)
         }
 
         pub fn fill_layer(
@@ -519,7 +519,8 @@ mod test {
             config: &MPTTestConfig,
             region: &mut Region<'_, Fp>,
             offset: usize,
-        ) -> Result<(), Error> {
+            aux_chip: &MPTOpChip<Fp>,
+        ) -> Result<usize, Error> {
 
             // notice we can have different length for old_val and new_val
             for (index, val) in self.old_val.iter().enumerate()  {
@@ -568,7 +569,7 @@ mod test {
                 )?;
             }
 
-            Ok(())
+            aux_chip.fill_aux(region, offset, &self.path, self.new_val[0])
         }
     }
 
@@ -669,18 +670,16 @@ mod test {
                 || "multi op main",
                 |mut region| {
                     let mut offset = 0;
-                    let mut last_root = Fp::zero();
                     for op in self.ops.iter() {
-                        op.fill_layer(&config, &mut region, offset)?;
-                        offset = op_chip.fill_aux(&mut region, offset, &op.path, op.new_val[0])?;
-                        last_root = op.new_val[0];
+                        offset = op.fill_layer(&config, &mut region, offset, &op_chip)?;
                     }
                 
+                    let last_op = self.ops.last().unwrap();
                     //2 more "real" padding
                     config.s_row.enable(&mut region, offset)?;
-                    MPTTestSingleOpCircuit::pad_row(&config, &mut region, offset, last_root)?;
-                    config.s_row.enable(&mut region, offset + 1)?;
-                    MPTTestSingleOpCircuit::pad_row(&config, &mut region, offset + 1, last_root)?;
+                    offset = last_op.pad_row(&config, &mut region, offset, &op_chip)?;
+                    config.s_row.enable(&mut region, offset)?;
+                    last_op.pad_row(&config, &mut region, offset, &op_chip)?;
                     
                     Ok(())
                 },
@@ -695,7 +694,7 @@ mod test {
     }
 
     #[test]
-    fn test_mutiple_op() {
+    fn test_multiple_op() {
 
         let k = 5;
 
@@ -705,12 +704,12 @@ mod test {
 
         // Generate layout graph
         
-        use plotters::prelude::*;
-        let root = BitMapBackend::new("layout.png", (1024, 768)).into_drawing_area();
+        /*use plotters::prelude::*;
+        let root = SVGBackend::new("layout.svg", (1024, 768)).into_drawing_area();
         root.fill(&WHITE).unwrap();
-        let root = root
-            .titled("Test Circuit Layout", ("sans-serif", 60))
-            .unwrap();
+        //let root = root
+            //.titled("Test Circuit Layout", ("sans-serif", 60))
+        //    .unwrap();
 
         halo2::dev::CircuitLayout::default()
             // You can optionally render only a section of the circuit.
@@ -723,7 +722,7 @@ mod test {
             // The first argument is the size parameter for the circuit.
             .render(k, &circuit, &root)
             .unwrap();
-        
+        */
 
         let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
