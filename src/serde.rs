@@ -1,9 +1,12 @@
 //! deserialize data for operations
-//! 
-use num_bigint::BigUint;
-use serde::{Deserialize, de::{Error, Deserializer}};
-use std::fmt::{Debug, Display, Formatter};
+//!
 use super::HashType;
+use num_bigint::BigUint;
+use serde::{
+    de::{Deserializer, Error},
+    Deserialize,
+};
+use std::fmt::{Debug, Display, Formatter};
 
 impl<'de> Deserialize<'de> for HashType {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -16,11 +19,13 @@ impl<'de> Deserialize<'de> for HashType {
             "leafExt" => Ok(HashType::LeafExt),
             "leafExtFinal" => Ok(HashType::LeafExtFinal),
             "leaf" => Ok(HashType::Leaf),
-            s => Err(D::Error::unknown_variant(s, &["empty","middle","leafExt","leafExtFinal","leaf"]))
+            s => Err(D::Error::unknown_variant(
+                s,
+                &["empty", "middle", "leafExt", "leafExtFinal", "leaf"],
+            )),
         }
     }
 }
-
 
 impl<'de> Deserialize<'de> for Hash {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -34,10 +39,11 @@ impl<'de> Deserialize<'de> for Hash {
 }
 
 fn de_uint_bin<'de, D>(deserializer: D) -> Result<BigUint, D::Error>
-where D: Deserializer<'de>
+where
+    D: Deserializer<'de>,
 {
     let de_str = <&'de str>::deserialize(deserializer)?;
-    BigUint::parse_bytes(de_str.as_bytes(), 2).ok_or(D::Error::custom(RowDeError::BigInt))
+    BigUint::parse_bytes(de_str.as_bytes(), 2).ok_or_else(|| D::Error::custom(RowDeError::BigInt))
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -97,11 +103,9 @@ impl Row {
         let mut current = Vec::new();
 
         for row in rows {
-            if row.is_first {
-                if !current.is_empty() {
-                    out.push(current);
-                    current = Vec::new();
-                }
+            if row.is_first && !current.is_empty() {
+                out.push(current);
+                current = Vec::new();
             }
             current.push(row);
         }
@@ -187,5 +191,5 @@ mod tests {
             }
             println!("----");
         }
-    }    
+    }
 }

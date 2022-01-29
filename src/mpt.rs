@@ -1,4 +1,4 @@
-//! The constraint system matrix for an arity-2 Merkle Patricia Tree using lookup-table 
+//! The constraint system matrix for an arity-2 Merkle Patricia Tree using lookup-table
 //! for verifying the Merkle path of mutiple leaf nodes
 //
 //  The lookup table is formed by <left, right, hash> and the input can be
@@ -22,6 +22,7 @@
 //  |-----||----------------|------------------|------------------|-------|---------|----------------|----------------|--------|
 //
 
+use super::HashType;
 use halo2::{
     arithmetic::FieldExt,
     circuit::{Chip, Layouter},
@@ -29,21 +30,21 @@ use halo2::{
     poly::Rotation,
 };
 use std::marker::PhantomData;
-use super::HashType;
 
-fn lagrange_polynomial_for_hashtype<Fp: ff::PrimeField, const T: usize>(ref_n: Expression<Fp>) -> Expression<Fp>{
-
+fn lagrange_polynomial_for_hashtype<Fp: ff::PrimeField, const T: usize>(
+    ref_n: Expression<Fp>,
+) -> Expression<Fp> {
     let mut denominators = vec![
         Fp::from(T as u64) - Fp::zero(), //notice we also need to include the default value of cell (0)
-        Fp::from(T as u64) - Fp::from(HashType::Empty as u64), 
-        Fp::from(T as u64) - Fp::from(HashType::Middle as u64), 
-        Fp::from(T as u64) - Fp::from(HashType::LeafExt as u64), 
-        Fp::from(T as u64) - Fp::from(HashType::LeafExtFinal as u64), 
-        Fp::from(T as u64) - Fp::from(HashType::Leaf as u64), 
+        Fp::from(T as u64) - Fp::from(HashType::Empty as u64),
+        Fp::from(T as u64) - Fp::from(HashType::Middle as u64),
+        Fp::from(T as u64) - Fp::from(HashType::LeafExt as u64),
+        Fp::from(T as u64) - Fp::from(HashType::LeafExtFinal as u64),
+        Fp::from(T as u64) - Fp::from(HashType::Leaf as u64),
     ];
 
     denominators.swap_remove(T);
-    let denominator = denominators.into_iter().fold(Fp::one(), |acc, v| v  * acc);
+    let denominator = denominators.into_iter().fold(Fp::one(), |acc, v| v * acc);
     assert_ne!(denominator, Fp::zero());
 
     let mut factors = vec![
@@ -52,7 +53,7 @@ fn lagrange_polynomial_for_hashtype<Fp: ff::PrimeField, const T: usize>(ref_n: E
         ref_n.clone() - Expression::Constant(Fp::from(HashType::Middle as u64)),
         ref_n.clone() - Expression::Constant(Fp::from(HashType::LeafExt as u64)),
         ref_n.clone() - Expression::Constant(Fp::from(HashType::LeafExtFinal as u64)),
-        ref_n.clone() - Expression::Constant(Fp::from(HashType::Leaf as u64)),
+        ref_n - Expression::Constant(Fp::from(HashType::Leaf as u64)),
     ];
 
     factors.swap_remove(T);
@@ -159,11 +160,7 @@ impl<Fp: FieldExt> MPTChip<Fp> {
             let val_leaf_col = s_leaf.clone() * meta.query_advice(val, Rotation::cur());
             let hash_lookup = s_leaf * meta.query_advice(val, Rotation::prev());
 
-            vec![
-                (key_col, left),
-                (val_leaf_col, right),
-                (hash_lookup, hash),
-            ]
+            vec![(key_col, left), (val_leaf_col, right), (hash_lookup, hash)]
         });
 
         MPTChipConfig { left, right, hash }
@@ -240,7 +237,7 @@ mod test {
     struct MPTTestSinglePathCircuit {
         pub leaf: Fp,          //the val of leaf
         pub siblings: Vec<Fp>, //siblings from top to bottom
-        pub key: u32,         //the key simply expressed by u32
+        pub key: u32,          //the key simply expressed by u32
     }
 
     impl Circuit<Fp> for MPTTestSinglePathCircuit {
@@ -262,12 +259,10 @@ mod test {
 
             meta.create_gate("boolean/bit", |meta| {
                 let hash_type = meta.query_advice(hash_type, Rotation::cur());
-                let s_path = lagrange_polynomial_for_hashtype::<_, 2>(hash_type);                
+                let s_path = lagrange_polynomial_for_hashtype::<_, 2>(hash_type);
                 let path_col = meta.query_advice(path, Rotation::cur());
                 let s_row = meta.query_selector(s_row);
-                vec![
-                    s_row.clone() * s_path * path_col.clone() * (path_col - one.clone()),
-                ]
+                vec![s_row.clone() * s_path * path_col.clone() * (path_col - one.clone())]
             });
 
             MPTTestConfig {
@@ -353,7 +348,12 @@ mod test {
             let mut offset = 0;
             // each block has a padding row at the beginning
             region.assign_advice(|| "root", config.val, 0, || Ok(path_trace[0]))?;
-            region.assign_advice(|| "hash_type padding", config.hash_type, offset, || Ok(Fp::zero()))?;
+            region.assign_advice(
+                || "hash_type padding",
+                config.hash_type,
+                offset,
+                || Ok(Fp::zero()),
+            )?;
             region.assign_advice(|| "path padding", config.path, offset, || Ok(Fp::zero()))?;
             offset += 1;
 
@@ -363,7 +363,7 @@ mod test {
                     || "sibling",
                     config.sibling,
                     offset,
-                    || Ok(self.siblings[offset-1]),
+                    || Ok(self.siblings[offset - 1]),
                 )?;
                 region.assign_advice(
                     || "path",
@@ -371,13 +371,33 @@ mod test {
                     offset,
                     || Ok(if bit { Fp::one() } else { Fp::zero() }),
                 )?;
-                region.assign_advice(|| "hash_type", config.hash_type, offset, || Ok(Fp::from(HashType::Middle as u64)))?;
+                region.assign_advice(
+                    || "hash_type",
+                    config.hash_type,
+                    offset,
+                    || Ok(Fp::from(HashType::Middle as u64)),
+                )?;
                 offset += 1;
             }
             region.assign_advice(|| "val", config.val, offset, || Ok(self.leaf))?;
-            region.assign_advice(|| "leaf_type", config.hash_type, offset, || Ok(Fp::from(HashType::Leaf as u64)))?;
-            region.assign_advice(|| "key", config.key, offset, || Ok(Fp::from(self.key as u64)))?;
-            region.assign_advice(|| "path padding", config.path, offset, || Ok(Fp::from(res_key as u64)))?;
+            region.assign_advice(
+                || "leaf_type",
+                config.hash_type,
+                offset,
+                || Ok(Fp::from(HashType::Leaf as u64)),
+            )?;
+            region.assign_advice(
+                || "key",
+                config.key,
+                offset,
+                || Ok(Fp::from(self.key as u64)),
+            )?;
+            region.assign_advice(
+                || "path padding",
+                config.path,
+                offset,
+                || Ok(Fp::from(res_key as u64)),
+            )?;
             offset += 1;
 
             //enable all
@@ -405,26 +425,8 @@ mod test {
         };
         let k = 4; //at least 16 rows
 
-        // Generate layout graph
-        /*
-        use plotters::prelude::*;
-        let root = BitMapBackend::new("layout.png", (1024, 768)).into_drawing_area();
-        root.fill(&WHITE).unwrap();
-        //let root = root
-            //.titled("Test Circuit Layout", ("sans-serif", 60))
-            //.unwrap();
-
-        halo2::dev::CircuitLayout::default()
-            // You can optionally render only a section of the circuit.
-            //.view_width(0..2)
-            //.view_height(0..16)
-            // You can hide labels, which can be useful with smaller areas.
-            .show_labels(true)
-            // Render the circuit onto your area!
-            // The first argument is the size parameter for the circuit.
-            .render(k, &circuit, &root)
-            .unwrap();
-        */
+        #[cfg(feature = "print_layout")]
+        print_layout!("mpt_layout.png", k, &circuit);
 
         let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));

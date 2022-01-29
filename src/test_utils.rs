@@ -26,3 +26,28 @@ pub fn rand_fp() -> Fp {
     arr[31] &= 31;
     Fp::from_bytes(&arr).unwrap()
 }
+
+macro_rules! print_layout {
+    ( $pic:expr, $k:expr, $circuit:expr ) => {
+        use plotters::prelude::*;
+        let root = BitMapBackend::new($pic, (1024, 768)).into_drawing_area();
+        root.fill(&WHITE).unwrap();
+        let root = root
+            .titled("Test Circuit Layout", ("sans-serif", 60))
+            .unwrap();
+
+        halo2::dev::CircuitLayout::default()
+            // You can optionally render only a section of the circuit.
+            //.view_width(0..2)
+            //.view_height(0..16)
+            // You can hide labels, which can be useful with smaller areas.
+            .show_labels(true)
+            .mark_equality_cells(true)
+            // Render the circuit onto your area!
+            // The first argument is the size parameter for the circuit.
+            .render($k, $circuit, &root)
+            .unwrap();
+    };
+}
+
+pub(crate) use print_layout;
