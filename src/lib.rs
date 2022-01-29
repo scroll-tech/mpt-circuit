@@ -9,7 +9,7 @@ pub use crate::serde::{Hash, Row, RowDeError};
 
 pub mod mpt;
 pub mod operations;
-mod serde;
+pub mod serde;
 
 #[cfg(test)]
 mod test_utils;
@@ -39,15 +39,15 @@ use halo2::{
     plonk::{Advice, Circuit, Selector, Column, ConstraintSystem, Error},
 };
 
+
+/// The config for circuit
 #[derive(Clone, Debug)]
-struct MPTConfig {
+pub struct MPTConfig {
     s_row: Selector,
     sibling: Column<Advice>,
     path: Column<Advice>,
     old_hash_type: Column<Advice>,
     new_hash_type: Column<Advice>,
-    old_hash: Column<Advice>,
-    new_hash: Column<Advice>,
     old_val: Column<Advice>,
     new_val: Column<Advice>,    
     op_chip: operations::MPTOpChipConfig,
@@ -55,22 +55,53 @@ struct MPTConfig {
     new_state_chip: mpt::MPTChipConfig,
 }
 
-#[derive(Clone, Default)]
-struct SingleOp<Fp: PrimeField> {
-    pub old_hash_type: Vec<HashType>,
-    pub new_hash_type: Vec<HashType>,
-    pub key: Fp,
-    pub old_leaf: Option<Fp>,
-    pub new_leaf: Option<Fp>,
+/// Represent for a single operation
+#[derive(Clone, Default, Debug)]
+pub struct SingleOp<Fp: PrimeField> {
+    old_hash_type: Vec<HashType>,
+    new_hash_type: Vec<HashType>,
+    key: Fp,
+    old_leaf: Option<Fp>,
+    new_leaf: Option<Fp>,
     // suppose the hash started from root to leaf node
     // i.e. the max length of old/new_hash is equal to
     // path and siblings, while the length and siblings 
     // has same length, the last element inside path/siblings
     // is not used 
-    pub old_hash: Vec<Fp>,
-    pub new_hash: Vec<Fp>,
-    pub path: Vec<Fp>,
-    pub siblings: Vec<Fp>, 
+    old_hash: Vec<Fp>,
+    new_hash: Vec<Fp>,
+    path: Vec<Fp>,
+    siblings: Vec<Fp>, 
+}
+
+// Turn a row array into single op, brutely fail with any reason like 
+// a unfinished op 
+impl<'d, Fp: FieldExt> From<&'d [serde::Row]> for SingleOp<Fp> {
+
+    fn from(rows: &[serde::Row]) -> Self {
+        let mut ret = SingleOp::<Fp>::default();
+
+        ret.key = Fp::from_bytes(rows[0].key.as_ref()).unwrap();
+        let leaf_val = Fp::from_bytes(rows.last().unwrap().old_value.as_ref()).unwrap();
+        ret.old_leaf = if leaf_val != Fp::zero() {Some(leaf_val)} else {None};
+        let leaf_val = Fp::from_bytes(rows.last().unwrap().new_value.as_ref()).unwrap();
+        ret.new_leaf = if leaf_val != Fp::zero() {Some(leaf_val)} else {None};
+
+        rows.iter().for_each(|row|{
+
+            ret.old_hash.push(Fp::from_bytes(row.old_hash.as_ref()).unwrap());
+            ret.new_hash.push(Fp::from_bytes(row.new_hash.as_ref()).unwrap());
+            ret.siblings.push(Fp::from_bytes(row.sib.as_ref()).unwrap());
+            let mut to_hash_int = row.path.to_bytes_le();
+            to_hash_int.resize(32, 0u8);
+            ret.path.push(Fp::from_bytes(&to_hash_int.try_into().unwrap()).unwrap());
+
+            ret.new_hash_type.push(row.new_hash_type);
+            ret.old_hash_type.push(row.old_hash_type);
+        });
+
+        ret
+    }
 }
 
 impl<Fp: FieldExt> SingleOp<Fp> {
@@ -102,11 +133,21 @@ impl<Fp: FieldExt> SingleOp<Fp> {
     }
 
     fn old_hash_traces(&self) -> Vec<(Fp, Fp, Fp)> {
-        self.gen_hash_traces(&self.old_hash)
+        let mut ret = self.gen_hash_traces(&self.old_hash);
+        if let Some(leaf_v) = &self.old_leaf {
+            ret.push((self.key, *leaf_v, *self.old_hash.last().unwrap()));
+        };
+        
+        ret
     }
 
     fn new_hash_traces(&self) -> Vec<(Fp, Fp, Fp)> {
-        self.gen_hash_traces(&self.new_hash)
+        let mut ret = self.gen_hash_traces(&self.new_hash);
+        if let Some(leaf_v) = &self.new_leaf {
+            ret.push((self.key, *leaf_v, *self.new_hash.last().unwrap()));
+        };
+
+        ret
     }
 
     fn fill_layer(
@@ -114,23 +155,34 @@ impl<Fp: FieldExt> SingleOp<Fp> {
         config: &MPTConfig,
         region: &mut Region<'_, Fp>,
         offset: usize,
+        op_chip: &operations::MPTOpChip<Fp>,
     ) -> Result<usize, Error> {
+
+        // pick assigned rang from path, notice one more row is required
+        let assigned_range = self.path.len() + 1;
 
         let mut old_val = self.old_hash.clone();
         if let Some(v) = self.old_leaf {
             old_val.push(v);
         }
         // notice we can have different length for old_val and new_val
-        // we not care about unassigned cell because they just be reffered in lookup, not gate
         for (index, val) in old_val.iter().enumerate()  {
             region.assign_advice(|| "old hash or leaf val", config.old_val, index + offset, || Ok(*val))?;
         }
+        // also we should pad the rest cell
+        for index in old_val.len()..assigned_range {
+            region.assign_advice(|| "old hash or leaf val padding", config.old_val, index + offset, || Ok(Fp::zero()))?;
+        }
+
         let mut new_val = self.new_hash.clone();
         if let Some(v) = self.new_leaf {
             new_val.push(v);
         }
         for (index, val) in new_val.iter().enumerate()  {
             region.assign_advice(|| "new hash or leaf val", config.new_val, index + offset, || Ok(*val))?;
+        }
+        for index in new_val.len()..assigned_range {
+            region.assign_advice(|| "new hash or leaf val padding", config.new_val, index + offset, || Ok(Fp::zero()))?;
         }
 
         // pad first row
@@ -141,7 +193,6 @@ impl<Fp: FieldExt> SingleOp<Fp> {
         // other col start from row 1
         for ind in 0..self.path.len() {
             let offset = offset + ind + 1;
-            config.s_row.enable(region, offset)?;
 
             region.assign_advice(
                 || "path", 
@@ -168,17 +219,39 @@ impl<Fp: FieldExt> SingleOp<Fp> {
             )?;
         }
 
-        // now use a op_chip for assigning the aux region
-        let op_chip = operations::MPTOpChip::<Fp>::construct(config.op_chip.clone());
         op_chip.fill_aux(region, offset, &self.path, self.new_root())
     }
     
+    // each op can pad one or more rows
+    fn pad_row(
+        &self,
+        config: &MPTConfig,
+        region: &mut Region<'_, Fp>,
+        offset: usize,
+        op_chip: &operations::MPTOpChip<Fp>,
+    ) -> Result<usize, Error> {
+
+        //notice: do not pad row 0
+        assert_ne!(offset, 0);
+
+        region.assign_advice(|| "padding path", config.path, offset, || Ok(Fp::zero()))?;
+        region.assign_advice(|| "padding hash type", config.new_hash_type, offset, || Ok(Fp::zero()))?;
+        region.assign_advice(|| "padding old type", config.old_hash_type, offset, || Ok(Fp::zero()))?;
+        region.assign_advice(|| "padding old root", config.old_val, offset, || Ok(self.new_root()))?;
+        region.assign_advice(|| "padding new root", config.new_val, offset, || Ok(self.new_root()))?;
+
+        op_chip.padding_aux(region, offset, self.new_root())
+
+    }
+
 }
 
+/// The demo circuit for op circuit
 #[derive(Clone, Default)]
-struct MPTDemoCircuit<Fp: PrimeField> {
-    pub ops: Vec<SingleOp<Fp>>,
+pub struct MPTDemoCircuit<Fp: PrimeField> {
+    /// max row the circuits can accordinate
     pub max_rows: usize,
+    ops: Vec<SingleOp<Fp>>,
     used_rows: usize,
     old_hash_traces: Vec<(Fp, Fp, Fp)>,
     new_hash_traces: Vec<(Fp, Fp, Fp)>,
@@ -187,12 +260,27 @@ struct MPTDemoCircuit<Fp: PrimeField> {
 }
 
 impl<Fp: FieldExt> MPTDemoCircuit<Fp> {
+
+    /// create new instance
+    pub fn new(max_rows: usize) -> Self {
+        let mut ret = Self::default();
+        ret.max_rows = max_rows;
+        ret
+    }
+
+    /// insert an operation
     pub fn add_operation(&mut self, op: SingleOp<Fp>) -> Result<(), Error>{
 
         if self.used_rows + op.use_rows() > self.max_rows {
             return Err(Error::BoundsFailure)
         }
         self.used_rows += op.use_rows();
+
+        if let Some(root) = self.exit_root {
+            if op.start_root() != root {
+                return Err(Error::Synthesis)
+            }
+        }
 
         self.exit_root.replace(op.new_root());
         if self.start_root.is_none() {
@@ -206,6 +294,7 @@ impl<Fp: FieldExt> MPTDemoCircuit<Fp> {
 
         Ok(())
     }
+    
 }
 
 impl<Fp: FieldExt> Circuit<Fp> for MPTDemoCircuit<Fp> {
@@ -223,14 +312,14 @@ impl<Fp: FieldExt> Circuit<Fp> for MPTDemoCircuit<Fp> {
         let path = meta.advice_column();
         let old_hash_type = meta.advice_column();
         let new_hash_type = meta.advice_column();
-        let old_hash = meta.advice_column();
-        let new_hash = meta.advice_column();
         let old_val = meta.advice_column();
         let new_val = meta.advice_column();
+        let cst = meta.fixed_column();
+        meta.enable_constant(cst);
 
-        let op_chip = operations::MPTOpChip::<Fp>::configure(meta, s_row, sibling, path, old_hash_type, new_hash_type, old_hash, new_hash);
-        let new_state_chip = mpt::MPTChip::<Fp>::configure(meta, old_hash_type, old_hash, op_chip.key, sibling, path);
-        let old_state_chip = mpt::MPTChip::<Fp>::configure(meta, new_hash_type, new_hash, op_chip.key, sibling, path);
+        let op_chip = operations::MPTOpChip::<Fp>::configure(meta, s_row, sibling, path, old_hash_type, new_hash_type, old_val, new_val);
+        let old_state_chip = mpt::MPTChip::<Fp>::configure(meta, old_hash_type, old_val, op_chip.key, sibling, path);
+        let new_state_chip = mpt::MPTChip::<Fp>::configure(meta, new_hash_type, new_val, op_chip.key, sibling, path);
 
         MPTConfig {
             s_row,
@@ -238,8 +327,6 @@ impl<Fp: FieldExt> Circuit<Fp> for MPTDemoCircuit<Fp> {
             path,
             old_hash_type,
             new_hash_type,
-            old_hash,
-            new_hash,
             old_val,
             new_val,
             op_chip,
@@ -254,30 +341,35 @@ impl<Fp: FieldExt> Circuit<Fp> for MPTDemoCircuit<Fp> {
         mut layouter: impl Layouter<Fp>,
     ) -> Result<(), Error> {
 
+        let op_chip = operations::MPTOpChip::<Fp>::construct(config.op_chip.clone());
+        op_chip.load(&mut layouter)?;
+        let state_new_chip = mpt::MPTChip::<Fp>::construct(config.new_state_chip.clone());
+        state_new_chip.load(&mut layouter, self.new_hash_traces.clone())?;
+        let state_old_chip = mpt::MPTChip::<Fp>::construct(config.old_state_chip.clone());
+        state_old_chip.load(&mut layouter, self.old_hash_traces.clone())?;
+
         layouter.assign_region(
             || "multi op main",
             |mut region| {
-                let mut offset = 0;
 
-                for op in self.ops.iter() {
-                    offset = op.fill_layer(&config, &mut region, offset)?;
-                }
-                
                 for offset in 1..self.max_rows {
                     config.s_row.enable(&mut region, offset)?;
+                }
+
+                let mut offset = 0;
+                for op in self.ops.iter() {
+                    offset = op.fill_layer(&config, &mut region, offset, &op_chip)?;
+                }
+                let last_op = self.ops.last().unwrap();
+
+                for pad_offset in offset..self.max_rows {
+                    last_op.pad_row(&config, &mut region, pad_offset, &op_chip)?;
                 }
 
                 Ok(())
             },
             
         )?;
-
-        let op_chip = operations::MPTOpChip::<Fp>::construct(config.op_chip);
-        op_chip.load(&mut layouter)?;
-        let state_new_chip = mpt::MPTChip::<Fp>::construct(config.new_state_chip);
-        state_new_chip.load(&mut layouter, self.new_hash_traces.clone())?;
-        let state_old_chip = mpt::MPTChip::<Fp>::construct(config.old_state_chip);
-        state_old_chip.load(&mut layouter, self.old_hash_traces.clone())?;
 
         Ok(())
     }

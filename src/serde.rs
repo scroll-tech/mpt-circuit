@@ -1,3 +1,5 @@
+//! deserialize data for operations
+//! 
 use num_bigint::BigUint;
 use serde::{Deserialize, de::{Error, Deserializer}};
 use std::fmt::{Debug, Display, Formatter};
@@ -87,6 +89,29 @@ impl Row {
     pub fn from_lines(lines: &str) -> Result<Vec<Row>, serde_json::Error> {
         lines.trim().split('\n').map(serde_json::from_str).collect()
     }
+
+    /// fold flattern rows into ops array, each ops include serveral rows
+    /// and start with an row whose is_first is true
+    pub fn fold_flattern_rows(rows: Vec<Row>) -> Vec<Vec<Row>> {
+        let mut out = Vec::new();
+        let mut current = Vec::new();
+
+        for row in rows {
+            if row.is_first {
+                if !current.is_empty() {
+                    out.push(current);
+                    current = Vec::new();
+                }
+            }
+            current.push(row);
+        }
+
+        if !current.is_empty() {
+            out.push(current);
+        }
+
+        out
+    }
 }
 
 #[derive(Default, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -152,4 +177,15 @@ mod tests {
             println!("{:?}", row);
         }
     }
+
+    #[test]
+    fn row_parse_to_op() {
+        let ops = Row::fold_flattern_rows(Row::from_lines(TEST_FILE).unwrap());
+        for op in ops {
+            for row in op {
+                println!("{:?}", row);
+            }
+            println!("----");
+        }
+    }    
 }
