@@ -123,7 +123,6 @@ impl<Fp: FieldExt> MPTOpChip<Fp> {
     pub fn configure(
         meta: &mut ConstraintSystem<Fp>,
         s_row: Selector,
-        _sibling: Column<Advice>,
         path: Column<Advice>,
         old_hash_type: Column<Advice>,
         new_hash_type: Column<Advice>,
@@ -440,7 +439,6 @@ mod test {
     #[derive(Clone, Debug)]
     struct MPTTestConfig {
         s_row: Selector,
-        sibling: Column<Advice>,
         path: Column<Advice>,
         old_hash_type: Column<Advice>,
         new_hash_type: Column<Advice>,
@@ -469,7 +467,6 @@ mod test {
 
         fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
             let s_row = meta.selector();
-            let sibling = meta.advice_column();
             let path = meta.advice_column();
             let old_hash_type = meta.advice_column();
             let new_hash_type = meta.advice_column();
@@ -481,7 +478,6 @@ mod test {
 
             MPTTestConfig {
                 s_row,
-                sibling,
                 path,
                 old_hash_type,
                 new_hash_type,
@@ -490,7 +486,6 @@ mod test {
                 chip: MPTOpChip::configure(
                     meta,
                     s_row,
-                    sibling,
                     path,
                     old_hash_type,
                     new_hash_type,
@@ -610,12 +605,6 @@ mod test {
                 config.s_row.enable(region, offset)?;
 
                 region.assign_advice(|| "path", config.path, offset, || Ok(self.path[ind]))?;
-                region.assign_advice(
-                    || "sibling",
-                    config.sibling,
-                    offset,
-                    || Ok(self.siblings[ind]),
-                )?;
                 region.assign_advice(
                     || "hash_type_old",
                     config.old_hash_type,

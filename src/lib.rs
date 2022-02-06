@@ -218,6 +218,7 @@ impl<Fp: FieldExt> SingleOp<Fp> {
 
         // pad first row
         region.assign_advice(|| "path", config.path, offset, || Ok(Fp::zero()))?;
+        region.assign_advice(|| "sibling path", config.sibling, offset, || Ok(Fp::zero()))?;
         region.assign_advice(
             || "hash_type_old",
             config.old_hash_type,
@@ -271,6 +272,12 @@ impl<Fp: FieldExt> SingleOp<Fp> {
         assert_ne!(offset, 0);
 
         region.assign_advice(|| "padding path", config.path, offset, || Ok(Fp::zero()))?;
+        region.assign_advice(
+            || "padding sibling",
+            config.sibling,
+            offset,
+            || Ok(Fp::zero()),
+        )?;
         region.assign_advice(
             || "padding hash type",
             config.new_hash_type,
@@ -371,17 +378,30 @@ impl<Fp: FieldExt> Circuit<Fp> for MPTDemoCircuit<Fp> {
         let op_chip = operations::MPTOpChip::<Fp>::configure(
             meta,
             s_row,
-            sibling,
             path,
             old_hash_type,
             new_hash_type,
             old_val,
             new_val,
         );
-        let old_state_chip =
-            mpt::MPTChip::<Fp>::configure(meta, old_hash_type, old_val, op_chip.key, sibling, path);
-        let new_state_chip =
-            mpt::MPTChip::<Fp>::configure(meta, new_hash_type, new_val, op_chip.key, sibling, path);
+        let old_state_chip = mpt::MPTChip::<Fp>::configure(
+            meta,
+            s_row,
+            old_hash_type,
+            old_val,
+            op_chip.key,
+            sibling,
+            path,
+        );
+        let new_state_chip = mpt::MPTChip::<Fp>::configure(
+            meta,
+            s_row,
+            new_hash_type,
+            new_val,
+            op_chip.key,
+            sibling,
+            path,
+        );
 
         MPTConfig {
             s_row,

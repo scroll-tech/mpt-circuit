@@ -21,12 +21,14 @@
 //  |  6  ||      Empty     |      leaf1       |                  |Leafkey|         |                                          |
 //  |-----||----------------|------------------|------------------|-------|---------|----------------|----------------|--------|
 //
+//  We have also additional gates for the "extended Leaf" scheme
+//
 
 use super::HashType;
 use halo2::{
     arithmetic::FieldExt,
     circuit::{Chip, Layouter},
-    plonk::{Advice, Column, ConstraintSystem, Error, Expression, TableColumn},
+    plonk::{Advice, Column, ConstraintSystem, Error, Expression, Selector, TableColumn},
     poly::Rotation,
 };
 use std::marker::PhantomData;
@@ -35,7 +37,7 @@ fn lagrange_polynomial_for_hashtype<Fp: ff::PrimeField, const T: usize>(
     ref_n: Expression<Fp>,
 ) -> Expression<Fp> {
     let mut denominators = vec![
-        Fp::from(T as u64) - Fp::zero(), //notice we also need to include the default value of cell (0)
+        Fp::from(T as u64) - Fp::from(HashType::Start as u64),
         Fp::from(T as u64) - Fp::from(HashType::Empty as u64),
         Fp::from(T as u64) - Fp::from(HashType::Middle as u64),
         Fp::from(T as u64) - Fp::from(HashType::LeafExt as u64),
@@ -57,12 +59,10 @@ fn lagrange_polynomial_for_hashtype<Fp: ff::PrimeField, const T: usize>(
     ];
 
     factors.swap_remove(T);
-    let mut ret = Expression::Constant(denominator.invert().unwrap());
-    for f in factors.into_iter() {
-        ret = ret * f;
-    }
-
-    ret
+    factors.into_iter().fold(
+        Expression::Constant(denominator.invert().unwrap()),
+        |acc, f| acc * f,
+    )
 }
 
 //use lazy_static::lazy_static;
@@ -98,6 +98,7 @@ impl<Fp: FieldExt> Chip<Fp> for MPTChip<Fp> {
 impl<Fp: FieldExt> MPTChip<Fp> {
     pub fn configure(
         meta: &mut ConstraintSystem<Fp>,
+        s_row: Selector,
         hash_type: Column<Advice>,
         val: Column<Advice>,
         key: Column<Advice>,
@@ -163,6 +164,36 @@ impl<Fp: FieldExt> MPTChip<Fp> {
             vec![(key_col, left), (val_leaf_col, right), (hash_lookup, hash)]
         });
 
+        meta.create_gate("leaf extended", |meta| {
+            let sel = meta.query_selector(s_row);
+            let hash_type = meta.query_advice(hash_type, Rotation::cur());
+            let s_extended = lagrange_polynomial_for_hashtype::<_, 3>(hash_type); //LeafExt
+            let sibling = meta.query_advice(sibling, Rotation::cur());
+            // + sibling must be 0 when hash_type is leaf extended, or malice
+            //   advisor can make arbital sibling which would halt the process of L2
+            // + value in leaf-extended row must equal to the previous
+            vec![
+                sel.clone() * s_extended.clone() * sibling,
+                sel * s_extended
+                    * (meta.query_advice(val, Rotation::cur())
+                        - meta.query_advice(val, Rotation::prev())),
+            ]
+        });
+
+        meta.create_gate("last leaf extended", |meta| {
+            let sel = meta.query_selector(s_row);
+            let hash_type = meta.query_advice(hash_type, Rotation::cur());
+            let s_last_extended = lagrange_polynomial_for_hashtype::<_, 4>(hash_type); //LeafExtFinal
+
+            // + sibling must be previous val when hash_type is leaf extended final
+            // (notice the value for leafExtendedFinal can be omitted)
+            vec![
+                sel * s_last_extended
+                    * (meta.query_advice(sibling, Rotation::cur())
+                        - meta.query_advice(val, Rotation::prev())),
+            ]
+        });
+
         MPTChipConfig { left, right, hash }
     }
 
@@ -215,7 +246,7 @@ mod test {
     use halo2::{
         circuit::{Cell, Region, SimpleFloorPlanner},
         dev::{MockProver, VerifyFailure},
-        plonk::{Circuit, Expression, Selector},
+        plonk::{Circuit, Expression},
     };
 
     const MAX_PATH_DEPTH: usize = 16;
@@ -232,12 +263,16 @@ mod test {
         chip: MPTChipConfig,
     }
 
-    //simular a simple path condition (hashtype is all Mid except for the last one)
+    // express for a single path block
     #[derive(Clone, Default)]
     struct MPTTestSinglePathCircuit {
-        pub leaf: Fp,          //the val of leaf
-        pub siblings: Vec<Fp>, //siblings from top to bottom
-        pub key: u32,          //the key simply expressed by u32
+        key: u32,       //the key simply expressed by u32
+        paths: Vec<Fp>, //include path bits and the resident part for leaf, it decide how many rows
+        //would be used (len + 1)
+        siblings: Vec<Fp>,         //siblings from top to bottom
+        hash_types: Vec<HashType>, //hash types used from top to bottom (Start is not included)
+        hash_vals: Vec<Fp>, //all hashs (include leaf vals) in the circuit, one element more than paths
+        hash_traces: Vec<(Fp, Fp, Fp)>,
     }
 
     impl Circuit<Fp> for MPTTestSinglePathCircuit {
@@ -272,7 +307,7 @@ mod test {
                 key,
                 sibling,
                 path,
-                chip: MPTChip::configure(meta, hash_type, val, key, sibling, path),
+                chip: MPTChip::configure(meta, s_row, hash_type, val, key, sibling, path),
             }
         }
 
@@ -281,13 +316,13 @@ mod test {
             config: Self::Config,
             mut layouter: impl Layouter<Fp>,
         ) -> Result<(), Error> {
-            let fill_ret = layouter.assign_region(
+            layouter.assign_region(
                 || "main",
-                |mut region| self.fill_layer(&config, &mut region, mock_hash),
+                |mut region| self.fill_layer(&config, &mut region, 0),
             )?;
 
             let mpt_chip = MPTChip::<Fp>::construct(config.chip);
-            mpt_chip.load(&mut layouter, fill_ret.hashs)?;
+            mpt_chip.load(&mut layouter, self.hash_traces.clone())?;
             Ok(())
         }
     }
@@ -299,16 +334,13 @@ mod test {
     impl MPTTestSinglePathCircuit {
         //decompose key to path bits, start from smallest, return the
         //two parts which reside on path and the leaf
-        fn decompose_path(&self) -> (Vec<bool>, u32) {
+        fn decompose_path(key: u32, len: usize) -> (Vec<bool>, u32) {
             let mut path_bits = Vec::new();
-            assert!(
-                MAX_PATH_DEPTH >= self.siblings.len(),
-                "more siblings than max depth"
-            );
+            assert!(MAX_PATH_DEPTH >= len, "more siblings than max depth");
 
-            let mut res_path = self.key;
+            let mut res_path = key;
 
-            for _ in 0..self.siblings.len() {
+            for _ in 0..len {
                 let has_bit = (res_path & 1) != 0;
                 path_bits.push(has_bit);
                 res_path /= 2;
@@ -317,95 +349,108 @@ mod test {
             (path_bits, res_path)
         }
 
-        pub fn fill_layer<F: FnMut(&Fp, &Fp) -> Fp>(
-            &self,
-            config: &MPTTestConfig,
-            region: &mut Region<'_, Fp>,
-            mut hasher: F,
-        ) -> Result<LayerFillTrace, Error> {
-            // build all required data
-            let leaf_hash = hasher(&Fp::from(self.key as u64), &self.leaf);
-            let mut hash_trace = vec![(Fp::from(self.key as u64), self.leaf, leaf_hash)];
-            let mut path_trace = vec![leaf_hash];
-            let (path_bits, res_key) = self.decompose_path();
+        /// create a common path data layout (only contains middle and leaf type)
+        /// the siblings do not contain the padding for leaf
+        pub fn create(
+            key: u32,
+            leaf: Fp,
+            mut siblings: Vec<Fp>,
+            mut hasher: impl FnMut(&Fp, &Fp) -> Fp,
+        ) -> Self {
+            let leaf_hash = hasher(&Fp::from(key as u64), &leaf);
+            let mut hash_traces = vec![(Fp::from(key as u64), leaf, leaf_hash)];
+            let mut hash_vals = vec![leaf, leaf_hash];
+            let (path_bits, res_key) = Self::decompose_path(key, siblings.len());
+            let mut hash_types = Vec::new();
+            let mut paths = Vec::new();
 
-            assert_eq!(path_bits.len(), self.siblings.len());
+            assert_eq!(path_bits.len(), siblings.len());
 
-            for (sibling, bit) in self.siblings.iter().rev().zip(path_bits.iter().rev()) {
+            for (sibling, bit) in siblings.iter().rev().zip(path_bits.iter().rev()) {
                 let (l, r) = if *bit {
-                    (sibling, path_trace.last().unwrap())
+                    (sibling, hash_vals.last().unwrap())
                 } else {
-                    (path_trace.last().unwrap(), sibling)
+                    (hash_vals.last().unwrap(), sibling)
                 };
 
                 let h = hasher(l, r);
-                hash_trace.push((*l, *r, h));
-                path_trace.push(h);
+                hash_traces.push((*l, *r, h));
+                hash_vals.push(h);
+                hash_types.push(HashType::Middle);
+                paths.push(if *bit { Fp::one() } else { Fp::zero() });
             }
 
-            path_trace.reverse();
+            hash_vals.reverse();
+            hash_types.push(HashType::Leaf);
+            paths.push(Fp::from(res_key as u64));
+            siblings.push(Fp::zero());
+            MPTTestSinglePathCircuit {
+                key,
+                paths,
+                hash_vals,
+                hash_types,
+                siblings,
+                hash_traces,
+            }
+        }
 
-            let mut offset = 0;
+        pub fn fill_layer(
+            &self,
+            config: &MPTTestConfig,
+            region: &mut Region<'_, Fp>,
+            mut offset: usize,
+        ) -> Result<usize, Error> {
+            assert_eq!(self.paths.len(), self.siblings.len());
+            assert_eq!(self.hash_types.len(), self.siblings.len());
+
             // each block has a padding row at the beginning
-            region.assign_advice(|| "root", config.val, 0, || Ok(path_trace[0]))?;
+            region.assign_advice(|| "root", config.val, offset, || Ok(self.hash_vals[0]))?;
             region.assign_advice(
-                || "hash_type padding",
+                || "hash_type start",
                 config.hash_type,
                 offset,
-                || Ok(Fp::zero()),
+                || Ok(Fp::from(HashType::Start as u64)),
             )?;
             region.assign_advice(|| "path padding", config.path, offset, || Ok(Fp::zero()))?;
+
+            if offset != 0 {
+                config.s_row.enable(region, offset)?;
+            }
+
             offset += 1;
 
-            for bit in path_bits {
-                region.assign_advice(|| "val", config.val, offset, || Ok(path_trace[offset]))?;
+            for (index, path) in self.paths.iter().enumerate() {
+                region.assign_advice(
+                    || "val",
+                    config.val,
+                    offset,
+                    || Ok(self.hash_vals[index + 1]),
+                )?;
                 region.assign_advice(
                     || "sibling",
                     config.sibling,
                     offset,
-                    || Ok(self.siblings[offset - 1]),
+                    || Ok(self.siblings[index]),
                 )?;
-                region.assign_advice(
-                    || "path",
-                    config.path,
-                    offset,
-                    || Ok(if bit { Fp::one() } else { Fp::zero() }),
-                )?;
+                region.assign_advice(|| "path", config.path, offset, || Ok(*path))?;
                 region.assign_advice(
                     || "hash_type",
                     config.hash_type,
                     offset,
-                    || Ok(Fp::from(HashType::Middle as u64)),
+                    || Ok(Fp::from(self.hash_types[index] as u64)),
                 )?;
+                //fill all row of key (in actual circuit only the last row has key value)
+                region.assign_advice(
+                    || "key",
+                    config.key,
+                    offset,
+                    || Ok(Fp::from(self.key as u64)),
+                )?;
+                config.s_row.enable(region, offset)?;
                 offset += 1;
             }
-            region.assign_advice(|| "val", config.val, offset, || Ok(self.leaf))?;
-            region.assign_advice(
-                || "leaf_type",
-                config.hash_type,
-                offset,
-                || Ok(Fp::from(HashType::Leaf as u64)),
-            )?;
-            region.assign_advice(
-                || "key",
-                config.key,
-                offset,
-                || Ok(Fp::from(self.key as u64)),
-            )?;
-            region.assign_advice(
-                || "path padding",
-                config.path,
-                offset,
-                || Ok(Fp::from(res_key as u64)),
-            )?;
-            offset += 1;
 
-            //enable all
-            for row in 0..offset {
-                config.s_row.enable(region, row)?;
-            }
-
-            Ok(LayerFillTrace { hashs: hash_trace })
+            Ok(offset)
         }
     }
 
@@ -413,16 +458,12 @@ mod test {
     fn test_single_path() {
         let leaf = rand_fp();
         let mut siblings = Vec::new();
-        for _ in 0..4 {
+        for _ in 0..3 {
             siblings.push(rand_fp());
         }
         let key = u32::from_be_bytes(rand_bytes_array()) % MAX_KEY as u32;
 
-        let circuit = MPTTestSinglePathCircuit {
-            leaf,
-            siblings,
-            key,
-        };
+        let circuit = MPTTestSinglePathCircuit::create(key, leaf, siblings, mock_hash);
         let k = 4; //at least 16 rows
 
         #[cfg(feature = "print_layout")]
