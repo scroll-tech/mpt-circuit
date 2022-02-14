@@ -351,9 +351,10 @@ impl MPTOpGadget {
         let new_path_chip = PathChip::<Fp>::construct(self.new_path.clone(), offset);
         let op_chip = OpChip::<Fp>::construct(self.op.clone(), offset);
 
+        // caution: we made double assignations on key cell so sequence is important
+        let op_end = op_chip.assign(region, &data.path, &data.siblings)?;
         let old_end = old_path_chip.assign(region, &data.old.hash_types, &data.old.hashes, data.key)?;
         let new_end = new_path_chip.assign(region, &data.new.hash_types, &data.new.hashes, data.key)?;
-        let op_end = op_chip.assign(region, &data.path, &data.siblings)?;
 
         assert_eq!(op_end, old_end);
         assert_eq!(op_end, new_end);
@@ -606,12 +607,12 @@ impl<Fp: FieldExt> PathChip<Fp> {
             )?;
             match hash_type {
                 HashType::Empty | HashType::Leaf => 
-                region.assign_advice (
-                    || "key",
-                    config.key,
-                    offset,
-                    || Ok(key)
-                ).map(|_|()),
+                    region.assign_advice (
+                        || "key",
+                        config.key,
+                        offset,
+                        || Ok(key)
+                    ).map(|_|()),
                 _ => Ok(())
             }?;
             offset += 1;
@@ -885,14 +886,14 @@ mod test {
 
     // express for a single path block
     #[derive(Clone, Default)]
-    struct TestPathCircuit {
+    struct TestPathCircuit<const USE_OLD: bool> {
         key: Fp,
         path: Vec<Fp>,
         siblings: Vec<Fp>,
         data: MPTPath<Fp>,
     }
 
-    impl Circuit<Fp> for TestPathCircuit {
+    impl<const USE_OLD: bool> Circuit<Fp> for TestPathCircuit<USE_OLD> {
         type Config = MPTTestConfig;
         type FloorPlanner = SimpleFloorPlanner;
 
@@ -902,7 +903,7 @@ mod test {
 
         fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
             let g_config = MPTOpConfig::create(meta);
-            let chip = PathChip::configure(meta, &g_config, true);
+            let chip = PathChip::configure(meta, &g_config, USE_OLD);
 
             MPTTestConfig {
                 global: g_config, 
@@ -952,14 +953,39 @@ mod test {
             )?;
 
             config.global.tables.fill_constant(&mut layouter)?;
-            config.global.old_hash_table.fill(&mut layouter, &self.data.hash_traces)?;
-
+            if USE_OLD {
+                config.global.old_hash_table.fill(&mut layouter, &self.data.hash_traces)
+            } else {
+                config.global.new_hash_table.fill(&mut layouter, &self.data.hash_traces)
+            }?;
             
             Ok(())
         }
     }
 
-    impl TestPathCircuit {
+    impl From<SingleOp<Fp>> for TestPathCircuit<true> {
+        fn from(op: SingleOp<Fp>) -> Self {
+            Self {
+                key: op.key,
+                path: op.path,
+                siblings: op.siblings,
+                data: op.old,
+            }            
+        }
+    }
+
+    impl From<SingleOp<Fp>> for TestPathCircuit<false> {
+        fn from(op: SingleOp<Fp>) -> Self {
+            Self {
+                key: op.key,
+                path: op.path,
+                siblings: op.siblings,
+                data: op.new,
+            }            
+        }
+    }
+
+    impl<const USE_OLD: bool> TestPathCircuit<USE_OLD> {
         //decompose key to path bits, start from smallest, return the
         //two parts which reside on path and the leaf
         fn decompose_path(key: u32, len: usize) -> (Vec<bool>, u32) {
@@ -975,15 +1001,6 @@ mod test {
             }
 
             (path_bits, res_path)
-        }
-
-        fn from_op(op: SingleOp<Fp>, use_old: bool) -> Self {
-            Self {
-                key: op.key,
-                path: op.path,
-                siblings: op.siblings,
-                data: if use_old {op.old } else {op.new},
-            }
         }
 
         fn create_rand(layers: usize) -> Self {
@@ -1010,14 +1027,21 @@ mod test {
 
     #[test]
     fn single_path() {
-        let circuit = TestPathCircuit::create_rand(3);
         let k = 5; //at least 32 rows for constant table use many space
 
+        let circuit = TestPathCircuit::<true>::create_rand(3);
         #[cfg(feature = "print_layout")]
-        print_layout!("layouts/path_layout.png", k, &circuit);
+        print_layout!("layouts/path_layout_old.png", k, &circuit);
 
         let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
+
+        let circuit = TestPathCircuit::<false>::create_rand(3);
+        #[cfg(feature = "print_layout")]
+        print_layout!("layouts/path_layout_new.png", k, &circuit);
+
+        let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
+        assert_eq!(prover.verify(), Ok(()));        
     }
 
     #[test]
@@ -1027,11 +1051,13 @@ mod test {
 
         let k = 5;
         for op in ops {
-            let circuit = TestPathCircuit::from_op(op.as_slice().into(), true);
+            let single_op : SingleOp<Fp> = op.as_slice().into();
+            let circuit = TestPathCircuit::<true>::from(single_op);
             let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
             assert_eq!(prover.verify(), Ok(()));
 
-            let circuit = TestPathCircuit::from_op(op.as_slice().into(), false);
+            let single_op : SingleOp<Fp> = op.as_slice().into();
+            let circuit = TestPathCircuit::<false>::from(single_op);
             let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
             assert_eq!(prover.verify(), Ok(()));            
         }
