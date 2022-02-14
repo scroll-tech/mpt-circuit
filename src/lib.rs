@@ -9,9 +9,10 @@
 
 pub use crate::serde::{Hash, Row, RowDeError};
 
-pub mod mpt;
-pub mod operations;
-pub mod serde;
+mod mpt;
+mod operation;
+mod layers;
+mod serde;
 
 #[cfg(test)]
 mod test_utils;
@@ -32,7 +33,7 @@ pub enum HashType {
     /// leaf node
     Leaf,
 }
-
+/*
 use ff::PrimeField;
 use halo2::{
     arithmetic::FieldExt,
@@ -453,3 +454,4 @@ impl<Fp: FieldExt> Circuit<Fp> for MPTDemoCircuit<Fp> {
         Ok(())
     }
 }
+*/
