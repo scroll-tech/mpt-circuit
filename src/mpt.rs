@@ -255,46 +255,41 @@ pub(crate) struct MPTOpGadget {
     new_hash_table: HashTable,
     tables: MPTOpTables, 
     s_enable: Column<Advice>,
-
-    //export cols to the wrapping circuits
-    pub layout_flag: Column<Advice>,
-    pub start_root: Column<Advice>,
-    pub end_root: Column<Advice>,
 }
 
 impl MPTOpGadget {
 
     /// create gadget from assigned cols, we need:
     /// + circuit selector * 1
-    /// + flag col * 1
-    /// + free col * 9
+    /// + exported col * 4 (MUST by following sequence: layout_flag, s_enable, old_val, new_val)
+    /// + free col * 6
     /// + hashtable col * 6
     /// and create
     /// + table col * 4
     pub fn configure<Fp: FieldExt>(
         meta: &mut ConstraintSystem<Fp>,
         sel: Selector,
-        flag: Column<Advice>,
+        exported: [Column<Advice>; 4],
         free: &[Column<Advice>],
         hash_tbl: &[TableColumn],
     ) -> Self {
 
-        assert!(free.len() >= 9, "require at least 9 free cols");
+        assert!(free.len() >= 6, "require at least 6 free cols");
         assert!(free.len() >= 6, "require at least 6 hash table cols");
 
         let g_config = MPTOpConfig {
             tables: MPTOpTables::configure_create(meta), 
             s_row: sel,
-            s_enable: flag,
             s_data: free[0],
             depth: free[1],
-            old_hash_type: free[2],
-            new_hash_type: free[3],
-            sibling: free[4],
-            acc_key: free[5],
-            path: free[6],
-            old_val: free[7],
-            new_val: free[8],
+            new_hash_type: free[2],
+            sibling: free[3],
+            acc_key: free[4],
+            path: free[5],
+            s_enable: exported[0],
+            old_hash_type: exported[1],
+            old_val: exported[2],
+            new_val: exported[3],
 
             old_hash_table: HashTable::configure_assign(&hash_tbl[0..3]),
             new_hash_table: HashTable::configure_assign(&hash_tbl[3..6]),
@@ -308,10 +303,6 @@ impl MPTOpGadget {
         });
 
         Self {
-            layout_flag: g_config.old_hash_type,
-            start_root: g_config.old_val,
-            end_root: g_config.new_val,
-
             s_enable: g_config.s_enable,
             op: OpChip::<Fp>::configure(meta, &g_config),
             old_path: PathChip::<Fp>::configure(meta, &g_config, true),
@@ -1251,9 +1242,10 @@ mod test {
             let sel = meta.selector();
             let free_cols = [();10].map(|_|meta.advice_column());
             let table_cols = [();6].map(|_|meta.lookup_table_column());
-            
+            let exported_cols = [free_cols[0],free_cols[1],free_cols[2],free_cols[3]];
+
             GadgetTestConfig {
-                gadget: MPTOpGadget::configure(meta, sel, free_cols[0], &free_cols[1..], &table_cols[..]),
+                gadget: MPTOpGadget::configure(meta, sel, exported_cols, &free_cols[4..], &table_cols[..]),
                 free_cols,
                 sel,
             }
