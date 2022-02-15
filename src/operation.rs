@@ -17,6 +17,8 @@ pub struct MPTPath<Fp> {
     /// the cached traces for calculated all hashes required in verifing a MPT path,
     /// include the leaf hashing      
     pub hash_traces: Vec<(Fp, Fp, Fp)>,
+    /// the key for this path
+    pub key: Fp,
 }
 
 impl<Fp: FieldExt> MPTPath<Fp> {
@@ -66,6 +68,7 @@ impl<Fp: FieldExt> MPTPath<Fp> {
         hashes.push(leaf);
 
         Self {
+            key,
             hashes,
             hash_types,
             hash_traces,
@@ -106,6 +109,7 @@ impl<Fp: FieldExt> MPTPath<Fp> {
         hash_types.reverse();
 
         Self {
+            key,
             hashes,
             hash_types,
             hash_traces,

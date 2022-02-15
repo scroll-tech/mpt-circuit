@@ -60,7 +60,7 @@
 
 
 use super::HashType;
-use crate::operation::SingleOp;
+use crate::operation::{MPTPath, SingleOp};
 use ff::Field;
 use halo2::{
     arithmetic::FieldExt,
@@ -333,20 +333,20 @@ impl MPTOpGadget {
     }
 
     /// assign data and enable flag for MPT circuit
-    pub fn assign<Fp: FieldExt>(
+    pub fn assign<'d, Fp: FieldExt>(
         &self,
         region: &mut Region<'_, Fp>,
         offset: usize,
         data: &SingleOp<Fp>,
     ) -> Result<usize, Error> {
-        let old_path_chip = PathChip::<Fp>::construct(self.old_path.clone(), offset);
-        let new_path_chip = PathChip::<Fp>::construct(self.new_path.clone(), offset);
-        let op_chip = OpChip::<Fp>::construct(self.op.clone(), offset);
+        let old_path_chip = PathChip::<Fp>::construct(self.old_path.clone(), offset, &data.old);
+        let new_path_chip = PathChip::<Fp>::construct(self.new_path.clone(), offset, &data.new);
+        let op_chip = OpChip::<Fp>::construct(self.op.clone(), offset, data);
 
         // caution: we made double assignations on key cell so sequence is important
-        let op_end = op_chip.assign(region, &data.path, &data.siblings)?;
-        let old_end = old_path_chip.assign(region, &data.old.hash_types, &data.old.hashes, data.key)?;
-        let new_end = new_path_chip.assign(region, &data.new.hash_types, &data.new.hashes, data.key)?;
+        let op_end = op_chip.assign(region)?;
+        let old_end = old_path_chip.assign(region)?;
+        let new_end = new_path_chip.assign(region)?;
 
         assert_eq!(op_end, old_end);
         assert_eq!(op_end, new_end);
@@ -408,26 +408,26 @@ struct PathChipConfig {
 
 /// chip for verify mutiple merkle path in MPT
 /// it do not need any auxiliary cols
-struct PathChip<F> {
+struct PathChip<'d, F> {
     offset: usize,
     config: PathChipConfig,
-    _marker: PhantomData<F>,
+    data: &'d MPTPath<F>,
 }
 
-impl<Fp: FieldExt> Chip<Fp> for PathChip<Fp> {
+impl<Fp: FieldExt> Chip<Fp> for PathChip<'_, Fp> {
     type Config = PathChipConfig;
-    type Loaded = ();
+    type Loaded = MPTPath<Fp>;
 
     fn config(&self) -> &Self::Config {
         &self.config
     }
 
     fn loaded(&self) -> &Self::Loaded {
-        &()
+        &self.data
     }
 }
 
-impl<Fp: FieldExt> PathChip<Fp> {
+impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
     fn configure(
         meta: &mut ConstraintSystem<Fp>,
         g_config: &MPTOpConfig,
@@ -558,25 +558,25 @@ impl<Fp: FieldExt> PathChip<Fp> {
         PathChipConfig { s_data, hash_type, val, key }
     }
 
-    fn construct(config: PathChipConfig, offset: usize) -> Self {
+    fn construct(config: PathChipConfig, offset: usize, data: &'d <Self as Chip<Fp>>::Loaded) -> Self {
         Self {
             config,
             offset,
-            _marker: PhantomData,
+            data,
         }
     }
 
     fn assign(
         &self,
         region: &mut Region<'_, Fp>,
-        hash_types: &[HashType],
-        vals: &[Fp],
-        key: Fp,
     ) -> Result<usize, Error> {
 
         let config = &self.config;
-        assert_eq!(hash_types.len(), vals.len());
         let mut offset = self.offset;
+        let key : Fp = self.data.key;
+        let vals = &self.data.hashes;
+        let hash_types = &self.data.hash_types;
+        assert_eq!(hash_types.len(), vals.len());
 
         for (hash_type, val) in hash_types.iter().zip(vals.iter()) {
             region.assign_advice(
@@ -627,26 +627,26 @@ struct OpChipConfig {
 
 /// chip for verify mutiple merkle path in MPT
 /// it do not need any auxiliary cols
-struct OpChip<F> {
+struct OpChip<'d, F> {
     offset: usize,
     config: OpChipConfig,
-    _marker: PhantomData<F>,
+    data: &'d SingleOp<F>,
 }
 
-impl<Fp: FieldExt> Chip<Fp> for OpChip<Fp> {
+impl<Fp: FieldExt> Chip<Fp> for OpChip<'_, Fp> {
     type Config = OpChipConfig;
-    type Loaded = ();
+    type Loaded = SingleOp<Fp>;
 
     fn config(&self) -> &Self::Config {
         &self.config
     }
 
     fn loaded(&self) -> &Self::Loaded {
-        &()
+        &self.data
     }
 }
 
-impl<Fp: FieldExt> OpChip<Fp> {
+impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
     fn configure(
         meta: &mut ConstraintSystem<Fp>,
         g_config: &MPTOpConfig,
@@ -735,21 +735,21 @@ impl<Fp: FieldExt> OpChip<Fp> {
         }
     }    
 
-    fn construct(config: OpChipConfig, offset: usize) -> Self {
+    fn construct(config: OpChipConfig, offset: usize, data: &'d <Self as Chip<Fp>>::Loaded) -> Self {
         Self {
             config,
             offset,
-            _marker: PhantomData,
+            data,
         }
     }
 
     fn assign(
         &self,
         region: &mut Region<'_, Fp>,
-        paths: &[Fp],
-        siblings: &[Fp],
     ) -> Result<usize, Error> {
         let config = &self.config;
+        let paths = &self.data.path;
+        let siblings = &self.data.siblings;
         assert_eq!(paths.len(), siblings.len());
         let mut offset = self.offset;
         region.assign_advice(
@@ -822,7 +822,7 @@ mod test {
     #![allow(unused_imports)]
 
     use super::*;
-    use crate::{test_utils::*, operation::*, serde::Row};
+    use crate::{test_utils::*, serde::Row};
     use halo2::{
         circuit::{Cell, Region, SimpleFloorPlanner},
         dev::{MockProver, VerifyFailure},
@@ -911,7 +911,7 @@ mod test {
 
             let offset : usize = 1;
             let chip_cfg = config.chip.clone();
-            let mpt_chip = PathChip::<Fp>::construct(chip_cfg.clone(), offset);
+            let mpt_chip = PathChip::<Fp>::construct(chip_cfg.clone(), offset, &self.data);
             layouter.assign_region(
                 || "main",
                 |mut region| {
@@ -931,7 +931,7 @@ mod test {
                         region.assign_advice(|| "path", config.path, offset, || Ok(self.path[index]))?;                    
                     }
 
-                    let chip_next_offset = mpt_chip.assign(&mut region, &self.data.hash_types, &self.data.hashes, self.key)?;
+                    let chip_next_offset = mpt_chip.assign(&mut region)?;
                     assert_eq!(chip_next_offset, next_offset);
 
                     //also test flush some more rows
@@ -1064,10 +1064,9 @@ mod test {
     // express for a single path block
     #[derive(Clone, Default)]
     struct TestOpCircuit {
+        data: SingleOp<Fp>,
         old_hash_types:  Vec<HashType>,
         new_hash_types: Vec<HashType>,
-        path: Vec<Fp>,
-        siblings: Vec<Fp>,
     }
 
     impl Circuit<Fp> for TestOpCircuit {
@@ -1096,7 +1095,7 @@ mod test {
 
             let offset : usize = 1;
             let chip_cfg = config.chip.clone();
-            let op_chip = OpChip::<Fp>::construct(chip_cfg.clone(), offset);
+            let op_chip = OpChip::<Fp>::construct(chip_cfg.clone(), offset, &self.data);
             layouter.assign_region(
                 || "main",
                 |mut region| {
@@ -1112,7 +1111,7 @@ mod test {
                         region.assign_advice(|| "new hash_type", config.new_hash_type, offset, || Ok(Fp::from(self.new_hash_types[index] as u64)))?;
                     }
 
-                    let chip_next_offset = op_chip.assign(&mut region, &self.path, &self.siblings)?;
+                    let chip_next_offset = op_chip.assign(&mut region)?;
                     assert_eq!(chip_next_offset, next_offset);
 
                     //also test flush some more rows
@@ -1134,10 +1133,13 @@ mod test {
 
         fn from_op(op: SingleOp<Fp>) -> Self {
             Self {
-                old_hash_types:  op.old.hash_types,
+                old_hash_types: op.old.hash_types,
                 new_hash_types: op.new.hash_types,
-                path: op.path,
-                siblings: op.siblings,
+                data: SingleOp::<Fp>{
+                    path: op.path,
+                    siblings: op.siblings,
+                    ..Default::default()
+                },
             }
         }
        
@@ -1147,8 +1149,11 @@ mod test {
 
         static ref DEMOCIRCUIT1: TestOpCircuit = {
             TestOpCircuit {
-                siblings: vec![Fp::zero()],
-                path: vec![Fp::from(4u64)], //the key is 0b100u64
+                data: SingleOp::<Fp>{
+                    siblings: vec![Fp::zero()],
+                    path: vec![Fp::from(4u64)], //the key is 0b100u64
+                    ..Default::default()   
+                },
                 old_hash_types: vec![HashType::Start, HashType::Empty],
                 new_hash_types: vec![HashType::Start, HashType::Leaf],
             }
@@ -1156,8 +1161,11 @@ mod test {
 
         static ref DEMOCIRCUIT2: TestOpCircuit = {
             TestOpCircuit {
-                siblings: vec![Fp::from(11u64), rand_fp()],
-                path: vec![Fp::one(), Fp::from(8u64)], //the key is 0b10001u64
+                data: SingleOp::<Fp>{
+                    siblings: vec![Fp::from(11u64), rand_fp()],
+                    path: vec![Fp::one(), Fp::from(8u64)], //the key is 0b10001u64
+                    ..Default::default()   
+                },
                 old_hash_types: vec![HashType::Start, HashType::LeafExtFinal, HashType::Empty],
                 new_hash_types: vec![HashType::Start, HashType::Middle, HashType::Leaf],
             }
@@ -1165,8 +1173,11 @@ mod test {
 
         static ref DEMOCIRCUIT3: TestOpCircuit = {
             TestOpCircuit {
-                siblings: vec![Fp::from(11u64), Fp::zero(), Fp::from(22u64), rand_fp()],
-                path: vec![Fp::one(), Fp::zero(), Fp::one(), Fp::from(5u64)], //the key is 0b101101u64
+                data: SingleOp::<Fp>{
+                    siblings: vec![Fp::from(11u64), Fp::zero(), Fp::from(22u64), rand_fp()],
+                    path: vec![Fp::one(), Fp::zero(), Fp::one(), Fp::from(5u64)], //the key is 0b101101u64
+                    ..Default::default()   
+                },
                 old_hash_types: vec![
                     HashType::Start,
                     HashType::Middle,

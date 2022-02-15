@@ -33,28 +33,188 @@ pub enum HashType {
     /// leaf node
     Leaf,
 }
-/*
+
+// here we made "Big" chips, which recursively organize the gadgets we have made to
+// form the final circuit
+
 use ff::PrimeField;
 use halo2::{
     arithmetic::FieldExt,
-    circuit::{Layouter, Region, SimpleFloorPlanner},
+    circuit::{Chip, Layouter, Region},
     plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Selector},
 };
 
 /// The config for circuit
 #[derive(Clone, Debug)]
-pub struct MPTConfig {
-    s_row: Selector,
-    sibling: Column<Advice>,
-    path: Column<Advice>,
-    old_hash_type: Column<Advice>,
-    new_hash_type: Column<Advice>,
-    old_val: Column<Advice>,
-    new_val: Column<Advice>,
-    op_chip: operations::MPTOpChipConfig,
-    old_state_chip: mpt::MPTChipConfig,
-    new_state_chip: mpt::MPTChipConfig,
+pub struct SimpleTrieConfig {
+    layer : layers::LayerGadget,
+    padding : layers::PaddingGadget,
+    mpt : mpt::MPTOpGadget,
 }
+
+/// The chip for op on a simple trie
+#[derive(Clone)]
+pub struct SimpleTrie {
+    config : SimpleTrieConfig,
+    c_size : usize, //how many rows
+}
+
+/*
+impl<Fp: PrimeField> Chip<Fp> for SimpleTrie<Fp> {
+    type Config = SimpleTrieConfig;
+    type Loaded = ();
+
+    fn config(&self) -> &Self::Config {
+        &self.config
+    }
+
+    fn loaded(&self) -> &Self::Loaded {
+        &()
+    }
+}
+
+
+impl<Fp: FieldExt> SimpleTrie<Fp> {
+    /// create new instance
+    pub fn new(max_rows: usize) -> Self {
+        Self {
+            max_rows,
+            ..Default::default()
+        }
+    }
+
+    pub fn configure<Fp: FieldExt>(meta: &mut ConstraintSystem<Fp>) -> SimpleTrieConfig {
+    }
+    
+    pub fn synthesize<Fp: FieldExt>(&self, mut layouter: impl Layouter<Fp>, ops: &[operation::SingleOp<Fp>]) -> Result<(), Error> {
+
+    }
+
+    /// insert an operation
+    pub fn add_operation(&mut self, op: SingleOp<Fp>) -> Result<(), Error> {
+        if self.used_rows + op.use_rows() > self.max_rows {
+            return Err(Error::BoundsFailure);
+        }
+        self.used_rows += op.use_rows();
+
+        if let Some(root) = self.exit_root {
+            if op.start_root() != root {
+                return Err(Error::Synthesis);
+            }
+        }
+
+        self.exit_root.replace(op.new_root());
+        if self.start_root.is_none() {
+            self.start_root.replace(op.start_root());
+        }
+
+        self.old_hash_traces.append(&mut op.old_hash_traces());
+        self.new_hash_traces.append(&mut op.new_hash_traces());
+
+        self.ops.push(op);
+
+        Ok(())
+    }
+}
+
+impl<Fp: FieldExt> Circuit<Fp> for MPTDemoCircuit<Fp> {
+    type Config = MPTConfig;
+    type FloorPlanner = SimpleFloorPlanner;
+
+    fn without_witnesses(&self) -> Self {
+        Self::default()
+    }
+
+    fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
+        let s_row = meta.selector();
+        let sibling = meta.advice_column();
+        let path = meta.advice_column();
+        let old_hash_type = meta.advice_column();
+        let new_hash_type = meta.advice_column();
+        let old_val = meta.advice_column();
+        let new_val = meta.advice_column();
+        let cst = meta.fixed_column();
+        meta.enable_constant(cst);
+
+        let op_chip = operations::MPTOpChip::<Fp>::configure(
+            meta,
+            s_row,
+            path,
+            old_hash_type,
+            new_hash_type,
+            old_val,
+            new_val,
+        );
+        let old_state_chip = mpt::MPTChip::<Fp>::configure(
+            meta,
+            s_row,
+            old_hash_type,
+            old_val,
+            op_chip.key,
+            sibling,
+            path,
+        );
+        let new_state_chip = mpt::MPTChip::<Fp>::configure(
+            meta,
+            s_row,
+            new_hash_type,
+            new_val,
+            op_chip.key,
+            sibling,
+            path,
+        );
+
+        MPTConfig {
+            s_row,
+            sibling,
+            path,
+            old_hash_type,
+            new_hash_type,
+            old_val,
+            new_val,
+            op_chip,
+            old_state_chip,
+            new_state_chip,
+        }
+    }
+
+    fn synthesize(
+        &self,
+        config: Self::Config,
+        mut layouter: impl Layouter<Fp>,
+    ) -> Result<(), Error> {
+        let op_chip = operations::MPTOpChip::<Fp>::construct(config.op_chip.clone());
+        op_chip.load(&mut layouter)?;
+        let state_new_chip = mpt::MPTChip::<Fp>::construct(config.new_state_chip.clone());
+        state_new_chip.load(&mut layouter, self.new_hash_traces.clone())?;
+        let state_old_chip = mpt::MPTChip::<Fp>::construct(config.old_state_chip.clone());
+        state_old_chip.load(&mut layouter, self.old_hash_traces.clone())?;
+
+        layouter.assign_region(
+            || "multi op main",
+            |mut region| {
+                for offset in 1..self.max_rows {
+                    config.s_row.enable(&mut region, offset)?;
+                }
+
+                let mut offset = 0;
+                for op in self.ops.iter() {
+                    offset = op.fill_layer(&config, &mut region, offset, &op_chip)?;
+                }
+                let last_op = self.ops.last().unwrap();
+
+                for pad_offset in offset..self.max_rows {
+                    last_op.pad_row(&config, &mut region, pad_offset, &op_chip)?;
+                }
+
+                Ok(())
+            },
+        )?;
+
+        Ok(())
+    }
+}
+
 
 /// Represent for a single operation
 #[derive(Clone, Default, Debug)]
@@ -305,153 +465,6 @@ impl<Fp: FieldExt> SingleOp<Fp> {
         )?;
 
         op_chip.padding_aux(region, offset, self.new_root())
-    }
-}
-
-/// The demo circuit for op circuit
-#[derive(Clone, Default)]
-pub struct MPTDemoCircuit<Fp: PrimeField> {
-    /// max row the circuits can accordinate
-    pub max_rows: usize,
-    ops: Vec<SingleOp<Fp>>,
-    used_rows: usize,
-    old_hash_traces: Vec<(Fp, Fp, Fp)>,
-    new_hash_traces: Vec<(Fp, Fp, Fp)>,
-    start_root: Option<Fp>,
-    exit_root: Option<Fp>,
-}
-
-impl<Fp: FieldExt> MPTDemoCircuit<Fp> {
-    /// create new instance
-    pub fn new(max_rows: usize) -> Self {
-        Self {
-            max_rows,
-            ..Default::default()
-        }
-    }
-
-    /// insert an operation
-    pub fn add_operation(&mut self, op: SingleOp<Fp>) -> Result<(), Error> {
-        if self.used_rows + op.use_rows() > self.max_rows {
-            return Err(Error::BoundsFailure);
-        }
-        self.used_rows += op.use_rows();
-
-        if let Some(root) = self.exit_root {
-            if op.start_root() != root {
-                return Err(Error::Synthesis);
-            }
-        }
-
-        self.exit_root.replace(op.new_root());
-        if self.start_root.is_none() {
-            self.start_root.replace(op.start_root());
-        }
-
-        self.old_hash_traces.append(&mut op.old_hash_traces());
-        self.new_hash_traces.append(&mut op.new_hash_traces());
-
-        self.ops.push(op);
-
-        Ok(())
-    }
-}
-
-impl<Fp: FieldExt> Circuit<Fp> for MPTDemoCircuit<Fp> {
-    type Config = MPTConfig;
-    type FloorPlanner = SimpleFloorPlanner;
-
-    fn without_witnesses(&self) -> Self {
-        Self::default()
-    }
-
-    fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
-        let s_row = meta.selector();
-        let sibling = meta.advice_column();
-        let path = meta.advice_column();
-        let old_hash_type = meta.advice_column();
-        let new_hash_type = meta.advice_column();
-        let old_val = meta.advice_column();
-        let new_val = meta.advice_column();
-        let cst = meta.fixed_column();
-        meta.enable_constant(cst);
-
-        let op_chip = operations::MPTOpChip::<Fp>::configure(
-            meta,
-            s_row,
-            path,
-            old_hash_type,
-            new_hash_type,
-            old_val,
-            new_val,
-        );
-        let old_state_chip = mpt::MPTChip::<Fp>::configure(
-            meta,
-            s_row,
-            old_hash_type,
-            old_val,
-            op_chip.key,
-            sibling,
-            path,
-        );
-        let new_state_chip = mpt::MPTChip::<Fp>::configure(
-            meta,
-            s_row,
-            new_hash_type,
-            new_val,
-            op_chip.key,
-            sibling,
-            path,
-        );
-
-        MPTConfig {
-            s_row,
-            sibling,
-            path,
-            old_hash_type,
-            new_hash_type,
-            old_val,
-            new_val,
-            op_chip,
-            old_state_chip,
-            new_state_chip,
-        }
-    }
-
-    fn synthesize(
-        &self,
-        config: Self::Config,
-        mut layouter: impl Layouter<Fp>,
-    ) -> Result<(), Error> {
-        let op_chip = operations::MPTOpChip::<Fp>::construct(config.op_chip.clone());
-        op_chip.load(&mut layouter)?;
-        let state_new_chip = mpt::MPTChip::<Fp>::construct(config.new_state_chip.clone());
-        state_new_chip.load(&mut layouter, self.new_hash_traces.clone())?;
-        let state_old_chip = mpt::MPTChip::<Fp>::construct(config.old_state_chip.clone());
-        state_old_chip.load(&mut layouter, self.old_hash_traces.clone())?;
-
-        layouter.assign_region(
-            || "multi op main",
-            |mut region| {
-                for offset in 1..self.max_rows {
-                    config.s_row.enable(&mut region, offset)?;
-                }
-
-                let mut offset = 0;
-                for op in self.ops.iter() {
-                    offset = op.fill_layer(&config, &mut region, offset, &op_chip)?;
-                }
-                let last_op = self.ops.last().unwrap();
-
-                for pad_offset in offset..self.max_rows {
-                    last_op.pad_row(&config, &mut region, pad_offset, &op_chip)?;
-                }
-
-                Ok(())
-            },
-        )?;
-
-        Ok(())
     }
 }
 */
