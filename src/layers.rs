@@ -58,6 +58,14 @@ impl LayerGadget {
         [self.ctrl_type, self.s_stepflags[step], self.old_root, self.new_root]
     }
 
+    pub fn get_free_cols(&self) -> &[Column<Advice>] {
+        &self.free_cols
+    }
+
+    pub fn public_sel(&self) -> Selector {
+        self.sel
+    }
+
     pub fn configure<Fp: FieldExt>(
         meta: &mut ConstraintSystem<Fp>,
         steps: usize,
@@ -66,7 +74,7 @@ impl LayerGadget {
 
         let s_stepflags : Vec<Column<Advice>> = (0..steps).map(|_|meta.advice_column()).collect();
         let free_cols = (0..required_cols).map(|_|meta.advice_column()).collect();
-        let sel = meta.selector();
+        let sel = meta.complex_selector();
         let series = meta.advice_column();
         let op_type = meta.advice_column();
         let ctrl_type = meta.advice_column();
@@ -79,8 +87,7 @@ impl LayerGadget {
         meta.enable_equality(series.into());
         meta.enable_equality(op_type.into());
         meta.enable_equality(ctrl_type.into());
-        meta.enable_equality(old_root.into());
-        meta.enable_equality(new_root.into());
+        meta.enable_equality(root_aux.into());
 
         meta.create_gate("series", |meta| {
             let sel = meta.query_selector(sel);
@@ -121,14 +128,13 @@ impl LayerGadget {
             let mut exps = Vec::new();
             //constrain all op type with its col
             for (step_index, col) in s_stepflags.iter().enumerate() {
-                exps.push(sel.clone() 
-                    * (Expression::Constant(Fp::from(step_index as u64)) - meta.query_advice(op_type, Rotation::cur()))
-                    * (Expression::Constant(Fp::one()) - meta.query_advice(*col, Rotation::cur())));
+                exps.push(sel.clone() * meta.query_advice(*col, Rotation::cur())
+                    * (Expression::Constant(Fp::from(step_index as u64)) - meta.query_advice(op_type, Rotation::cur())));
             }
             
             // notice all flag is constrainted to boolean, and total_flag is 1, so one and at most one col must be true
             // and only that flag whose op_type is corresponding to its step code can be true
-            exps.push(sel.clone() * (Expression::Constant(Fp::one()) - total_flag));
+            exps.push(sel * (Expression::Constant(Fp::one()) - total_flag));
             exps
         });
 
@@ -140,7 +146,7 @@ impl LayerGadget {
         // lookup from control_table
         meta.lookup(|meta| {
             // condition 1 (intra-block transition) is only actived when series has not change
-            let series_delta_zero = Expression::Constant(Fp::one()) - meta.query_advice(series, Rotation::cur()) - meta.query_advice(series, Rotation::prev());
+            let series_delta_zero = Expression::Constant(Fp::one()) - meta.query_advice(series, Rotation::cur()) + meta.query_advice(series, Rotation::prev());
             let op_delta = meta.query_advice(op_type, Rotation::cur()) - meta.query_advice(op_type, Rotation::prev());
             let enable = meta.query_advice(op_delta_aux, Rotation::cur()) * op_delta * series_delta_zero;
 
@@ -161,11 +167,12 @@ impl LayerGadget {
         meta.lookup(|meta| {
             // condition 2 (inter-block transition)
             let series_delta = meta.query_advice(series, Rotation::cur()) - meta.query_advice(series, Rotation::prev());
+            let enable = meta.query_selector(sel) * series_delta;
 
-            let op_cur = series_delta.clone() * meta.query_advice(op_type, Rotation::cur());
-            let ctrl_cur = series_delta.clone() * meta.query_advice(ctrl_type, Rotation::cur());
-            let op_prev = series_delta.clone() * meta.query_advice(op_type, Rotation::prev());
-            let ctrl_prev = series_delta * meta.query_advice(ctrl_type, Rotation::prev());
+            let op_cur = enable.clone() * meta.query_advice(op_type, Rotation::cur());
+            let ctrl_cur = enable.clone() * meta.query_advice(ctrl_type, Rotation::cur());
+            let op_prev = enable.clone() * meta.query_advice(op_type, Rotation::prev());
+            let ctrl_prev = enable * meta.query_advice(ctrl_type, Rotation::prev());
 
             vec![
                 (op_cur, control_table[0]),
@@ -220,6 +227,14 @@ impl LayerGadget {
             self.sel.enable(region, offset)?;
         }
 
+        // flush one more row
+        self.free_cols.iter().try_for_each(|col|{
+            region.assign_advice(|| "flushing last", *col, max_cols, || Ok(Fp::zero())).map(|_|())
+        })?;
+        region.assign_advice(|| "root flushing", self.new_root, max_cols, || Ok(Fp::zero()))?;
+        region.assign_advice(|| "root flushing", self.old_root, max_cols, || Ok(Fp::zero()))?;
+        region.assign_advice(|| "terminalte series", self.series, max_cols, || Ok(Fp::zero()))?;
+
         Ok(1)
     }
 
@@ -231,7 +246,7 @@ impl LayerGadget {
         region: &mut Region<'_, Fp>,
         offset: usize,
         op_series: usize,
-        op_type: (u32, u32),
+        op_type: (u32, u32), //op before -> op now
         end_root: Fp,
         rows: usize,
     ) -> Result<(), Error> {
@@ -262,18 +277,35 @@ impl LayerGadget {
         Ok(())
     }
 
-    pub fn set_inter_block_border<Fp: FieldExt>(
+    // set all transition rules
+    // + end_op: is the last op code in your assignation, often just (<padding gadget's op type, usually 0>, 0)
+    pub fn set_op_border<Fp: FieldExt>(
         &self,
         layouter: &mut impl Layouter<Fp>,
-        trans: &[((u32, u32), (u32, u32))],
+        inter_op: &[((u32, u32), (u32, u32))],
+        intra_op: &[((u32, u32), (u32, u32))],
         start_op: (u32, u32),
     ) -> Result<(), Error> {
 
         layouter.assign_table(
-            || "inter-op-block trans",
+            || "op trans",
             |mut table| {
-                let mut offset = 0;
-                for ((op_cur, ctrl_cur), (op_prev, ctrl_prev)) in trans {
+                //marking the start op and stop op, notice start_op_code is unique so it decided how the circuit is start
+                table.assign_cell(|| "start op", self.control_table[0], 0, || Ok(Fp::from(start_op.0 as u64)))?;
+                table.assign_cell(|| "start ctrl", self.control_table[1], 0, || Ok(Fp::from(start_op.1 as u64)))?;
+                table.assign_cell(|| "marking op", self.control_table[2], 0, || Ok(Fp::from(self.start_op_code() as u64)))?;
+                table.assign_cell(|| "marking ctrl", self.control_table[3], 0, || Ok(Fp::zero()))?;
+                table.assign_cell(|| "mark", self.control_table[4], 0, || Ok(Fp::one()))?;
+
+                //and default lookup for inter-block(0, 0, 0, 0, 1)
+                table.assign_cell(|| "default op cur", self.control_table[0], 1, || Ok(Fp::zero()))?;
+                table.assign_cell(|| "default ctrl cur", self.control_table[1], 1, || Ok(Fp::zero()))?;
+                table.assign_cell(|| "default op prev", self.control_table[2], 1, || Ok(Fp::zero()))?;
+                table.assign_cell(|| "default ctrl prev", self.control_table[3], 1, || Ok(Fp::zero()))?;                
+                table.assign_cell(|| "mark", self.control_table[4], 1, || Ok(Fp::one()))?;
+
+                let mut offset = 2;
+                for ((op_cur, ctrl_cur), (op_prev, ctrl_prev)) in inter_op {
                     table.assign_cell(|| "op cur", self.control_table[0], offset, || Ok(Fp::from(*op_cur as u64)))?;
                     table.assign_cell(|| "ctrl cur", self.control_table[1], offset, || Ok(Fp::from(*ctrl_cur as u64)))?;
                     table.assign_cell(|| "op prev", self.control_table[2], offset, || Ok(Fp::from(*op_prev as u64)))?;
@@ -281,30 +313,8 @@ impl LayerGadget {
                     table.assign_cell(|| "mark", self.control_table[4], offset, || Ok(Fp::one()))?;
                     offset += 1;
                 }
-                //marking the start op, notice start_op_code is unique so it decided how the circuit is start
-                table.assign_cell(|| "start op cur", self.control_table[0], offset, || Ok(Fp::from(start_op.0 as u64)))?;
-                table.assign_cell(|| "start ctrl cur", self.control_table[1], offset, || Ok(Fp::from(start_op.1 as u64)))?;
-                table.assign_cell(|| "marking op prev", self.control_table[2], offset, || Ok(Fp::from(self.start_op_code() as u64)))?;
-                table.assign_cell(|| "marking ctrl prev", self.control_table[3], offset, || Ok(Fp::zero()))?;
-                table.assign_cell(|| "mark", self.control_table[4], offset, || Ok(Fp::one()))?;                
-                Ok(())
-            }
-        )?;
 
-        Ok(())
-    }
-
-    pub fn set_intra_block_border<Fp: FieldExt>(
-        &self,
-        layouter: &mut impl Layouter<Fp>,
-        trans: &[((u32, u32), (u32, u32))]
-    ) -> Result<(), Error> {
-
-        layouter.assign_table(
-            || "intra-op-block trans",
-            |mut table| {
-                let mut offset = 0;
-                for ((op_cur, ctrl_cur), (op_prev, ctrl_prev)) in trans {
+                for ((op_cur, ctrl_cur), (op_prev, ctrl_prev)) in intra_op {
                     table.assign_cell(|| "op cur", self.control_table[0], offset, || Ok(Fp::from(*op_cur as u64)))?;
                     table.assign_cell(|| "ctrl cur", self.control_table[1], offset, || Ok(Fp::from(*ctrl_cur as u64)))?;
                     table.assign_cell(|| "op prev", self.control_table[2], offset, || Ok(Fp::from(*op_prev as u64)))?;
@@ -312,6 +322,7 @@ impl LayerGadget {
                     table.assign_cell(|| "mark", self.control_table[4], offset, || Ok(Fp::zero()))?;
                     offset += 1;
                 }
+
                 Ok(())
             }
         )?;
@@ -342,7 +353,7 @@ impl PaddingGadget {
 
         meta.create_gate("padding root", |meta| {
             let enable = meta.query_selector(sel) * meta.query_advice(exported[1], Rotation::cur());
-            vec![enable * meta.query_advice(exported[2], Rotation::cur()) - meta.query_advice(exported[3], Rotation::prev())]
+            vec![enable * (meta.query_advice(exported[2], Rotation::cur()) - meta.query_advice(exported[3], Rotation::cur()))]
         });        
 
         Self {
@@ -369,4 +380,183 @@ impl PaddingGadget {
         Ok(())
     }
 
+}
+
+#[cfg(test)]
+mod test {
+    #![allow(unused_imports)]
+    use super::*;
+    use crate::{test_utils::*, operation::*, serde::Row};
+    use halo2::{
+        circuit::{Cell, Region, SimpleFloorPlanner},
+        dev::{MockProver, VerifyFailure},
+        plonk::{Circuit, Expression},
+    };
+
+ 
+    #[derive(Clone, Debug)]
+    struct NullCircuitConfig {
+        layer: LayerGadget,
+        padding: PaddingGadget,
+    }
+
+    #[derive(Clone, Default)]
+    struct NullCircuit {
+        root: Fp,
+        blocks: Vec<usize>,
+
+    }
+
+    impl Circuit<Fp> for NullCircuit {
+        type Config = NullCircuitConfig;
+        type FloorPlanner = SimpleFloorPlanner;
+
+        fn without_witnesses(&self) -> Self {
+            Self::default()
+        }
+
+        fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
+            let layer = LayerGadget::configure(meta, 1, 3);
+            let padding = PaddingGadget::configure(meta, layer.sel, layer.exported_cols(0));
+
+            let cst = meta.fixed_column();
+            meta.enable_constant(cst);
+
+            NullCircuitConfig {
+                layer,
+                padding,
+            }
+        }
+
+        fn synthesize(
+            &self,
+            config: Self::Config,
+            mut layouter: impl Layouter<Fp>,
+        ) -> Result<(), Error> {
+
+            layouter.assign_region(
+                || "main", 
+                |mut region| {
+                
+                let r = self.root;
+                let rows = self.blocks.iter().fold(0, |acc, x| acc + x);
+                let mut start = config.layer.assign(&mut region, rows, r)?;
+                let mut last_op = config.layer.start_op_code();
+
+                for (index, rows) in self.blocks.iter().enumerate() {
+                    config.layer.pace_op(&mut region, start, index + 1, (last_op, 0), r, *rows)?;
+                    config.padding.padding(&mut region, start, *rows, r)?;
+                    start += rows;
+                    last_op = 0;
+                }
+
+                Ok(())
+            })?;
+
+            // no intra transition,
+            // for inter-block, (0, 0 -> 0, 0) is default so we do not need it
+            config.layer.set_op_border(&mut layouter, &[], &[], (0, 0))
+        }
+    }
+
+    #[test]
+    fn layer_null() {
+
+        let k = 4;
+        let circuit = NullCircuit { root: rand_fp() , blocks: vec![2, 3, 4]};
+
+        #[cfg(feature = "print_layout")]
+        print_layout!("layouts/layer_null_layout.png", k, &circuit);
+
+        let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
+        assert_eq!(prover.verify(), Ok(()));
+
+        let circuit = NullCircuit { root: rand_fp() , blocks: vec![5]};
+
+        let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
+        assert_eq!(prover.verify(), Ok(()));              
+        
+    } 
+    
+    #[derive(Clone, Debug)]
+    struct MultiOpCircuitConfig {
+        layer: LayerGadget,
+        padding0: PaddingGadget,
+        padding1: PaddingGadget,
+    }
+
+    #[derive(Clone, Default)]
+    struct MultiOpCircuit {
+        root: Fp,
+        blocks: Vec<(usize, usize)>,
+    }
+
+    impl Circuit<Fp> for MultiOpCircuit {
+        type Config = MultiOpCircuitConfig;
+        type FloorPlanner = SimpleFloorPlanner;
+
+        fn without_witnesses(&self) -> Self {
+            Self::default()
+        }
+
+        fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
+            let layer = LayerGadget::configure(meta, 3, 2);
+            let padding0 = PaddingGadget::configure(meta, layer.sel, layer.exported_cols(0));
+            let padding1 = PaddingGadget::configure(meta, layer.sel, layer.exported_cols(2));
+
+            let cst = meta.fixed_column();
+            meta.enable_constant(cst);
+
+            MultiOpCircuitConfig {
+                layer,
+                padding0,
+                padding1,
+            }
+        }
+
+        fn synthesize(
+            &self,
+            config: Self::Config,
+            mut layouter: impl Layouter<Fp>,
+        ) -> Result<(), Error> {
+
+            layouter.assign_region(
+                || "main", 
+                |mut region| {
+                
+                let r = self.root;
+                let rows = self.blocks.iter().fold(0, |acc, x| acc + x.0 + x.1);
+                let mut start = config.layer.assign(&mut region, rows, r)?;
+                let mut last_op = config.layer.start_op_code();
+
+                for (index, rows) in self.blocks.iter().enumerate() {
+                    let (op0, op1) = *rows;
+                    config.layer.pace_op(&mut region, start, index + 1, (last_op, 0), r, op0)?;
+                    config.padding0.padding(&mut region, start, op0, r)?;
+                    last_op = 0;
+                    start += op0;
+                    config.layer.pace_op(&mut region, start, index + 1, (last_op, 2), r, op1)?;
+                    config.padding1.padding(&mut region, start, op1, r)?;
+                    last_op = 2;
+                    start += op1;
+                    
+                }
+
+                Ok(())
+            })?;
+
+            config.layer.set_op_border(&mut layouter, &[((0, 0), (2, 0))], &[((2, 0), (0, 0))], (0, 0))
+        }
+    }
+
+    #[test]
+    fn layer_multi() {
+
+        let k = 4;
+        let circuit = MultiOpCircuit { root: rand_fp() , blocks: vec![(1,1), (1,2), (2,2)]};
+
+        let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
+        assert_eq!(prover.verify(), Ok(()));           
+        
+    }    
 }

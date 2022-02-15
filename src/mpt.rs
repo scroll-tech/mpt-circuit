@@ -266,6 +266,7 @@ impl MPTOpGadget {
     /// + hashtable col * 6
     /// and create
     /// + table col * 4
+    /// notice the gadget has bi-direction exporting (on top it exporting mpt root and bottom exporting leaf)
     pub fn configure<Fp: FieldExt>(
         meta: &mut ConstraintSystem<Fp>,
         sel: Selector,
