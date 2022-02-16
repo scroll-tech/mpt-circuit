@@ -18,17 +18,12 @@
 // on the circuit and enabled by a flag, sequence of operations would be laid on continuous rows in the
 // circuit and we also call the rows for one step an "op block".
 
-use super::HashType;
-use crate::{mpt::MPTOpGadget, operation::SingleOp};
-use ff::Field;
 use halo2::{
     arithmetic::FieldExt,
-    circuit::{Chip, Layouter, Region},
+    circuit::{Layouter, Region},
     plonk::{Advice, Column, ConstraintSystem, Error, Expression, Selector, TableColumn},
     poly::Rotation,
 };
-use lazy_static::lazy_static;
-use std::marker::PhantomData;
 
 // help organize an op block, the transition of steps is controlled by a constant lookup table
 // notice LayerGadget require constant constraintion (query one fixed_col and call enable_constant on it)
@@ -54,8 +49,8 @@ pub(crate) struct LayerGadget {
 
 impl LayerGadget {
 
-    pub fn exported_cols(&self, step: usize) -> [Column<Advice>; 4] {
-        [self.ctrl_type, self.s_stepflags[step], self.old_root, self.new_root]
+    pub fn exported_cols(&self, step: u32) -> [Column<Advice>; 4] {
+        [self.ctrl_type, self.s_stepflags[step as usize], self.old_root, self.new_root]
     }
 
     pub fn get_free_cols(&self) -> &[Column<Advice>] {
@@ -379,7 +374,6 @@ impl PaddingGadget {
         }
         Ok(())
     }
-
 }
 
 #[cfg(test)]

@@ -3,7 +3,6 @@ pub use halo2::{arithmetic::FieldExt, pairing::bn256::Fr as Fp};
 use lazy_static::lazy_static;
 use rand::{random, SeedableRng};
 use rand_chacha::ChaCha8Rng; // why halo2-merkle tree use base field?
-use crate::serde::Row;
 
 
 pub const TEST_FILE: &'static str = include_str!("../rows.jsonl");
@@ -54,4 +53,5 @@ macro_rules! print_layout {
     };
 }
 
+#[cfg(feature = "print_layout")]
 pub(crate) use print_layout;

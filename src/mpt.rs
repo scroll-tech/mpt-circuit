@@ -69,7 +69,6 @@ use halo2::{
     poly::Rotation,
 };
 use lazy_static::lazy_static;
-use std::marker::PhantomData;
 
 #[derive(Clone, Debug)]
 pub(crate) struct MPTOpTables {
@@ -112,18 +111,15 @@ lazy_static! {
 }
 
 impl MPTOpTables {
-    fn configure_create<Fp: Field>(meta: &mut ConstraintSystem<Fp>) -> Self {
-        Self::configure_assign(&[();4].map(|_|meta.lookup_table_column()))
-    }
-
-    fn configure_assign(cols: &[TableColumn]) -> Self {
+    pub fn configure_create<Fp: Field>(meta: &mut ConstraintSystem<Fp>) -> Self {
+        let cols = [();4].map(|_|meta.lookup_table_column());
         Self {
             type_table : (cols[0], cols[1]),
             trans_table : (cols[2], cols[3]),
-        }
+        }        
     }
 
-    fn fill_constant<Fp: FieldExt>(
+    pub fn fill_constant<Fp: FieldExt>(
         &self,
         layouter: &mut impl Layouter<Fp>,
     ) -> Result<(), Error> {
@@ -186,7 +182,7 @@ pub(crate) struct HashTable (TableColumn, TableColumn, TableColumn);
 
 impl HashTable {
 
-    fn configure_create<Fp: Field>(meta: &mut ConstraintSystem<Fp>) -> Self {
+    pub fn configure_create<Fp: Field>(meta: &mut ConstraintSystem<Fp>) -> Self {
         Self(meta.lookup_table_column(), meta.lookup_table_column(), meta.lookup_table_column())
     }
 
@@ -195,18 +191,16 @@ impl HashTable {
     }
 
     /// a helper entry to fill hash table, mostly for test purpose
-    fn fill<Fp: FieldExt>(
+    pub fn fill<'d, Fp: FieldExt>(
         &self,
         layouter: &mut impl Layouter<Fp>,
-        hashing_records: &[(Fp, Fp, Fp)],
+        hashing_records: impl Iterator<Item = &'d (Fp, Fp, Fp)> + Clone,
     ) -> Result<(), Error> {
 
         layouter.assign_table(
             || "hash table",
             |mut table| {
-                hashing_records
-                    .iter()
-                    .enumerate()
+                hashing_records.clone().enumerate()
                     .try_for_each(|(offset, val)| {
                         let (lh, rh, h) = val;
 
@@ -259,27 +253,40 @@ pub(crate) struct MPTOpGadget {
 
 impl MPTOpGadget {
 
+    pub fn min_free_cols() -> usize {6}
+
+    /// if the gadget would be used only once, this entry is more easy
+    pub fn configure_simple<Fp: FieldExt>(
+        meta: &mut ConstraintSystem<Fp>,
+        sel: Selector,
+        exported: [Column<Advice>; 4],
+        free: &[Column<Advice>],        
+    ) -> Self {
+        
+        let tables =  MPTOpTables::configure_create(meta);
+        let hash_tbls = (HashTable::configure_create(meta), HashTable::configure_create(meta));
+
+        Self::configure(meta, sel, exported, free, tables, hash_tbls)
+    }
+
     /// create gadget from assigned cols, we need:
     /// + circuit selector * 1
     /// + exported col * 4 (MUST by following sequence: layout_flag, s_enable, old_val, new_val)
     /// + free col * 6
-    /// + hashtable col * 6
-    /// and create
-    /// + table col * 4
     /// notice the gadget has bi-direction exporting (on top it exporting mpt root and bottom exporting leaf)
     pub fn configure<Fp: FieldExt>(
         meta: &mut ConstraintSystem<Fp>,
         sel: Selector,
         exported: [Column<Advice>; 4],
         free: &[Column<Advice>],
-        hash_tbl: &[TableColumn],
+        tables: MPTOpTables,
+        hash_tbls: (HashTable, HashTable), //(old, new)
     ) -> Self {
 
         assert!(free.len() >= 6, "require at least 6 free cols");
-        assert!(free.len() >= 6, "require at least 6 hash table cols");
 
         let g_config = MPTOpConfig {
-            tables: MPTOpTables::configure_create(meta), 
+            tables, 
             s_row: sel,
             s_data: free[0],
             depth: free[1],
@@ -287,13 +294,13 @@ impl MPTOpGadget {
             sibling: free[3],
             acc_key: free[4],
             path: free[5],
-            s_enable: exported[0],
-            old_hash_type: exported[1],
+            old_hash_type: exported[0],
+            s_enable: exported[1],
             old_val: exported[2],
             new_val: exported[3],
 
-            old_hash_table: HashTable::configure_assign(&hash_tbl[0..3]),
-            new_hash_table: HashTable::configure_assign(&hash_tbl[3..6]),
+            old_hash_table: hash_tbls.0,
+            new_hash_table: hash_tbls.1,
         };
 
         meta.create_gate("flag boolean", |meta| {
@@ -322,13 +329,13 @@ impl MPTOpGadget {
         self.tables.fill_constant(layouter)
     }
 
-    pub fn init_hash_table<Fp: FieldExt>(
+    pub fn init_hash_table<'d, Fp: FieldExt>(
         &self,
         layouter: &mut impl Layouter<Fp>,
-        data: &SingleOp<Fp>,
+        data: impl Iterator<Item = &'d SingleOp<Fp>> + Clone,
     ) -> Result<(), Error> {
-        self.old_hash_table.fill(layouter, &data.old.hash_traces)?;
-        self.new_hash_table.fill(layouter, &data.new.hash_traces)?;
+        self.old_hash_table.fill(layouter, data.clone().flat_map(|op| &op.old.hash_traces))?;
+        self.new_hash_table.fill(layouter, data.clone().flat_map(|op| &op.new.hash_traces))?;
         Ok(())
     }
 
@@ -946,9 +953,9 @@ mod test {
 
             config.global.tables.fill_constant(&mut layouter)?;
             if USE_OLD {
-                config.global.old_hash_table.fill(&mut layouter, &self.data.hash_traces)
+                config.global.old_hash_table.fill(&mut layouter, self.data.hash_traces.iter())
             } else {
-                config.global.new_hash_table.fill(&mut layouter, &self.data.hash_traces)
+                config.global.new_hash_table.fill(&mut layouter, self.data.hash_traces.iter())
             }?;
             
             Ok(())
@@ -1253,11 +1260,10 @@ mod test {
 
             let sel = meta.selector();
             let free_cols = [();10].map(|_|meta.advice_column());
-            let table_cols = [();6].map(|_|meta.lookup_table_column());
             let exported_cols = [free_cols[0],free_cols[1],free_cols[2],free_cols[3]];
 
             GadgetTestConfig {
-                gadget: MPTOpGadget::configure(meta, sel, exported_cols, &free_cols[4..], &table_cols[..]),
+                gadget: MPTOpGadget::configure_simple(meta, sel, exported_cols, &free_cols[4..]),
                 free_cols,
                 sel,
             }
@@ -1270,7 +1276,7 @@ mod test {
         ) -> Result<(), Error> {
 
             config.gadget.init(&mut layouter)?;
-            config.gadget.init_hash_table(&mut layouter, &self.data)?;
+            config.gadget.init_hash_table(&mut layouter, [&self.data].into_iter())?;
 
             layouter.assign_region(
                 || "mpt",
