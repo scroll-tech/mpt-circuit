@@ -193,3 +193,46 @@ impl<'d, Fp: FieldExt> From<&'d [serde::Row]> for SingleOp<Fp> {
         }
     }
 }
+
+/// Represent for a eth account
+#[derive(Clone, Debug, Default)]
+pub struct Account<Fp> {
+    /// the balance of account, because it is the total amount of ethereum so field should be large enough
+    pub balance: Fp,
+    /// the nonce of an account
+    pub nonce: Fp,
+    /// the 256-bit codehash require 2 field (first / last 128bit) to contain
+    pub codehash: (Fp, Fp),
+    /// the root of state trie
+    pub state_root: Fp,
+    /// the cached traces for calculated all hashes required in obtain the account hash
+    /// the last one calculate the final hash
+    pub hash_traces: Vec<(Fp, Fp, Fp)>,
+}
+
+impl<Fp: FieldExt> Account<Fp> {
+
+    /// calculating all traces ad-hoc with hasher function
+    pub fn trace(mut self, mut hasher: impl FnMut(&Fp, &Fp) -> Fp,
+    ) -> Self {
+        let h1 = hasher(&self.codehash.0, &self.codehash.1);
+        let h3 = hasher(&self.nonce, &self.balance);
+        let h2 = hasher(&h1, &self.state_root);
+        let h_final = hasher(&h3, &h2);
+
+        self.hash_traces = vec![
+            (self.codehash.0, self.codehash.1, h1),
+            (self.nonce, self.balance, h3),
+            (h1, self.state_root, h2),
+            (h3, h2, h_final),
+        ];
+
+        self
+    }
+
+    /// complete the account by calculating all traces ad-hoc with hasher function
+    pub fn complete(self, hasher: impl FnMut(&Fp, &Fp) -> Fp,
+    ) -> Self {
+        if self.hash_traces.is_empty() {self.trace(hasher)} else {self}
+    }
+}

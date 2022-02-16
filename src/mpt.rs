@@ -138,7 +138,7 @@ impl MPTOpTables {
 
 // TODO: hash table maybe advice?
 #[derive(Clone, Debug)]
-pub(crate) struct HashTable(TableColumn, TableColumn, TableColumn);
+pub(crate) struct HashTable(pub TableColumn, pub TableColumn, pub TableColumn);
 
 impl HashTable {
     pub fn configure_create<Fp: Field>(meta: &mut ConstraintSystem<Fp>) -> Self {
@@ -345,36 +345,8 @@ impl MPTOpGadget {
     }
 }
 
-fn lagrange_polynomial_for_hashtype<Fp: ff::PrimeField, const T: usize>(
-    ref_n: Expression<Fp>,
-) -> Expression<Fp> {
-    let mut denominators = vec![
-        Fp::from(T as u64) - Fp::from(HashType::Start as u64),
-        Fp::from(T as u64) - Fp::from(HashType::Empty as u64),
-        Fp::from(T as u64) - Fp::from(HashType::Middle as u64),
-        Fp::from(T as u64) - Fp::from(HashType::LeafExt as u64),
-        Fp::from(T as u64) - Fp::from(HashType::LeafExtFinal as u64),
-        Fp::from(T as u64) - Fp::from(HashType::Leaf as u64),
-    ];
-
-    denominators.swap_remove(T);
-    let denominator = denominators.into_iter().fold(Fp::one(), |acc, v| v * acc);
-    assert_ne!(denominator, Fp::zero());
-
-    let mut factors = vec![
-        ref_n.clone() - Expression::Constant(Fp::zero()),
-        ref_n.clone() - Expression::Constant(Fp::from(HashType::Empty as u64)),
-        ref_n.clone() - Expression::Constant(Fp::from(HashType::Middle as u64)),
-        ref_n.clone() - Expression::Constant(Fp::from(HashType::LeafExt as u64)),
-        ref_n.clone() - Expression::Constant(Fp::from(HashType::LeafExtFinal as u64)),
-        ref_n - Expression::Constant(Fp::from(HashType::Leaf as u64)),
-    ];
-
-    factors.swap_remove(T);
-    factors.into_iter().fold(
-        Expression::Constant(denominator.invert().unwrap()),
-        |acc, f| acc * f,
-    )
+fn lagrange_polynomial_for_hashtype<Fp: ff::PrimeField, const T: usize>(ref_n: Expression<Fp>) -> Expression<Fp> {
+    super::lagrange_polynomial::<Fp, T, 5 /* last Type: Leaf */>(ref_n)
 }
 
 #[derive(Clone, Debug)]
