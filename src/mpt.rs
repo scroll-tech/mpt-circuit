@@ -58,7 +58,7 @@
 //
 //  while assignation, OpChip response to assign sibling, acckey and path
 
-use super::HashType;
+use super::{CtrlTransitionKind, HashType};
 use crate::operation::{MPTPath, SingleOp};
 use ff::Field;
 use halo2::{
@@ -70,10 +70,7 @@ use halo2::{
 use lazy_static::lazy_static;
 
 #[derive(Clone, Debug)]
-pub(crate) struct MPTOpTables {
-    type_table: (TableColumn, TableColumn),
-    trans_table: (TableColumn, TableColumn),
-}
+pub(crate) struct MPTOpTables(TableColumn, TableColumn, TableColumn);
 
 lazy_static! {
     static ref OPMAP : Vec<(HashType, HashType)> = {
@@ -111,66 +108,31 @@ lazy_static! {
 
 impl MPTOpTables {
     pub fn configure_create<Fp: Field>(meta: &mut ConstraintSystem<Fp>) -> Self {
-        let cols = [(); 4].map(|_| meta.lookup_table_column());
-        Self {
-            type_table: (cols[0], cols[1]),
-            trans_table: (cols[2], cols[3]),
-        }
+        Self(
+            meta.lookup_table_column(),
+            meta.lookup_table_column(),
+            meta.lookup_table_column(),
+        )
     }
 
     pub fn fill_constant<Fp: FieldExt>(
         &self,
         layouter: &mut impl Layouter<Fp>,
+        rules: impl Iterator<Item = (u32, u32, u32)> + Clone,
     ) -> Result<(), Error> {
         layouter.assign_table(
             || "trans table",
             |mut table| {
-                let (cur_col, next_col) = self.trans_table;
-                for (offset, trans) in TRANSMAP.iter().enumerate() {
-                    let (cur, next) = trans;
-                    table.assign_cell(
-                        || "cur hash",
-                        cur_col,
-                        offset,
-                        || Ok(Fp::from(*cur as u64)),
-                    )?;
+                for (offset, item) in rules.clone().enumerate() {
+                    table.assign_cell(|| "cur", self.0, offset, || Ok(Fp::from(item.0 as u64)))?;
 
-                    table.assign_cell(
-                        || "next hash",
-                        next_col,
-                        offset,
-                        || Ok(Fp::from(*next as u64)),
-                    )?;
+                    table.assign_cell(|| "next", self.1, offset, || Ok(Fp::from(item.1 as u64)))?;
+
+                    table.assign_cell(|| "mark", self.2, offset, || Ok(Fp::from(item.2 as u64)))?;
                 }
                 Ok(())
             },
-        )?;
-
-        layouter.assign_table(
-            || "op table",
-            |mut table| {
-                let (old_col, new_col) = self.type_table;
-                for (offset, op) in OPMAP.iter().enumerate() {
-                    let (old, new) = op;
-                    table.assign_cell(
-                        || "old hash",
-                        old_col,
-                        offset,
-                        || Ok(Fp::from(*old as u64)),
-                    )?;
-
-                    table.assign_cell(
-                        || "new hash",
-                        new_col,
-                        offset,
-                        || Ok(Fp::from(*new as u64)),
-                    )?;
-                }
-                Ok(())
-            },
-        )?;
-
-        Ok(())
+        )
     }
 }
 
@@ -324,8 +286,19 @@ impl MPTOpGadget {
         }
     }
 
+    pub fn transition_rules() -> impl Iterator<Item = (u32, u32, u32)> + Clone {
+        let i1 = TRANSMAP
+            .iter()
+            .map(|(a, b)| (*a as u32, *b as u32, CtrlTransitionKind::Mpt as u32));
+        let i2 = OPMAP
+            .iter()
+            .map(|(a, b)| (*a as u32, *b as u32, CtrlTransitionKind::Operation as u32));
+        i1.chain(i2)
+    }
+
     pub fn init<Fp: FieldExt>(&self, layouter: &mut impl Layouter<Fp>) -> Result<(), Error> {
-        self.tables.fill_constant(layouter)
+        self.tables
+            .fill_constant(layouter, Self::transition_rules())
     }
 
     pub fn init_hash_table<'d, Fp: FieldExt>(
@@ -470,7 +443,7 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
         let left = hash_table.0;
         let right = hash_table.1;
         let hash = hash_table.2;
-        let trans_table = g_config.tables.trans_table;
+        let trans_table = &g_config.tables;
 
         // Only lookup for hash table should be
         // setuped here, no other gates required
@@ -536,7 +509,14 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
             let hash = s_data.clone() * meta.query_advice(hash_type, Rotation::cur());
             let prev_hash = s_data * meta.query_advice(hash_type, Rotation::prev());
 
-            vec![(prev_hash, trans_table.0), (hash, trans_table.1)]
+            vec![
+                (prev_hash, trans_table.0),
+                (hash, trans_table.1),
+                (
+                    Expression::Constant(Fp::from(CtrlTransitionKind::Mpt as u64)),
+                    trans_table.2,
+                ),
+            ]
         });
 
         meta.create_gate("s_data open", |meta| {
@@ -685,7 +665,7 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
         let s_row = g_config.s_row;
         let s_enable = g_config.s_enable;
         let s_data = g_config.s_data;
-        let type_table = g_config.tables.type_table;
+        let type_table = &g_config.tables;
 
         //old - new
         meta.lookup(|meta| {
@@ -694,7 +674,14 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
             let new_hash = meta.query_advice(s_enable, Rotation::cur())
                 * meta.query_advice(new_hash_type, Rotation::cur());
 
-            vec![(old_hash, type_table.0), (new_hash, type_table.1)]
+            vec![
+                (old_hash, type_table.0),
+                (new_hash, type_table.1),
+                (
+                    Expression::Constant(Fp::from(CtrlTransitionKind::Operation as u64)),
+                    type_table.2,
+                ),
+            ]
         });
 
         meta.create_gate("s_data boolean", |meta| {
@@ -969,7 +956,12 @@ mod test {
                 },
             )?;
 
-            config.global.tables.fill_constant(&mut layouter)?;
+            config.global.tables.fill_constant(
+                &mut layouter,
+                TRANSMAP
+                    .iter()
+                    .map(|(a, b)| (*a as u32, *b as u32, CtrlTransitionKind::Mpt as u32)),
+            )?;
             if USE_OLD {
                 config
                     .global
@@ -1177,7 +1169,12 @@ mod test {
                 },
             )?;
 
-            config.global.tables.fill_constant(&mut layouter)?;
+            config.global.tables.fill_constant(
+                &mut layouter,
+                OPMAP
+                    .iter()
+                    .map(|(a, b)| (*a as u32, *b as u32, CtrlTransitionKind::Operation as u32)),
+            )?;
             Ok(())
         }
     }

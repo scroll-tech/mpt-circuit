@@ -16,7 +16,7 @@ mod serde;
 #[cfg(test)]
 mod test_utils;
 
-/// Indicate the type of a row
+/// Indicate the operation type of a row in MPT circuit
 #[derive(Clone, Copy, Debug)]
 pub enum HashType {
     /// Marking the start of node
@@ -31,6 +31,14 @@ pub enum HashType {
     LeafExtFinal,
     /// leaf node
     Leaf,
+}
+
+// we lookup the transition of ctrl type from the preset table, and different kind of rules
+// is specified here
+enum CtrlTransitionKind {
+    Mpt = 0,        // transition in MPT circuit
+    Account,        // transition in account circuit
+    Operation = 99, // transition of the old state to new state in MPT circuit
 }
 
 use halo2::{
@@ -189,6 +197,17 @@ mod test {
 
         #[cfg(feature = "print_layout")]
         print_layout!("layouts/simple_trie_layout.png", k, &circuit);
+
+        let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
+        assert_eq!(prover.verify(), Ok(()));
+
+        //no padding
+        let circuit = SimpleTrie::<Fp> {
+            c_size: 20,
+            start_root: circuit.start_root,
+            final_root: circuit.final_root,
+            ops: circuit.ops,
+        };
 
         let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
