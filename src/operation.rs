@@ -1,11 +1,11 @@
 //! represent the data for a single operation on the MPT
-//! 
+//!
 
-use super::{HashType, serde};
+use super::{serde, HashType};
 use halo2::arithmetic::FieldExt;
 
-/// Represent a sequence of hashes in a path inside MPT, it can be full 
-/// (with leaf) or truncated and being padded to an "empty" leaf node, 
+/// Represent a sequence of hashes in a path inside MPT, it can be full
+/// (with leaf) or truncated and being padded to an "empty" leaf node,
 /// according to the hash_type. It would be used for the layout of MPT
 /// circuit
 #[derive(Clone, Debug, Default)]
@@ -22,7 +22,6 @@ pub struct MPTPath<Fp> {
 }
 
 impl<Fp: FieldExt> MPTPath<Fp> {
-
     /// the root of MPT
     pub fn root(&self) -> Fp {
         self.hashes[0]
@@ -31,20 +30,24 @@ impl<Fp: FieldExt> MPTPath<Fp> {
     /// the leaf value, for truncated path, give None
     pub fn leaf(&self) -> Option<Fp> {
         let last = *self.hashes.last().unwrap();
-        if last == Fp::zero() {None} else {Some(last)}
+        if last == Fp::zero() {
+            None
+        } else {
+            Some(last)
+        }
     }
 
     /// construct from known data matrix (for example, from geth), the input hash_types
     /// is purposed to has no HashType::Start and all length of the slice arguments
     /// are the same
     pub fn construct(
-            hash_types: &[HashType],
-            path: &[Fp],
-            siblings: &[Fp],
-            hashes: &[Fp],
-            key: Fp,
-            leaf: Fp, //notice 0 value would be considered as empty
-        ) -> Self {
+        hash_types: &[HashType],
+        path: &[Fp],
+        siblings: &[Fp],
+        hashes: &[Fp],
+        key: Fp,
+        leaf: Fp, //notice 0 value would be considered as empty
+    ) -> Self {
         //we have at least one row
         assert!(!path.is_empty(), "data should not empty");
         assert_eq!(path.len(), siblings.len());
@@ -114,7 +117,7 @@ impl<Fp: FieldExt> MPTPath<Fp> {
             hash_types,
             hash_traces,
         }
-    }    
+    }
 }
 
 /// Represent for a single operation
@@ -131,7 +134,6 @@ pub struct SingleOp<Fp> {
     /// the MPT path data after operation
     pub new: MPTPath<Fp>,
 }
-
 
 impl<Fp: FieldExt> SingleOp<Fp> {
     /// indicate rows would take in circuit layout
@@ -150,12 +152,10 @@ impl<Fp: FieldExt> SingleOp<Fp> {
     }
 }
 
-
 // Turn a row array into single op, brutely fail with any reason like
 // a unfinished op
 impl<'d, Fp: FieldExt> From<&'d [serde::Row]> for SingleOp<Fp> {
     fn from(rows: &[serde::Row]) -> Self {
-
         let old_leaf = Fp::from_bytes(rows.last().unwrap().old_value.as_ref()).unwrap();
         let new_leaf = Fp::from_bytes(rows.last().unwrap().new_value.as_ref()).unwrap();
         let key = Fp::from_bytes(rows[0].key.as_ref()).unwrap();
@@ -179,8 +179,10 @@ impl<'d, Fp: FieldExt> From<&'d [serde::Row]> for SingleOp<Fp> {
             old_hash_type.push(row.old_hash_type);
         });
 
-        let old = MPTPath::<Fp>::construct(&old_hash_type, &path, &siblings, &old_hash, key, old_leaf);
-        let new = MPTPath::<Fp>::construct(&new_hash_type, &path, &siblings, &new_hash, key, new_leaf);
+        let old =
+            MPTPath::<Fp>::construct(&old_hash_type, &path, &siblings, &old_hash, key, old_leaf);
+        let new =
+            MPTPath::<Fp>::construct(&new_hash_type, &path, &siblings, &new_hash, key, new_leaf);
 
         Self {
             key,
