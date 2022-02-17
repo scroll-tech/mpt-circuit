@@ -23,18 +23,154 @@
 //
 //  the ctrl_type is external for account chip. Our gadget use two accout chips and simply constraint the transition of rows:
 //  0 -> 1, 1 -> 2, 2 -> 3
+//
+//  ### empty circuit
+//  notice an empty circuit (all cells are zero) would satisify all constraints, which allow MPT circuit for empty leaf / trie
+//  being connected with it
+//
+//  ### padding row
+//  an additional row (marked as 4) can be add to the end which require the two account state are identify. with this special marking
+//  row we can omit the state trie following AccountGadget
 
 
-use super::{CtrlTransitionKind, HashType};
+use super::CtrlTransitionKind;
 use super::mpt;
 use crate::operation::Account;
-use ff::Field;
 use halo2::{
     arithmetic::FieldExt,
-    circuit::{Chip, Layouter, Region},
-    plonk::{Advice, Column, ConstraintSystem, Error, Expression, Selector, TableColumn},
+    circuit::{Chip, Region},
+    plonk::{Advice, Column, ConstraintSystem, Error, Expression, Selector},
     poly::Rotation,
 };
+use lazy_static::lazy_static;
+
+const CIRCUIT_ROW : usize = 5;
+const LAST_ROW : usize = CIRCUIT_ROW - 1;
+
+lazy_static! {
+    static ref TRANSMAP : Vec<(u32, u32)> = {
+        (0..LAST_ROW).map(|s|(s as u32, (s+1) as u32)).collect()
+    };
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct AccountGadget {
+    old_state: AccountChipConfig,
+    new_state: AccountChipConfig,
+    s_enable: Column<Advice>,
+    ctrl_type: Column<Advice>,
+}
+
+impl AccountGadget {
+    pub fn min_free_cols() -> usize {4}
+
+/*    /// if the gadget would be used only once, this entry is more easy
+    pub fn configure_simple<Fp: FieldExt>(
+        meta: &mut ConstraintSystem<Fp>,
+        sel: Selector,
+        exported: [Column<Advice>; 4],
+        free: &[Column<Advice>],
+    ) -> Self {
+        let tables = MPTOpTables::configure_create(meta);
+        let hash_tbls = (
+            HashTable::configure_create(meta),
+            HashTable::configure_create(meta),
+        );
+
+        Self::configure(meta, sel, exported, free, tables, hash_tbls)
+    }*/
+
+    /// create gadget from assigned cols, we need:
+    /// + circuit selector * 1
+    /// + exported col * 4 (MUST by following sequence: layout_flag, s_enable, old_val, new_val)
+    /// + free col * 4
+    pub fn configure<Fp: FieldExt>(
+        meta: &mut ConstraintSystem<Fp>,
+        sel: Selector,
+        exported: [Column<Advice>; 4],
+        free: &[Column<Advice>],
+        tables: mpt::MPTOpTables,
+        hash_tbls: (mpt::HashTable, mpt::HashTable), //(old, new)
+    ) -> Self {
+        assert!(free.len() >= 6, "require at least 6 free cols");
+        let s_enable = exported[1];
+        let ctrl_type = exported[0];
+        let exported_old = exported[2];
+        let exported_new = exported[3];
+
+        //transition
+        meta.lookup(|meta| {
+            let s_enable = meta.query_advice(s_enable, Rotation::cur());
+            let row_n = s_enable.clone() * meta.query_advice(ctrl_type, Rotation::cur());
+            let prev_row_n = s_enable * meta.query_advice(ctrl_type, Rotation::prev());
+
+            vec![
+                (prev_row_n, tables.0),
+                (row_n, tables.1),
+                (
+                    Expression::Constant(Fp::from(CtrlTransitionKind::Account as u64)),
+                    tables.2,
+                ),
+            ]
+        });
+
+        
+        //additional row
+        meta.create_gate("padding row", |meta|{
+            let s_enable = meta.query_selector(sel) * meta.query_advice(s_enable, Rotation::cur());
+            let row4 = AccountChip::<'_, Fp>::lagrange_polynomial_for_row::<4>(meta.query_advice(ctrl_type, Rotation::cur()));
+            let old_root = meta.query_advice(exported_old, Rotation::cur());
+            let new_root = meta.query_advice(exported_old, Rotation::cur());
+
+            vec![ s_enable * row4 * (new_root - old_root) ]
+
+        });
+
+        Self {
+            s_enable,
+            ctrl_type,
+            old_state: AccountChip::configure(meta, sel, s_enable, ctrl_type, exported_old, &free[0..2], hash_tbls.0),
+            new_state: AccountChip::configure(meta, sel, s_enable, ctrl_type, exported_new, &free[2..4], hash_tbls.1),
+        }
+    }
+
+    pub fn transition_rules() -> impl Iterator<Item = (u32, u32, u32)> + Clone {
+        TRANSMAP.iter().map(|(a, b)| (*a, *b, CtrlTransitionKind::Account as u32))
+    }
+
+    /// assign data and enable flag for MPT circuit
+    pub fn assign<Fp: FieldExt>(
+        &self,
+        region: &mut Region<'_, Fp>,
+        offset: usize,
+        data: &(Account<Fp>, Account<Fp>),
+    ) -> Result<usize, Error> {
+        let old_acc_chip = AccountChip::<Fp>{offset, config: self.old_state.clone(), data: &data.0 };
+        let new_acc_chip = AccountChip::<Fp>{offset, config: self.new_state.clone(), data: &data.1 };
+
+        old_acc_chip.assign(region)?;
+        new_acc_chip.assign(region)?;
+
+        let end_offset = offset + LAST_ROW - if data.0.state_root == data.1.state_root { 0 } else {1};
+
+        for (index, offset) in (offset..end_offset).enumerate() {
+            region.assign_advice(
+                || "enable account circuit",
+                self.s_enable,
+                offset,
+                || Ok(Fp::one()),
+            )?;
+            region.assign_advice(
+                || "account circuit rows",
+                self.ctrl_type,
+                offset,
+                || Ok(Fp::from(index as u64)),
+            )?;            
+        }
+
+        Ok(end_offset)
+    }
+}
 
 #[derive(Clone, Debug)]
 struct AccountChipConfig {
@@ -64,9 +200,6 @@ impl<Fp: FieldExt> Chip<Fp> for AccountChip<'_, Fp> {
     }
 }
 
-const CIRCUIT_ROW : usize = 4;
-const LAST_ROW : usize = CIRCUIT_ROW - 1;
-
 impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
 
     fn lagrange_polynomial_for_row<const T: usize>(ref_n: Expression<Fp>) -> Expression<Fp> {
@@ -75,11 +208,12 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
 
     fn configure(
         meta: &mut ConstraintSystem<Fp>,
+        sel: Selector,
         s_enable: Column<Advice>,
         ctrl_type: Column<Advice>,
         exported: Column<Advice>,
         free_cols: &[Column<Advice>],
-        hash_table : &mpt::HashTable,
+        hash_table : mpt::HashTable,
     ) -> <Self as Chip<Fp>>::Config {
 
         let input = free_cols[0];
@@ -117,7 +251,7 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
 
 
         meta.create_gate("account calc", |meta| {
-            let s_enable = meta.query_advice(s_enable, Rotation::cur());
+            let s_enable = meta.query_selector(sel) * meta.query_advice(s_enable, Rotation::cur());
             let ctrl_type = meta.query_advice(ctrl_type, Rotation::cur());
             let exported_equal1 = meta.query_advice(exported, Rotation::cur()) - meta.query_advice(exported, Rotation::prev());
             let exported_equal2 = meta.query_advice(exported, Rotation::cur()) - meta.query_advice(exported, Rotation::next());
@@ -140,6 +274,33 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
 
     fn assign(&self, region: &mut Region<'_, Fp>) -> Result<usize, Error> {
 
-        Ok(self.offset + CIRCUIT_ROW)
+        assert_eq!(self.data.hash_traces.len(), 4);
+        let config = &self.config;
+        // fill the connected circuit
+        let offset = self.offset - 1;
+        region.assign_advice(|| "account hash", config.exported, offset, || Ok(self.data.hash_traces[3].2))?;
+
+        // row 0
+        let offset = offset + 1;
+        region.assign_advice(|| "input 0", config.input, offset, || Ok(self.data.nonce))?;
+        region.assign_advice(|| "exported 0", config.exported, offset, || Ok(self.data.hash_traces[3].2))?;
+        // row 1
+        let offset = offset + 1;
+        region.assign_advice(|| "input 1", config.input, offset, || Ok(self.data.balance))?;
+        region.assign_advice(|| "intermediate 1", config.intermediate, offset, || Ok(self.data.hash_traces[2].2))?;
+        region.assign_advice(|| "exported 1", config.exported, offset, || Ok(self.data.hash_traces[1].2))?;
+        // row 2
+        let offset = offset + 1;
+        region.assign_advice(|| "input 2", config.input, offset, || Ok(self.data.codehash.0))?;
+        region.assign_advice(|| "exported 2", config.exported, offset, || Ok(self.data.hash_traces[1].2))?;
+        // row 3
+        let offset = offset + 1;
+        region.assign_advice(|| "input 3", config.input, offset, || Ok(self.data.codehash.1))?;
+        region.assign_advice(|| "intermediate 3", config.intermediate, offset, || Ok(self.data.hash_traces[0].2))?;
+        region.assign_advice(|| "exported 3", config.exported, offset, || Ok(self.data.state_root))?;
+        // row 4: notice this is not belong to account chip in general
+        region.assign_advice(|| "state root", config.exported, offset + 1, || Ok(self.data.state_root))?;
+
+        Ok(offset)
     }
 }

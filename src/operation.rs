@@ -222,8 +222,8 @@ impl<Fp: FieldExt> Account<Fp> {
 
         self.hash_traces = vec![
             (self.codehash.0, self.codehash.1, h1),
-            (self.nonce, self.balance, h3),
             (h1, self.state_root, h2),
+            (self.nonce, self.balance, h3),
             (h3, h2, h_final),
         ];
 

@@ -70,7 +70,7 @@ use halo2::{
 use lazy_static::lazy_static;
 
 #[derive(Clone, Debug)]
-pub(crate) struct MPTOpTables(TableColumn, TableColumn, TableColumn);
+pub(crate) struct MPTOpTables(pub TableColumn, pub TableColumn, pub TableColumn);
 
 lazy_static! {
     static ref OPMAP : Vec<(HashType, HashType)> = {
