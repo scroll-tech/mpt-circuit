@@ -49,7 +49,9 @@ const LAST_ROW : usize = CIRCUIT_ROW - 1;
 
 lazy_static! {
     static ref TRANSMAP : Vec<(u32, u32)> = {
-        (0..LAST_ROW).map(|s|(s as u32, (s+1) as u32)).collect()
+        let mut ret : Vec<_> = (0..LAST_ROW).map(|s|(s as u32, (s+1) as u32)).collect();
+        ret.push((0, 0));
+        ret
     };
 }
 
@@ -63,22 +65,6 @@ pub(crate) struct AccountGadget {
 
 impl AccountGadget {
     pub fn min_free_cols() -> usize {4}
-
-/*    /// if the gadget would be used only once, this entry is more easy
-    pub fn configure_simple<Fp: FieldExt>(
-        meta: &mut ConstraintSystem<Fp>,
-        sel: Selector,
-        exported: [Column<Advice>; 4],
-        free: &[Column<Advice>],
-    ) -> Self {
-        let tables = MPTOpTables::configure_create(meta);
-        let hash_tbls = (
-            HashTable::configure_create(meta),
-            HashTable::configure_create(meta),
-        );
-
-        Self::configure(meta, sel, exported, free, tables, hash_tbls)
-    }*/
 
     /// create gadget from assigned cols, we need:
     /// + circuit selector * 1
@@ -102,13 +88,13 @@ impl AccountGadget {
         meta.lookup(|meta| {
             let s_enable = meta.query_advice(s_enable, Rotation::cur());
             let row_n = s_enable.clone() * meta.query_advice(ctrl_type, Rotation::cur());
-            let prev_row_n = s_enable * meta.query_advice(ctrl_type, Rotation::prev());
+            let prev_row_n = s_enable.clone() * meta.query_advice(ctrl_type, Rotation::prev());
 
             vec![
                 (prev_row_n, tables.0),
                 (row_n, tables.1),
                 (
-                    Expression::Constant(Fp::from(CtrlTransitionKind::Account as u64)),
+                    s_enable * Expression::Constant(Fp::from(CtrlTransitionKind::Account as u64)),
                     tables.2,
                 ),
             ]
@@ -302,5 +288,108 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
         region.assign_advice(|| "state root", config.exported, offset + 1, || Ok(self.data.state_root))?;
 
         Ok(offset)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    #![allow(unused_imports)]
+
+    use super::*;
+    use crate::{serde::Row, test_utils::*};
+    use halo2::{
+        circuit::{Cell, Region, SimpleFloorPlanner, Layouter},
+        dev::{MockProver, VerifyFailure},
+        plonk::{Circuit, Expression},
+    };
+
+    #[derive(Clone, Debug)]
+    struct AccountTestConfig {
+        gadget: AccountGadget,
+        sel: Selector,
+        free_cols: [Column<Advice>; 10],
+        op_tabl: mpt::MPTOpTables,
+        hash_tabl: (mpt::HashTable, mpt::HashTable),
+    }
+
+    // express for a single path block
+    #[derive(Clone, Default)]
+    struct AccountTestCircuit {
+        data: (Account<Fp>, Account<Fp>),
+    }
+
+    impl Circuit<Fp> for AccountTestCircuit {
+        type Config = AccountTestConfig;
+        type FloorPlanner = SimpleFloorPlanner;
+
+        fn without_witnesses(&self) -> Self {
+            Self::default()
+        }
+
+        fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
+            let sel = meta.selector();
+            let free_cols = [(); 10].map(|_| meta.advice_column());
+            let exported_cols = [free_cols[0], free_cols[1], free_cols[2], free_cols[3]];
+            let op_tabl = mpt::MPTOpTables::configure_create(meta);
+            let hash_tabl = (mpt::HashTable::configure_create(meta), mpt::HashTable::configure_create(meta));
+
+            let gadget = AccountGadget::configure(
+                meta, 
+                sel, 
+                exported_cols, 
+                &free_cols[4..],
+                op_tabl.clone(),
+                hash_tabl.clone(),
+            );
+
+            AccountTestConfig {
+                gadget,
+                sel,
+                free_cols,
+                op_tabl,
+                hash_tabl,
+            }
+        }
+
+        fn synthesize(
+            &self,
+            config: Self::Config,
+            mut layouter: impl Layouter<Fp>,
+        ) -> Result<(), Error> {
+
+            config.op_tabl.fill_constant(&mut layouter, AccountGadget::transition_rules())?;
+            config.hash_tabl.0.fill(&mut layouter, self.data.0.hash_traces.iter())?;
+            config.hash_tabl.1.fill(&mut layouter, self.data.1.hash_traces.iter())?;
+
+            layouter.assign_region(
+                || "mpt",
+                |mut region| {
+                    config.gadget.assign(&mut region, 1, &self.data)?;
+                    Ok(())
+                })
+        }
+    }    
+
+    #[test]
+    fn single_account() {
+
+        let acc_data = Account::<Fp> {
+            balance: Fp::from(100000u64),
+            nonce: Fp::from(42u64),
+            codehash: (rand_fp(), rand_fp()),
+            state_root: rand_fp(),
+            ..Default::default()
+        };
+        let acc_data = acc_data.complete(mock_hash);
+
+        let circuit = AccountTestCircuit { data: (acc_data.clone(), acc_data)};
+
+        let k = 4;
+        #[cfg(feature = "print_layout")]
+        print_layout!("layouts/accgadget_layout.png", k, &circuit);
+
+        let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
+        assert_eq!(prover.verify(), Ok(()));
+
     }
 }
