@@ -479,13 +479,13 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
             let s_data = meta.query_advice(s_enable, Rotation::cur())
                 * meta.query_advice(s_data, Rotation::cur());
             let hash = s_data.clone() * meta.query_advice(hash_type, Rotation::cur());
-            let prev_hash = s_data * meta.query_advice(hash_type, Rotation::prev());
+            let prev_hash = s_data.clone() * meta.query_advice(hash_type, Rotation::prev());
 
             vec![
                 (prev_hash, trans_table.0),
                 (hash, trans_table.1),
                 (
-                    Expression::Constant(Fp::from(CtrlTransitionKind::Mpt as u64)),
+                    s_data * Expression::Constant(Fp::from(CtrlTransitionKind::Mpt as u64)),
                     trans_table.2,
                 ),
             ]
@@ -650,6 +650,7 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
                 (old_hash, type_table.0),
                 (new_hash, type_table.1),
                 (
+                    // notice we have (0, 0) as one of the rules so we do not conditionally disable the constant here
                     Expression::Constant(Fp::from(CtrlTransitionKind::Operation as u64)),
                     type_table.2,
                 ),

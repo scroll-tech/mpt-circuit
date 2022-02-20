@@ -37,7 +37,7 @@ pub enum HashType {
 // we lookup the transition of ctrl type from the preset table, and different kind of rules
 // is specified here
 enum CtrlTransitionKind {
-    Mpt = 0,        // transition in MPT circuit
+    Mpt = 1,        // transition in MPT circuit
     Account,        // transition in account circuit
     Operation = 99, // transition of the old state to new state in MPT circuit
 }
