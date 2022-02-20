@@ -214,8 +214,8 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
             let enable = enable_rows * s_enable;
 
             vec![
-                (enable.clone() * meta.query_advice(input, Rotation::cur()), hash_table.0),
-                (enable.clone() * meta.query_advice(input, Rotation::prev()), hash_table.1),
+                (enable.clone() * meta.query_advice(input, Rotation::prev()), hash_table.0),
+                (enable.clone() * meta.query_advice(input, Rotation::cur()), hash_table.1),
                 (enable * meta.query_advice(intermediate, Rotation::cur()), hash_table.2),
             ]
         });
@@ -247,7 +247,7 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
             vec![
                 s_enable.clone() * Self::lagrange_polynomial_for_row::<2>(ctrl_type.clone()) * exported_equal1.clone(), // equality of hash2
                 s_enable.clone() * Self::lagrange_polynomial_for_row::<0>(ctrl_type.clone()) * exported_equal1, // equality of account trie leaf
-                s_enable * Self::lagrange_polynomial_for_row::<3>(ctrl_type.clone()) * exported_equal2, // equality of state trie root
+                s_enable * Self::lagrange_polynomial_for_row::<3>(ctrl_type) * exported_equal2, // equality of state trie root
             ]
         });
 
@@ -364,7 +364,10 @@ mod test {
             layouter.assign_region(
                 || "mpt",
                 |mut region| {
-                    config.gadget.assign(&mut region, 1, &self.data)?;
+                    let till = config.gadget.assign(&mut region, 1, &self.data)?;
+                    for offset in 1..till {
+                        config.sel.enable(&mut region, offset)?;
+                    }
                     Ok(())
                 })
         }
