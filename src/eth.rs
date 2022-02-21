@@ -43,7 +43,7 @@ use halo2::{
 };
 use lazy_static::lazy_static;
 
-const CIRCUIT_ROW: usize = 5;
+pub const CIRCUIT_ROW: usize = 5;
 const LAST_ROW: usize = CIRCUIT_ROW - 1;
 
 lazy_static! {
@@ -143,7 +143,7 @@ impl AccountGadget {
             .map(|(a, b)| (*a, *b, CtrlTransitionKind::Account as u32))
     }
 
-    /// assign data and enable flag for MPT circuit
+    /// assign data and enable flag for account circuit
     pub fn assign<'d, Fp: FieldExt>(
         &self,
         region: &mut Region<'_, Fp>,

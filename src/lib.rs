@@ -49,7 +49,8 @@ use halo2::{
 };
 use layers::{LayerGadget, PaddingGadget};
 use mpt::MPTOpGadget;
-use operation::SingleOp;
+use operation::{SingleOp, AccountOp};
+use eth::AccountGadget;
 
 // building lagrange polynmials L for T so that L(n) = 1 when n = T else 0, n in [0, TO]
 fn lagrange_polynomial<Fp: ff::PrimeField, const T: usize, const TO: usize>(
@@ -192,6 +193,252 @@ impl<Fp: FieldExt> Circuit<Fp> for SimpleTrie<Fp> {
             &[],
             (OP_MPT, HashType::Start as u32),
         )
+    }
+}
+
+
+/// For an operation on the eth storage (2-layer) trie
+#[derive(Clone, Debug)]
+pub struct EthTrieConfig {
+    layer: LayerGadget,
+    account: AccountGadget,
+    account_trie: MPTOpGadget,
+    state_trie: MPTOpGadget,
+    padding: PaddingGadget,
+    tables: mpt::MPTOpTables,
+    hash_tbls: (mpt::HashTable, mpt::HashTable),
+}
+
+/// The chip for op on an storage trie
+#[derive(Clone, Default)]
+pub struct EthTrie<F: FieldExt> {
+    c_size: usize, //how many rows
+    start_root: F,
+    final_root: F,
+    ops: Vec<AccountOp<F>>,
+}
+
+const OP_TRIE_ACCOUNT : u32 = 1;
+const OP_TRIE_STATE : u32 = 2;
+const OP_ACCOUNT : u32 = 3;
+
+impl<Fp: FieldExt> Circuit<Fp> for EthTrie<Fp> {
+    type Config = EthTrieConfig;
+    type FloorPlanner = SimpleFloorPlanner;
+
+    fn without_witnesses(&self) -> Self {
+        Self::default()
+    }
+
+    fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
+
+        let tables = mpt::MPTOpTables::configure_create(meta);
+        let hash_tbls = (
+            mpt::HashTable::configure_create(meta),
+            mpt::HashTable::configure_create(meta),
+        );
+
+        let layer = LayerGadget::configure(meta, 4, std::cmp::max(MPTOpGadget::min_free_cols(), AccountGadget::min_free_cols()));
+        let padding =
+            PaddingGadget::configure(meta, layer.public_sel(), layer.exported_cols(OP_PADDING));
+        let account_trie = MPTOpGadget::configure(
+            meta,
+            layer.public_sel(),
+            layer.exported_cols(OP_TRIE_ACCOUNT),
+            layer.get_free_cols(),
+            tables.clone(),
+            hash_tbls.clone(),
+        );
+        let state_trie = MPTOpGadget::configure(
+            meta,
+            layer.public_sel(),
+            layer.exported_cols(OP_TRIE_STATE),
+            layer.get_free_cols(),
+            tables.clone(),
+            hash_tbls.clone(),
+        );
+        let account = AccountGadget::configure(
+            meta,
+            layer.public_sel(),
+            layer.exported_cols(OP_ACCOUNT),
+            layer.get_free_cols(),
+            tables.clone(),
+            hash_tbls.clone(),
+        );
+
+        let cst = meta.fixed_column();
+        meta.enable_constant(cst);
+
+        EthTrieConfig {
+            layer,
+            account_trie,
+            state_trie,
+            account,
+            padding,
+            tables,
+            hash_tbls,
+        }
+    }
+
+    fn synthesize(
+        &self,
+        config: Self::Config,
+        mut layouter: impl Layouter<Fp>,
+    ) -> Result<(), Error> {
+
+        layouter.assign_region(
+            || "main",
+            |mut region| {
+                let mut series: usize = 1;
+                let mut last_op_code = config.layer.start_op_code();
+                let mut start = config
+                    .layer
+                    .assign(&mut region, self.c_size, self.start_root)?;
+                
+                let empty_account = operation::Account::<Fp>::default();
+                for op in self.ops.iter() {
+                    let op_root = op.account_root();
+                    config.layer.pace_op(
+                        &mut region,
+                        start,
+                        series,
+                        (last_op_code, OP_TRIE_ACCOUNT),
+                        op_root,
+                        op.use_rows_trie_account(),
+                    )?;
+                    start = config.account_trie.assign(&mut region, start, &op.acc_trie)?;
+                    config.layer.pace_op(
+                        &mut region,
+                        start,
+                        series,
+                        (OP_TRIE_ACCOUNT, OP_ACCOUNT),
+                        op_root,
+                        op.use_rows_trie_account(),
+                    )?;                    
+                    start = config.account.assign(&mut region, start, (
+                        op.account_before.as_ref().unwrap_or(&empty_account),
+                        &op.account_after))?;
+                    if let Some(trie) = &op.state_trie {
+                        config.layer.pace_op(
+                            &mut region,
+                            start,
+                            series,
+                            (OP_ACCOUNT, OP_TRIE_STATE),
+                            op_root,
+                            op.use_rows_trie_account(),
+                        )?;
+                        start = config.account_trie.assign(&mut region, start, trie)?;
+                        last_op_code = OP_TRIE_STATE;
+                    } else {
+                        last_op_code = OP_ACCOUNT;
+                    }
+
+                    assert!(
+                        start <= self.c_size,
+                        "assigned rows for exceed limited {}",
+                        self.c_size
+                    );
+
+                    series += 1;
+                }
+
+                let row_left = self.c_size - start;
+                if row_left > 0 {
+                    config.layer.pace_op(
+                        &mut region,
+                        start,
+                        series,
+                        (last_op_code, OP_PADDING),
+                        self.final_root,
+                        row_left,
+                    )?;
+                    config
+                        .padding
+                        .padding(&mut region, start, row_left, self.final_root)?;
+                }
+
+                Ok(())
+            },
+        )?;
+
+        let empty_trace : Vec<(Fp, Fp, Fp)> = Vec::default();
+
+        let hashs_old = self.ops.iter().flat_map(|op| {
+
+            let i = op.acc_trie.old.hash_traces.iter();
+            let i = if let Some(acc) = &op.account_before {
+                i.chain(acc.hash_traces.iter())
+            } else {
+                i.chain(empty_trace.iter())
+            };
+            if let Some(trie) = &op.state_trie {
+                i.chain(trie.old.hash_traces.iter())
+            } else {
+                i.chain(empty_trace.iter())
+            }
+        });
+
+        config.hash_tbls.0.fill(&mut layouter, hashs_old)?;
+
+        let hashs_old = self.ops.iter().flat_map(|op| {
+
+            let i = op.acc_trie.old.hash_traces.iter();
+            let i = if let Some(acc) = &op.account_before {
+                i.chain(acc.hash_traces.iter())
+            } else {
+                i.chain(empty_trace.iter())
+            };
+            if let Some(trie) = &op.state_trie {
+                i.chain(trie.old.hash_traces.iter())
+            } else {
+                i.chain(empty_trace.iter())
+            }
+        });
+
+        config.hash_tbls.0.fill(&mut layouter, hashs_old)?;
+
+        let hashs_new = self.ops.iter().flat_map(|op| {
+
+            let i = op.acc_trie.new.hash_traces.iter()
+                .chain(op.account_after.hash_traces.iter());
+            if let Some(trie) = &op.state_trie {
+                i.chain(trie.new.hash_traces.iter())
+            } else {
+                i.chain(empty_trace.iter())
+            }
+        });
+
+        config.hash_tbls.1.fill(&mut layouter, hashs_new)?;
+        config.tables.fill_constant(&mut layouter, 
+            MPTOpGadget::transition_rules()
+            .chain(AccountGadget::transition_rules())
+        )?;
+
+        let possible_end_block = [
+            (OP_TRIE_STATE, HashType::Empty as u32),
+            (OP_TRIE_STATE, HashType::Leaf as u32),
+            (OP_ACCOUNT, 4),
+        ];
+        let possible_start_block = [(OP_TRIE_ACCOUNT, HashType::Start as u32), (OP_PADDING, 0)];
+        let border_list: Vec<layers::OpBorder> = possible_start_block
+            .into_iter()
+            .flat_map(|st0| possible_end_block.iter().map(move |st1| (st0, *st1)))
+            .collect();
+
+        // manually made op border list
+        let op_border_list = [
+            ((OP_TRIE_ACCOUNT, HashType::Empty as u32), (OP_ACCOUNT, 0)),
+            ((OP_TRIE_ACCOUNT, HashType::Leaf as u32), (OP_ACCOUNT, 0)),
+            ((OP_ACCOUNT, 3), (OP_TRIE_STATE, HashType::Start as u32)),
+        ];
+
+        config.layer.set_op_border(
+            &mut layouter,
+            &border_list,
+            &op_border_list,
+            (OP_TRIE_ACCOUNT, HashType::Start as u32),
+        )        
+
     }
 }
 

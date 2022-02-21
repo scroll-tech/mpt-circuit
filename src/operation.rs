@@ -1,7 +1,7 @@
 //! represent the data for a single operation on the MPT
 //!
 
-use super::{serde, HashType};
+use super::{serde, eth, HashType};
 use halo2::arithmetic::FieldExt;
 
 /// Represent a sequence of hashes in a path inside MPT, it can be full
@@ -244,7 +244,7 @@ pub struct AccountOp<Fp> {
     /// the operation on the account trie (first layer)
     pub acc_trie: SingleOp<Fp>,
     /// the operation on the state trie (second layer)
-    pub state_trie: SingleOp<Fp>,
+    pub state_trie: Option<SingleOp<Fp>>,
     /// the state before updating in account
     pub account_before: Option<Account<Fp>>,
     /// the state after updating in account
@@ -252,6 +252,20 @@ pub struct AccountOp<Fp> {
 }
 
 impl<Fp: FieldExt> AccountOp<Fp> {
+
+    /// indicate rows would take in circuit layout
+    pub fn use_rows_trie_account(&self) -> usize {
+        self.acc_trie.use_rows()
+    }  
+
+    pub fn use_rows_trie_state(&self) -> usize {
+        if let Some(op) = &self.state_trie {op.use_rows() } else { 0 }
+    }
+
+    pub fn use_rows_account(&self) -> usize {
+        if self.state_trie.is_some() { eth::CIRCUIT_ROW - 1} else { eth::CIRCUIT_ROW }
+    }
+
     /// the root of account trie, which is global state
     pub fn account_root(&self) -> Fp {
         self.acc_trie.new_root()
