@@ -85,9 +85,32 @@ impl AccountGadget {
         let exported_old = exported[2];
         let exported_new = exported[3];
 
+        let old_state = AccountChip::configure(
+            meta,
+            sel,
+            s_enable,
+            ctrl_type,
+            exported_old,
+            &free[0..2],
+            hash_tbls.0,
+        );
+        let new_state = AccountChip::configure(
+            meta,
+            sel,
+            s_enable,
+            ctrl_type,
+            exported_new,
+            &free[2..4],
+            hash_tbls.1,
+        );
+
         //transition
         meta.lookup(|meta| {
-            let s_enable = meta.query_advice(s_enable, Rotation::cur());
+            let s_enable = meta.query_advice(s_enable, Rotation::cur())
+                * (Expression::Constant(Fp::one())
+                    - AccountChip::<'_, Fp>::lagrange_polynomial_for_row::<0>(
+                        meta.query_advice(ctrl_type, Rotation::cur()),
+                    ));
             let row_n = s_enable.clone() * meta.query_advice(ctrl_type, Rotation::cur());
             let prev_row_n = s_enable.clone() * meta.query_advice(ctrl_type, Rotation::prev());
 
@@ -102,13 +125,25 @@ impl AccountGadget {
         });
 
         //additional row
+        meta.create_gate("nonce", |meta| {
+            let s_enable = meta.query_selector(sel) * meta.query_advice(s_enable, Rotation::cur());
+            let row0 = AccountChip::<'_, Fp>::lagrange_polynomial_for_row::<0>(
+                meta.query_advice(ctrl_type, Rotation::cur()),
+            );
+            let old_nonce = meta.query_advice(old_state.input, Rotation::cur());
+            let new_nonce = meta.query_advice(new_state.input, Rotation::cur());
+
+            vec![s_enable * row0 * (new_nonce - old_nonce - Expression::Constant(Fp::one()))]
+        });
+
+        //additional row
         meta.create_gate("padding row", |meta| {
             let s_enable = meta.query_selector(sel) * meta.query_advice(s_enable, Rotation::cur());
             let row4 = AccountChip::<'_, Fp>::lagrange_polynomial_for_row::<4>(
                 meta.query_advice(ctrl_type, Rotation::cur()),
             );
             let old_root = meta.query_advice(exported_old, Rotation::cur());
-            let new_root = meta.query_advice(exported_old, Rotation::cur());
+            let new_root = meta.query_advice(exported_new, Rotation::cur());
 
             vec![s_enable * row4 * (new_root - old_root)]
         });
@@ -116,24 +151,8 @@ impl AccountGadget {
         Self {
             s_enable,
             ctrl_type,
-            old_state: AccountChip::configure(
-                meta,
-                sel,
-                s_enable,
-                ctrl_type,
-                exported_old,
-                &free[0..2],
-                hash_tbls.0,
-            ),
-            new_state: AccountChip::configure(
-                meta,
-                sel,
-                s_enable,
-                ctrl_type,
-                exported_new,
-                &free[2..4],
-                hash_tbls.1,
-            ),
+            old_state,
+            new_state,
         }
     }
 
@@ -161,15 +180,15 @@ impl AccountGadget {
             data: data.1,
         };
 
-        old_acc_chip.assign(region)?;
-        new_acc_chip.assign(region)?;
-
-        let end_offset = offset + LAST_ROW
+        let end_offset = offset + CIRCUIT_ROW
             - if data.0.state_root == data.1.state_root {
                 0
             } else {
                 1
             };
+
+        old_acc_chip.assign(region)?;
+        new_acc_chip.assign(region)?;
 
         for (index, offset) in (offset..end_offset).enumerate() {
             region.assign_advice(
@@ -184,6 +203,20 @@ impl AccountGadget {
                 offset,
                 || Ok(Fp::from(index as u64)),
             )?;
+            if index == LAST_ROW {
+                region.assign_advice(
+                    || "padding last row",
+                    self.old_state.input,
+                    offset,
+                    || Ok(Fp::zero()),
+                )?;
+                region.assign_advice(
+                    || "padding last row",
+                    self.new_state.input,
+                    offset,
+                    || Ok(Fp::zero()),
+                )?;
+            }
         }
 
         Ok(end_offset)
@@ -322,7 +355,7 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
             || "account hash",
             config.exported,
             offset,
-            || Ok(self.data.hash_traces[3].2),
+            || Ok(self.data.account_hash()),
         )?;
 
         // row 0
@@ -332,7 +365,7 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
             || "exported 0",
             config.exported,
             offset,
-            || Ok(self.data.hash_traces[3].2),
+            || Ok(self.data.account_hash()),
         )?;
         // row 1
         let offset = offset + 1;
@@ -476,7 +509,7 @@ mod test {
                 .fill(&mut layouter, self.data.1.hash_traces.iter())?;
 
             layouter.assign_region(
-                || "mpt",
+                || "account",
                 |mut region| {
                     let till =
                         config
@@ -484,6 +517,9 @@ mod test {
                             .assign(&mut region, 1, (&self.data.0, &self.data.1))?;
                     for offset in 1..till {
                         config.sel.enable(&mut region, offset)?;
+                    }
+                    for col in config.free_cols {
+                        region.assign_advice(|| "flush last row", col, till, || Ok(Fp::zero()))?;
                     }
                     Ok(())
                 },
@@ -500,10 +536,17 @@ mod test {
             state_root: rand_fp(),
             ..Default::default()
         };
+
+        let old_acc_data = Account::<Fp> {
+            nonce: Fp::from(41u64),
+            ..acc_data.clone()
+        };
+
         let acc_data = acc_data.complete(mock_hash);
+        let old_acc_data = old_acc_data.complete(mock_hash);
 
         let circuit = AccountTestCircuit {
-            data: (acc_data.clone(), acc_data),
+            data: (old_acc_data, acc_data),
         };
 
         let k = 4;
