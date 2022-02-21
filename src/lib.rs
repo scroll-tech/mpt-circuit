@@ -8,9 +8,9 @@
 
 pub use crate::serde::{Hash, Row, RowDeError};
 
+mod eth;
 mod layers;
 mod mpt;
-mod eth;
 mod operation;
 mod serde;
 
@@ -45,22 +45,26 @@ enum CtrlTransitionKind {
 use halo2::{
     arithmetic::FieldExt,
     circuit::{Layouter, SimpleFloorPlanner},
-    plonk::{Expression, Circuit, ConstraintSystem, Error},
+    plonk::{Circuit, ConstraintSystem, Error, Expression},
 };
 use layers::{LayerGadget, PaddingGadget};
 use mpt::MPTOpGadget;
 use operation::SingleOp;
 
-// building lagrange polynmials L for T so that L(n) = 1 when n = T else 0, n in [0, TO] 
+// building lagrange polynmials L for T so that L(n) = 1 when n = T else 0, n in [0, TO]
 fn lagrange_polynomial<Fp: ff::PrimeField, const T: usize, const TO: usize>(
     ref_n: Expression<Fp>,
 ) -> Expression<Fp> {
-    let mut denominators : Vec<Fp> = (0..(TO+1)).map(|v| Fp::from(T as u64) - Fp::from(v as u64)).collect();
+    let mut denominators: Vec<Fp> = (0..(TO + 1))
+        .map(|v| Fp::from(T as u64) - Fp::from(v as u64))
+        .collect();
     denominators.swap_remove(T);
     let denominator = denominators.into_iter().fold(Fp::one(), |acc, v| v * acc);
     assert_ne!(denominator, Fp::zero());
 
-    let mut factors : Vec<Expression<Fp>> = (0..(TO+1)).map(|v| ref_n.clone() - Expression::Constant(Fp::from(v as u64))).collect();
+    let mut factors: Vec<Expression<Fp>> = (0..(TO + 1))
+        .map(|v| ref_n.clone() - Expression::Constant(Fp::from(v as u64)))
+        .collect();
     factors.swap_remove(T);
     factors.into_iter().fold(
         Expression::Constant(denominator.invert().unwrap()),

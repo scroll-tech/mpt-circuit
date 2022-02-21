@@ -345,7 +345,9 @@ impl MPTOpGadget {
     }
 }
 
-fn lagrange_polynomial_for_hashtype<Fp: ff::PrimeField, const T: usize>(ref_n: Expression<Fp>) -> Expression<Fp> {
+fn lagrange_polynomial_for_hashtype<Fp: ff::PrimeField, const T: usize>(
+    ref_n: Expression<Fp>,
+) -> Expression<Fp> {
     super::lagrange_polynomial::<Fp, T, 5 /* last Type: Leaf */>(ref_n)
 }
 

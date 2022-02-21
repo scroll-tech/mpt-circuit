@@ -211,10 +211,8 @@ pub struct Account<Fp> {
 }
 
 impl<Fp: FieldExt> Account<Fp> {
-
     /// calculating all traces ad-hoc with hasher function
-    pub fn trace(mut self, mut hasher: impl FnMut(&Fp, &Fp) -> Fp,
-    ) -> Self {
+    pub fn trace(mut self, mut hasher: impl FnMut(&Fp, &Fp) -> Fp) -> Self {
         let h1 = hasher(&self.codehash.0, &self.codehash.1);
         let h3 = hasher(&self.nonce, &self.balance);
         let h2 = hasher(&h1, &self.state_root);
@@ -231,8 +229,36 @@ impl<Fp: FieldExt> Account<Fp> {
     }
 
     /// complete the account by calculating all traces ad-hoc with hasher function
-    pub fn complete(self, hasher: impl FnMut(&Fp, &Fp) -> Fp,
-    ) -> Self {
-        if self.hash_traces.is_empty() {self.trace(hasher)} else {self}
+    pub fn complete(self, hasher: impl FnMut(&Fp, &Fp) -> Fp) -> Self {
+        if self.hash_traces.is_empty() {
+            self.trace(hasher)
+        } else {
+            self
+        }
+    }
+}
+
+/// Represent an operation in eth MPT, which update 2 layer of tries (state and account)
+#[derive(Clone, Debug, Default)]
+pub struct AccountOp<Fp> {
+    /// the operation on the account trie (first layer)
+    pub acc_trie: SingleOp<Fp>,
+    /// the operation on the state trie (second layer)
+    pub state_trie: SingleOp<Fp>,
+    /// the state before updating in account
+    pub account_before: Option<Account<Fp>>,
+    /// the state after updating in account
+    pub account_after: Account<Fp>,
+}
+
+impl<Fp: FieldExt> AccountOp<Fp> {
+    /// the root of account trie, which is global state
+    pub fn account_root(&self) -> Fp {
+        self.acc_trie.new_root()
+    }
+
+    /// the root of account trie before operation
+    pub fn account_root_before(&self) -> Fp {
+        self.acc_trie.start_root()
     }
 }
