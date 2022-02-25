@@ -11,11 +11,11 @@ pub use crate::serde::{Hash, Row, RowDeError};
 mod eth;
 mod layers;
 mod mpt;
-mod operation;
-mod serde;
-
 #[cfg(test)]
 mod test_utils;
+
+pub mod operation;
+pub mod serde;
 
 /// Indicate the operation type of a row in MPT circuit
 #[derive(Clone, Copy, Debug)]
@@ -92,6 +92,27 @@ pub struct SimpleTrie<F: FieldExt> {
 
 const OP_MPT: u32 = 1;
 const OP_PADDING: u32 = 0;
+
+impl<Fp: FieldExt> SimpleTrie<Fp> {
+    /// create a new, empty circuit with specified size
+    pub fn new(c_size: usize) -> Self {
+        Self {
+            c_size,
+            ..Default::default()
+        }
+    }
+
+    /// Add an op into the circuit data
+    pub fn add_op(&mut self, op: SingleOp<Fp>) {
+        if self.ops.is_empty() {
+            self.start_root = op.start_root();
+        } else {
+            assert_eq!(self.final_root, op.start_root());
+        }
+        self.final_root = op.new_root();
+        self.ops.push(op);
+    }
+}
 
 impl<Fp: FieldExt> Circuit<Fp> for SimpleTrie<Fp> {
     type Config = SimpleTrieConfig;
@@ -476,52 +497,9 @@ mod test {
         assert_eq!(prover.verify(), Ok(()));
     }
 
-    fn decompose_path(key: Fp, layers: usize) -> (Vec<bool>, Fp) {
-        assert!(layers < 128, "not able to decompose more than 128 layers");
-        let test = key.get_lower_128();
-        (
-            (0..layers)
-                .map(|i| (test & (1u128 << i as u128)) != 0u128)
-                .collect(),
-            (key - Fp::from_u128(test & ((1u128 << layers) - 1)))
-                * Fp::from_u128(1u128 << layers).invert().unwrap(),
-        )
-    }
-
-    /// create an random operation data (only contains middle and leaf type)
-    /// with the help of siblings and calculating path ad-hoc by hasher function
-    fn create_rand_op(
-        layers: usize,
-        leafs: Option<(Fp, Fp)>,
-        hasher: impl FnMut(&Fp, &Fp) -> Fp + Clone,
-    ) -> SingleOp<Fp> {
-        let mut siblings: Vec<Fp> = (0..layers).map(|_| rand_fp()).collect();
-        let key = rand_fp();
-
-        let (path, key_res) = decompose_path(key, siblings.len());
-        let (old_leaf, new_leaf) = leafs.unwrap_or_else(|| (rand_fp(), rand_fp()));
-
-        let old = MPTPath::<Fp>::create(&path, &siblings, key, old_leaf, hasher.clone());
-        let new = MPTPath::<Fp>::create(&path, &siblings, key, new_leaf, hasher);
-        let mut path: Vec<Fp> = path
-            .into_iter()
-            .map(|b| if b { Fp::one() } else { Fp::zero() })
-            .collect();
-        siblings.push(Fp::zero());
-        path.push(key_res);
-
-        SingleOp::<Fp> {
-            key,
-            old,
-            new,
-            siblings,
-            path,
-        }
-    }
-
     #[test]
     fn rand_eth_trie() {
-        let state_trie = create_rand_op(3, None, mock_hash);
+        let state_trie = SingleOp::<Fp>::create_rand_op(3, None, mock_hash);
 
         let account_before = Account::<Fp> {
             balance: Fp::from(1000000u64),
@@ -540,7 +518,7 @@ mod test {
         let account_before = account_before.complete(mock_hash);
         let account_after = account_after.complete(mock_hash);
 
-        let acc_trie = create_rand_op(
+        let acc_trie = SingleOp::<Fp>::create_rand_op(
             4,
             Some((account_before.account_hash(), account_after.account_hash())),
             mock_hash,

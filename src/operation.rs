@@ -150,6 +150,86 @@ impl<Fp: FieldExt> SingleOp<Fp> {
     pub fn new_root(&self) -> Fp {
         self.new.root()
     }
+
+    /// data represent an update operation (only contains middle and leaf type)
+    /// with the help of siblings and calculating path ad-hoc by hasher function
+    pub fn create_update_op(
+        layers: usize,
+        siblings: &[Fp],
+        key: Fp,
+        leafs: (Fp, Fp),
+        hasher: impl FnMut(&Fp, &Fp) -> Fp + Clone,
+    ) -> Self {
+        let mut siblings = Vec::from(siblings);
+
+        //decompose path
+        let (path, key_res): (Vec<bool>, Fp) = {
+            assert!(layers < 128, "not able to decompose more than 128 layers");
+            let test = key.get_lower_128();
+            (
+                (0..layers)
+                    .map(|i| (test & (1u128 << i as u128)) != 0u128)
+                    .collect(),
+                (key - Fp::from_u128(test & ((1u128 << layers) - 1)))
+                    * Fp::from_u128(1u128 << layers).invert().unwrap(),
+            )
+        };
+        let (old_leaf, new_leaf) = leafs;
+
+        let old = MPTPath::<Fp>::create(&path, &siblings, key, old_leaf, hasher.clone());
+        let new = MPTPath::<Fp>::create(&path, &siblings, key, new_leaf, hasher);
+        let mut path: Vec<Fp> = path
+            .into_iter()
+            .map(|b| if b { Fp::one() } else { Fp::zero() })
+            .collect();
+        siblings.push(Fp::zero());
+        path.push(key_res);
+
+        Self {
+            key,
+            old,
+            new,
+            siblings,
+            path,
+        }
+    }
+
+    /// create an fully random update operation with leafs customable
+    pub fn create_rand_op(
+        layers: usize,
+        leafs: Option<(Fp, Fp)>,
+        hasher: impl FnMut(&Fp, &Fp) -> Fp + Clone,
+    ) -> Self {
+        let siblings: Vec<Fp> = (0..layers).map(|_| Fp::rand()).collect();
+        let key = Fp::rand();
+        let leafs = leafs.unwrap_or_else(|| (Fp::rand(), Fp::rand()));
+        Self::create_update_op(layers, &siblings, key, leafs, hasher)
+    }
+
+    /// create another updating op base on a previous action
+    pub fn update_next(self, new_leaf: Fp, hasher: impl FnMut(&Fp, &Fp) -> Fp + Clone) -> Self {
+        let layer_sz = self.siblings.len() - 1;
+        let path_bool: Vec<bool> = self
+            .path
+            .iter()
+            .take(layer_sz)
+            .map(|v| *v != Fp::zero())
+            .collect();
+        let new = MPTPath::<Fp>::create(
+            &path_bool,
+            &self.siblings[..layer_sz],
+            self.key,
+            new_leaf,
+            hasher,
+        );
+        Self {
+            key: self.key,
+            old: self.new,
+            new,
+            siblings: self.siblings,
+            path: self.path,
+        }
+    }
 }
 
 // Turn a row array into single op, brutely fail with any reason like
@@ -237,6 +317,7 @@ impl<Fp: FieldExt> Account<Fp> {
         }
     }
 
+    /// the hash of account, which act as leaf value in account trie
     pub fn account_hash(&self) -> Fp {
         assert_eq!(self.hash_traces.len(), 4);
         self.hash_traces[3].2
@@ -257,11 +338,12 @@ pub struct AccountOp<Fp> {
 }
 
 impl<Fp: FieldExt> AccountOp<Fp> {
-    /// indicate rows would take in circuit layout
+    /// indicate rows would take in the account trie part
     pub fn use_rows_trie_account(&self) -> usize {
         self.acc_trie.use_rows()
     }
 
+    /// indicate rows would take in the state trie part
     pub fn use_rows_trie_state(&self) -> usize {
         if let Some(op) = &self.state_trie {
             op.use_rows()
@@ -270,6 +352,7 @@ impl<Fp: FieldExt> AccountOp<Fp> {
         }
     }
 
+    /// indicate rows would take in account part
     pub fn use_rows_account(&self) -> usize {
         if self.state_trie.is_some() {
             eth::CIRCUIT_ROW - 1
