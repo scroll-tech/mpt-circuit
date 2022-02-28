@@ -43,7 +43,7 @@ enum CtrlTransitionKind {
 }
 
 use eth::AccountGadget;
-use halo2::{
+use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Layouter, SimpleFloorPlanner},
     plonk::{Circuit, ConstraintSystem, Error, Expression},
@@ -461,7 +461,7 @@ mod test {
     use super::*;
     use crate::{serde::Row, test_utils::*};
     use ff::Field;
-    use halo2::dev::{MockProver, VerifyFailure};
+    use halo2_proofs::dev::{MockProver, VerifyFailure};
     use operation::*;
 
     #[test]

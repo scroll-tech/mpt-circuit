@@ -2,7 +2,7 @@
 //!
 
 use super::{eth, serde, HashType};
-use halo2::arithmetic::FieldExt;
+use halo2_proofs::arithmetic::FieldExt;
 
 /// Represent a sequence of hashes in a path inside MPT, it can be full
 /// (with leaf) or truncated and being padded to an "empty" leaf node,
@@ -236,9 +236,9 @@ impl<Fp: FieldExt> SingleOp<Fp> {
 // a unfinished op
 impl<'d, Fp: FieldExt> From<&'d [serde::Row]> for SingleOp<Fp> {
     fn from(rows: &[serde::Row]) -> Self {
-        let old_leaf = Fp::from_bytes(rows.last().unwrap().old_value.as_ref()).unwrap();
-        let new_leaf = Fp::from_bytes(rows.last().unwrap().new_value.as_ref()).unwrap();
-        let key = Fp::from_bytes(rows[0].key.as_ref()).unwrap();
+        let old_leaf = Fp::read(&mut rows.last().unwrap().old_value.start_read()).unwrap();
+        let new_leaf = Fp::read(&mut rows.last().unwrap().new_value.start_read()).unwrap();
+        let key = Fp::read(&mut rows[0].key.start_read()).unwrap();
 
         let mut old_hash_type = Vec::new();
         let mut new_hash_type = Vec::new();
@@ -248,12 +248,12 @@ impl<'d, Fp: FieldExt> From<&'d [serde::Row]> for SingleOp<Fp> {
         let mut siblings = Vec::new();
 
         rows.iter().for_each(|row| {
-            old_hash.push(Fp::from_bytes(row.old_hash.as_ref()).unwrap());
-            new_hash.push(Fp::from_bytes(row.new_hash.as_ref()).unwrap());
-            siblings.push(Fp::from_bytes(row.sib.as_ref()).unwrap());
+            old_hash.push(Fp::read(&mut row.old_hash.start_read()).unwrap());
+            new_hash.push(Fp::read(&mut row.new_hash.start_read()).unwrap());
+            siblings.push(Fp::read(&mut row.sib.start_read()).unwrap());
             let mut to_hash_int = row.path.to_bytes_le();
             to_hash_int.resize(32, 0u8);
-            path.push(Fp::from_bytes(&to_hash_int.try_into().unwrap()).unwrap());
+            path.push(Fp::read(&mut to_hash_int.as_slice()).unwrap());
 
             new_hash_type.push(row.new_hash_type);
             old_hash_type.push(row.old_hash_type);

@@ -127,6 +127,11 @@ impl Hash {
     pub fn hex(&self) -> String {
         hex::encode(self.0)
     }
+
+    /// pick the inner content for read
+    pub fn start_read(&self) -> &[u8] {
+        &self.0[..]
+    }
 }
 
 impl Debug for Hash {

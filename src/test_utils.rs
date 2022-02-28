@@ -1,5 +1,5 @@
 use ff::Field;
-pub use halo2::{arithmetic::FieldExt, pairing::bn256::Fr as Fp};
+pub use halo2_proofs::{arithmetic::BaseExt, pairing::bn256::Fr as Fp};
 use lazy_static::lazy_static;
 use rand::{random, SeedableRng};
 use rand_chacha::ChaCha8Rng; // why halo2-merkle tree use base field?
@@ -26,7 +26,7 @@ pub fn rand_fp() -> Fp {
     let mut arr = rand_bytes_array::<32>();
     //avoiding failure in unwrap
     arr[31] &= 31;
-    Fp::from_bytes(&arr).unwrap()
+    Fp::read(&mut &arr[..]).unwrap()
 }
 
 macro_rules! print_layout {
@@ -38,7 +38,7 @@ macro_rules! print_layout {
             .titled("Test Circuit Layout", ("sans-serif", 60))
             .unwrap();
 
-        halo2::dev::CircuitLayout::default()
+        halo2_proofs::dev::CircuitLayout::default()
             // You can optionally render only a section of the circuit.
             //.view_width(0..2)
             //.view_height(0..16)

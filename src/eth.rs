@@ -35,7 +35,7 @@
 use super::mpt;
 use super::CtrlTransitionKind;
 use crate::operation::Account;
-use halo2::{
+use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Chip, Region},
     plonk::{Advice, Column, ConstraintSystem, Error, Expression, Selector},
@@ -105,7 +105,7 @@ impl AccountGadget {
         );
 
         //transition
-        meta.lookup(|meta| {
+        meta.lookup("account row trans", |meta| {
             let s_enable = meta.query_advice(s_enable, Rotation::cur())
                 * (Expression::Constant(Fp::one())
                     - AccountChip::<'_, Fp>::lagrange_polynomial_for_row::<0>(
@@ -269,7 +269,7 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
         let intermediate = free_cols[1];
 
         // first hash lookup
-        meta.lookup(|meta| {
+        meta.lookup("account hash calc1", |meta| {
             // only enable on row 1, 3
             let s_enable = meta.query_advice(s_enable, Rotation::cur());
             let ctrl_type = meta.query_advice(ctrl_type, Rotation::cur());
@@ -294,7 +294,7 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
         });
 
         // second hash lookup
-        meta.lookup(|meta| {
+        meta.lookup("account hash calc2", |meta| {
             // only enable on row 1, 3
             let s_enable = meta.query_advice(s_enable, Rotation::cur());
             let ctrl_type = meta.query_advice(ctrl_type, Rotation::cur());
@@ -434,7 +434,7 @@ mod test {
 
     use super::*;
     use crate::{serde::Row, test_utils::*};
-    use halo2::{
+    use halo2_proofs::{
         circuit::{Cell, Layouter, Region, SimpleFloorPlanner},
         dev::{MockProver, VerifyFailure},
         plonk::{Circuit, Expression},

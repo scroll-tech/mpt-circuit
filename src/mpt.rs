@@ -61,7 +61,7 @@
 use super::{CtrlTransitionKind, HashType};
 use crate::operation::{MPTPath, SingleOp};
 use ff::Field;
-use halo2::{
+use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Chip, Layouter, Region},
     plonk::{Advice, Column, ConstraintSystem, Error, Expression, Selector, TableColumn},
@@ -123,7 +123,13 @@ impl MPTOpTables {
         layouter.assign_table(
             || "trans table",
             |mut table| {
+                // default: 0, 0, 0
+                table.assign_cell(|| "default", self.0, 0, || Ok(Fp::zero()))?;
+                table.assign_cell(|| "default", self.1, 0, || Ok(Fp::zero()))?;
+                table.assign_cell(|| "default", self.2, 0, || Ok(Fp::zero()))?;
+
                 for (offset, item) in rules.clone().enumerate() {
+                    let offset = offset + 1;
                     table.assign_cell(|| "cur", self.0, offset, || Ok(Fp::from(item.0 as u64)))?;
 
                     table.assign_cell(|| "next", self.1, offset, || Ok(Fp::from(item.1 as u64)))?;
@@ -162,11 +168,17 @@ impl HashTable {
         layouter.assign_table(
             || "hash table",
             |mut table| {
+                // default: 0, 0, 0
+                table.assign_cell(|| "default", self.0, 0, || Ok(Fp::zero()))?;
+                table.assign_cell(|| "default", self.1, 0, || Ok(Fp::zero()))?;
+                table.assign_cell(|| "default", self.2, 0, || Ok(Fp::zero()))?;
+
                 hashing_records
                     .clone()
                     .enumerate()
                     .try_for_each(|(offset, val)| {
                         let (lh, rh, h) = val;
+                        let offset = offset + 1;
 
                         table.assign_cell(|| "left", self.0, offset, || Ok(*lh))?;
 
@@ -442,9 +454,10 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
         // )
         //
         // from table formed by (left, right, hash)
-        meta.lookup(|meta| {
+        meta.lookup("mpt node hash", |meta| {
             let hash_type = meta.query_advice(hash_type, Rotation::cur());
-            let s_path = meta.query_advice(s_enable, Rotation::cur())
+            let s_path = meta.query_selector(s_row)
+                * meta.query_advice(s_enable, Rotation::cur())
                 * lagrange_polynomial_for_hashtype::<_, 2>(hash_type); //Middle
 
             let path_bit = meta.query_advice(path, Rotation::cur());
@@ -464,7 +477,7 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
             ]
         });
 
-        meta.lookup(|meta| {
+        meta.lookup("mpt leaf hash", |meta| {
             let hash_type = meta.query_advice(hash_type, Rotation::cur());
             let s_leaf = meta.query_advice(s_enable, Rotation::cur())
                 * lagrange_polynomial_for_hashtype::<_, 5>(hash_type); //Leaf
@@ -477,7 +490,7 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
         });
 
         //transition
-        meta.lookup(|meta| {
+        meta.lookup("mpt type trans", |meta| {
             let s_data = meta.query_advice(s_enable, Rotation::cur())
                 * meta.query_advice(s_data, Rotation::cur());
             let hash = s_data.clone() * meta.query_advice(hash_type, Rotation::cur());
@@ -642,7 +655,7 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
         let type_table = &g_config.tables;
 
         //old - new
-        meta.lookup(|meta| {
+        meta.lookup("op update trans", |meta| {
             let old_hash = meta.query_advice(s_enable, Rotation::cur())
                 * meta.query_advice(old_hash_type, Rotation::cur());
             let new_hash = meta.query_advice(s_enable, Rotation::cur())
@@ -792,7 +805,7 @@ mod test {
 
     use super::*;
     use crate::{serde::Row, test_utils::*};
-    use halo2::{
+    use halo2_proofs::{
         circuit::{Cell, Region, SimpleFloorPlanner},
         dev::{MockProver, VerifyFailure},
         plonk::{Circuit, Expression},
@@ -805,7 +818,7 @@ mod test {
         /// assign all required cols directly
         pub fn create(meta: &mut ConstraintSystem<Fp>) -> Self {
             Self {
-                s_row: meta.selector(),
+                s_row: meta.complex_selector(),
                 s_enable: meta.advice_column(),
                 s_data: meta.advice_column(),
                 sibling: meta.advice_column(),
@@ -1270,7 +1283,7 @@ mod test {
         }
 
         fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
-            let sel = meta.selector();
+            let sel = meta.complex_selector();
             let free_cols = [(); 10].map(|_| meta.advice_column());
             let exported_cols = [free_cols[0], free_cols[1], free_cols[2], free_cols[3]];
 

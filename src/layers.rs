@@ -18,7 +18,7 @@
 // on the circuit and enabled by a flag, sequence of operations would be laid on continuous rows in the
 // circuit and we also call the rows for one step an "op block".
 
-use halo2::{
+use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Layouter, Region},
     plonk::{Advice, Column, ConstraintSystem, Error, Expression, Selector, TableColumn},
@@ -84,10 +84,10 @@ impl LayerGadget {
         let op_delta_aux = meta.advice_column();
         let control_table = [(); 5].map(|_| meta.lookup_table_column());
 
-        meta.enable_equality(series.into());
-        meta.enable_equality(op_type.into());
-        meta.enable_equality(ctrl_type.into());
-        meta.enable_equality(root_aux.into());
+        meta.enable_equality(series);
+        meta.enable_equality(op_type);
+        meta.enable_equality(ctrl_type);
+        meta.enable_equality(root_aux);
 
         meta.create_gate("series", |meta| {
             let sel = meta.query_selector(sel);
@@ -164,7 +164,7 @@ impl LayerGadget {
         // 2. series has non-zero-delta
         // under these condition the transition of op_type and ctrl_type would be
         // lookup from control_table
-        meta.lookup(|meta| {
+        meta.lookup("layer intra-block border rule", |meta| {
             // condition 1 (intra-block transition) is only actived when series has not change
             let series_delta_zero = Expression::Constant(Fp::one())
                 - meta.query_advice(series, Rotation::cur())
@@ -188,7 +188,7 @@ impl LayerGadget {
             ]
         });
 
-        meta.lookup(|meta| {
+        meta.lookup("layer inter-block border rule", |meta| {
             // condition 2 (inter-block transition)
             let series_delta = meta.query_advice(series, Rotation::cur())
                 - meta.query_advice(series, Rotation::prev());
@@ -384,7 +384,7 @@ impl LayerGadget {
                 )?;
                 table.assign_cell(|| "mark", self.control_table[4], 0, || Ok(Fp::one()))?;
 
-                //and default lookup for inter-block(0, 0, 0, 0, 1)
+                //and default lookup (0, 0, 0, 0, 0) and (0, 0, 0, 0, 1)
                 table.assign_cell(
                     || "default op cur",
                     self.control_table[0],
@@ -411,7 +411,13 @@ impl LayerGadget {
                 )?;
                 table.assign_cell(|| "mark", self.control_table[4], 1, || Ok(Fp::one()))?;
 
-                let mut offset = 2;
+                table.assign_cell(|| "default", self.control_table[0], 2, || Ok(Fp::zero()))?;
+                table.assign_cell(|| "default", self.control_table[1], 2, || Ok(Fp::zero()))?;
+                table.assign_cell(|| "default", self.control_table[2], 2, || Ok(Fp::zero()))?;
+                table.assign_cell(|| "default", self.control_table[3], 2, || Ok(Fp::zero()))?;
+                table.assign_cell(|| "default", self.control_table[4], 2, || Ok(Fp::zero()))?;
+
+                let mut offset = 3;
                 for ((op_cur, ctrl_cur), (op_prev, ctrl_prev)) in inter_op {
                     table.assign_cell(
                         || "op cur",
@@ -543,7 +549,7 @@ mod test {
     #![allow(unused_imports)]
     use super::*;
     use crate::{operation::*, serde::Row, test_utils::*};
-    use halo2::{
+    use halo2_proofs::{
         circuit::{Cell, Region, SimpleFloorPlanner},
         dev::{MockProver, VerifyFailure},
         plonk::{Circuit, Expression},

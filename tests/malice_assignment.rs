@@ -1,7 +1,7 @@
-use halo2::arithmetic::BaseExt;
-use halo2::dev::MockProver;
-use halo2::pairing::bn256::Fr as Fp;
 use halo2_mpt_circuits::{operation::*, SimpleTrie};
+use halo2_proofs::arithmetic::BaseExt;
+use halo2_proofs::dev::MockProver;
+use halo2_proofs::pairing::bn256::Fr as Fp;
 use lazy_static::lazy_static;
 
 lazy_static! {
@@ -21,7 +21,16 @@ fn milice_case_truncated_line() {
     let k = 5;
     let mut circuit = SimpleTrie::<Fp>::new(20);
 
-    let fst = SingleOp::<Fp>::create_rand_op(3, None, mock_hash);
+    let layers = 3;
+    let siblings: Vec<Fp> = (0..layers).map(|_| Fp::rand()).collect();
+    /*
+        in common case, 'path bit' gate would detect a non-bit path cell if the hash_types is not empty/leaf,
+        but this constraint become vain when the key is small enough that the residents of key is 0 or 1
+        And even under such circumstance, the lookup for edge would still detect the issue
+    */
+    let key = Fp::from(6u64);
+    let leafs = (Fp::rand(), Fp::rand());
+    let fst = SingleOp::<Fp>::create_update_op(layers, &siblings, key, leafs, mock_hash);
     let sec = fst.clone().update_next(Fp::rand(), mock_hash);
     circuit.add_op(fst.clone());
     circuit.add_op(sec.clone());
@@ -47,5 +56,6 @@ fn milice_case_truncated_line() {
     circuit.add_op(sec);
 
     let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
+    // an lookup err is expected
     assert_ne!(prover.verify(), Ok(()));
 }
