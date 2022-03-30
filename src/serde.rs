@@ -46,6 +46,24 @@ where
     BigUint::parse_bytes(de_str.as_bytes(), 2).ok_or_else(|| D::Error::custom(RowDeError::BigInt))
 }
 
+fn de_uint_hex<'de, D>(deserializer: D) -> Result<BigUint, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let de_str = <&'de str>::deserialize(deserializer)?;
+    // handling "0x" prefix and a special case that only "0x" occur (i.e.: 0)
+    let ret = if de_str.starts_with("0x") {
+        if de_str.len() == 2 {
+            return Ok(BigUint::default())
+        }
+        BigUint::parse_bytes(de_str.get(2..).unwrap().as_bytes(), 16)
+    }else {
+        BigUint::parse_bytes(de_str.as_bytes(), 16)
+    };
+    
+    ret.ok_or_else(|| D::Error::custom(RowDeError::BigInt))
+}
+
 #[derive(Debug, thiserror::Error)]
 /// Row type deserialization errors.
 pub enum RowDeError {
@@ -163,9 +181,66 @@ impl TryFrom<&str> for Hash {
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         let mut hash = Self::default();
-        hex::decode_to_slice(value, &mut hash.0)?;
+        // handling "0x" prefix
+        if value.starts_with("0x") {
+            hex::decode_to_slice(value.get(2..).unwrap(), &mut hash.0)?;
+        }else {
+            hex::decode_to_slice(value, &mut hash.0)?;
+        }
+        
         Ok(hash)
     }
+}
+
+/// struct in SMTTrace
+#[derive(Debug, Deserialize)]
+pub struct SMTNode {
+    /// value
+    pub value: Hash,
+    /// sibling
+    pub sibling: Hash,
+}
+
+/// struct in SMTTrace
+#[derive(Debug, Deserialize)]
+pub struct SMTPath {
+    /// root
+    pub root: Hash,
+    /// leaf
+    pub leaf: Option<SMTNode>,
+    /// path
+    pub path: Vec<SMTNode>,
+}
+
+/// struct in SMTTrace
+#[derive(Debug, Deserialize)]
+#[serde(rename_all(deserialize = "camelCase"))]
+pub struct AccountData {
+    /// nonce
+    pub nonce: u64,
+    /// balance
+    #[serde(deserialize_with = "de_uint_hex")]
+    pub balance: BigUint,
+    /// codeHash
+    pub code_hash: Hash,
+}
+
+/// represent an updating on SMT, can convert into AccountOp
+#[derive(Debug, Deserialize)]
+#[serde(rename_all(deserialize = "camelCase"))]
+pub struct SMTTrace {
+    /// key of account (hash of address)
+    pub account_key: Hash,
+    /// SMTPath for account
+    pub account_path: [SMTPath; 2],
+    /// update on accountData
+    pub account_update: [AccountData; 2],
+    /// SMTPath for storage, 
+    pub state_path: [Option<SMTPath>; 2],
+    /// common State Root, if no change on storage part
+    pub common_state_root: Option<Hash>,
+    /// key of address (hash of storage address)
+    pub state_key: Option<Hash>,
 }
 
 #[cfg(test)]
@@ -173,6 +248,7 @@ mod tests {
     use super::*;
 
     const TEST_FILE: &'static str = include_str!("../rows.jsonl");
+    const TEST_TRACE: &'static str = include_str!("../traces.jsonl");
 
     #[test]
     fn row_de() {
@@ -197,4 +273,16 @@ mod tests {
             println!("----");
         }
     }
+
+    #[test]
+    fn trace_parse() {
+        let lines : Vec<&str> = TEST_TRACE.trim().split('\n').collect();
+
+        let trace0 : SMTTrace = serde_json::from_str(lines[0]).unwrap();
+        assert_eq!(trace0.account_path[0].path[0].value, Hash::try_from("0x9351b68a913ba44f82aa2140d31b313c9226c2c9de49bb920f111ef016127824").unwrap());
+
+        for ln in lines.into_iter().skip(1) {
+            serde_json::from_str::<SMTTrace>(ln).unwrap();
+        }
+    }    
 }
