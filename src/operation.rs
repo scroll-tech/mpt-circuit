@@ -3,6 +3,8 @@
 
 use super::{eth, serde, HashType};
 use halo2_proofs::arithmetic::FieldExt;
+use num_bigint::BigUint;
+use std::convert::TryFrom;
 
 /// Represent a sequence of hashes in a path inside MPT, it can be full
 /// (with leaf) or truncated and being padded to an "empty" leaf node,
@@ -34,6 +36,24 @@ impl<Fp: FieldExt> MPTPath<Fp> {
             None
         } else {
             Some(last)
+        }
+    }
+
+    /// extend a common path (contain only midle and leaf/empty) to under extended status
+    pub fn extend(self, l: usize) -> Self {
+        if l == 0 {
+            return self;
+        }
+
+        assert!(!self.hash_types.is_empty(), "can not extend empty path");
+
+        let ins_pos = self.hash_types.len() - 1;
+        let mut hash_types = self.hash_types;
+        drop(hash_types.splice(ins_pos..ins_pos, vec![HashType::LeafExtFinal]));
+
+        Self {
+            hash_types,
+            ..self
         }
     }
 
@@ -369,5 +389,98 @@ impl<Fp: FieldExt> AccountOp<Fp> {
     /// the root of account trie before operation
     pub fn account_root_before(&self) -> Fp {
         self.acc_trie.start_root()
+    }
+}
+
+/// include error raised in deserialize or data verification
+#[derive(Debug)]
+pub enum TraceError {
+    /// error in deserialize
+    DeErr(std::io::Error),
+    /// error for malform data
+    DataErr(String),
+}
+
+// parse Trace data into MPTPath and additional data (siblings and path)
+struct SMTPathParse<Fp> (MPTPath<Fp>, Vec<Fp>, Vec<Fp>);
+
+impl<'d, Fp: FieldExt> TryFrom<&'d serde::SMTPath> for SMTPathParse<Fp> {
+
+    type Error = TraceError;
+    fn try_from(path_trace: &'d serde::SMTPath) -> Result<Self, Self::Error> {
+
+        let mut hashes : Vec<Fp> = vec![Fp::read(&mut path_trace.root.start_read()).map_err(|e| TraceError::DeErr(e))?];
+        let mut siblings : Vec<Fp> = Vec::new();
+
+        for n in &path_trace.path {
+            let h = Fp::read(&mut n.value.start_read()).map_err(|e| TraceError::DeErr(e))?;
+            hashes.push(h);
+            let s = Fp::read(&mut n.sibling.start_read()).map_err(|e| TraceError::DeErr(e))?;
+            siblings.push(s);
+        }
+
+        let mut hash_types : Vec<HashType> = vec![HashType::Start];
+        let mut path : Vec<Fp> = Vec::new();
+        
+        for i in 0..siblings.len() {
+            path.push(if (BigUint::from(1u64) << i ) & &path_trace.path_part != BigUint::from(0u64) { Fp::one()} else {Fp::zero()});
+            hash_types.push(HashType::Middle);
+        }
+
+        let mut key = Fp::zero();
+        let mut leaf = Fp::zero();
+        // notice when there is no leaf node, providing 0 key_rst
+        if let Some(leaf_node) = &path_trace.leaf {
+            key = Fp::read(&mut leaf_node.sibling.start_read()).map_err(|e| TraceError::DeErr(e))?;
+            leaf = Fp::read(&mut leaf_node.value.start_read()).map_err(|e| TraceError::DeErr(e))?;
+
+            let mut key_i = BigUint::from_bytes_le(leaf_node.sibling.start_read());
+            key_i >>= siblings.len();
+
+            path.push(Fp::read(&mut key_i.to_bytes_be().as_slice()).map_err(|e| TraceError::DeErr(e))?);
+            hash_types.push(HashType::Leaf);
+        } else {
+            path.push(Fp::zero());
+            hash_types.push(HashType::Empty);
+        }
+
+        // notice we need to append one more element for siblings
+        siblings.push(Fp::zero());
+
+        Ok(SMTPathParse(
+            MPTPath::construct(&hash_types, &path, &siblings, &hashes, key, leaf),
+            siblings,
+            path,
+        ))
+    }
+}
+
+impl<'d, Fp: FieldExt> TryFrom<(&'d serde::SMTPath, &'d serde::SMTPath, serde::Hash)> for SingleOp<Fp> {
+
+    type Error = TraceError;
+    fn try_from(traces: (&'d serde::SMTPath, &'d serde::SMTPath, serde::Hash)) -> Result<Self, Self::Error> {
+        let (before, after, ref_key) = traces;
+
+        let before_parsed : SMTPathParse<Fp> = before.try_into()?;
+        let after_parsed : SMTPathParse<Fp> = after.try_into()?;
+        let old = before_parsed.0;
+        let sl_old = before_parsed.1;
+        let sl_new = after_parsed.1;
+
+        if sl_old.len() < sl_new.len() {
+
+        } else if sl_old.len() < sl_new.len() {
+
+        }
+
+        Ok(Self::default())
+    }
+}
+
+impl<'d, Fp: FieldExt> TryFrom<&'d serde::SMTTrace> for Account<Fp> {
+
+    type Error = TraceError;
+    fn try_from(trace: &'d serde::SMTTrace) -> Result<Self, Self::Error> {
+        Ok(Self::default())
     }
 }
