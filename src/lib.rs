@@ -18,7 +18,7 @@ pub mod operation;
 pub mod serde;
 
 /// Indicate the operation type of a row in MPT circuit
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum HashType {
     /// Marking the start of node
     Start = 0,

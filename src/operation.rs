@@ -39,20 +39,40 @@ impl<Fp: FieldExt> MPTPath<Fp> {
         }
     }
 
+    /// the depth of path, for non-empty path it should larger than 1 (with Start)
+    pub fn depth(&self) -> usize {
+        self.hashes.len() - 1
+    }
+
     /// extend a common path (contain only midle and leaf/empty) to under extended status
     pub fn extend(self, l: usize) -> Self {
         if l == 0 {
             return self;
         }
 
-        assert!(!self.hash_types.is_empty(), "can not extend empty path");
-
+        assert!(self.hash_types.len() > 1, "can not extend empty path");
         let ins_pos = self.hash_types.len() - 1;
+        // can only extend a path with leaf
+        assert_eq!(self.hash_types[ins_pos], HashType::Leaf);
+
         let mut hash_types = self.hash_types;
-        drop(hash_types.splice(ins_pos..ins_pos, vec![HashType::LeafExtFinal]));
+        let mut addi_types = vec![HashType::LeafExt; l-1];
+        addi_types.push(HashType::LeafExtFinal);
+
+        hash_types[ins_pos] = HashType::Empty;
+        drop(hash_types.splice(ins_pos..ins_pos, addi_types));
+        
+        let mut hashes = self.hashes;
+        let mut addi_hashes = vec![hashes[ins_pos-1]; l-1];//pick the hash of leaf
+        addi_hashes.push(Fp::zero());
+
+        // notice, still keep the old value at last row
+        // hashes[ins_pos] = Fp::zero(); 
+        drop(hashes.splice(ins_pos..ins_pos, addi_hashes));
 
         Self {
             hash_types,
+            hashes,
             ..self
         }
     }
@@ -461,26 +481,100 @@ impl<'d, Fp: FieldExt> TryFrom<(&'d serde::SMTPath, &'d serde::SMTPath, serde::H
     fn try_from(traces: (&'d serde::SMTPath, &'d serde::SMTPath, serde::Hash)) -> Result<Self, Self::Error> {
         let (before, after, ref_key) = traces;
 
+        let key = Fp::read(&mut ref_key.start_read()).map_err(|e| TraceError::DeErr(e))?;
         let before_parsed : SMTPathParse<Fp> = before.try_into()?;
         let after_parsed : SMTPathParse<Fp> = after.try_into()?;
-        let old = before_parsed.0;
-        let sl_old = before_parsed.1;
-        let sl_new = after_parsed.1;
+        let mut old = before_parsed.0;
+        let mut new = after_parsed.0;
 
-        if sl_old.len() < sl_new.len() {
+        // sanity check
+        assert!(old.key == key || new.key == key, "one of key for paths must match reference");
 
-        } else if sl_old.len() < sl_new.len() {
-
+        // update for inserting op
+        if old.depth() < new.depth() {
+            assert_eq!(new.key, key);
+            let ext_dist = new.depth() - old.depth();
+            old = old.extend(ext_dist);
+        } else if old.depth() > new.depth() {
+            assert_eq!(old.key, key);
+            let ext_dist = old.depth() - new.depth();
+            new = new.extend(ext_dist);
         }
 
-        Ok(Self::default())
+        let siblings = if new.key == key { after_parsed.1 } else { before_parsed.1};
+        let path = if new.key == key { after_parsed.2 } else { before_parsed.2};
+
+        Ok(Self{key, path, siblings, old, new})
     }
 }
 
-impl<'d, Fp: FieldExt> TryFrom<&'d serde::SMTTrace> for Account<Fp> {
+/// indicate an field can be hashed
+pub trait Hashable : Sized {
+    /// execute hash for any sequence of fields
+    fn hash(inp: Vec<Self>) -> Result<Self, String>;
+}
+
+impl<'d, Fp: FieldExt + Hashable> TryFrom<(&'d serde::AccountData, Fp)> for Account<Fp> {
+    type Error = TraceError;
+    fn try_from(acc_trace: (&'d serde::AccountData, Fp)) -> Result<Self, Self::Error> {
+        let (acc, state_root) = acc_trace;
+        let nonce = Fp::from(acc.nonce);
+        let balance = Fp::read(&mut acc.balance.to_bytes_le().as_slice()).map_err(|e| TraceError::DeErr(e))?;
+        let buf = acc.code_hash.to_bytes_le();
+        let codehash = if buf.len() < 16 {
+            (
+                Fp::read(&mut &buf[..]).map_err(|e| TraceError::DeErr(e))?,
+                Fp::zero(),
+            )
+        } else {
+            (
+                Fp::read(&mut &buf[0..16]).map_err(|e| TraceError::DeErr(e))?,
+                Fp::read(&mut &buf[16..]).map_err(|e| TraceError::DeErr(e))?,
+            )
+        };
+        
+        let acc = Self {nonce, balance, codehash, state_root, ..Default::default()};
+        Ok(acc.complete(|a, b| <Fp as Hashable>::hash(vec![*a, *b]).unwrap() ))
+    }
+}
+
+impl<'d, Fp: FieldExt + Hashable> TryFrom<&'d serde::SMTTrace> for AccountOp<Fp> {
 
     type Error = TraceError;
     fn try_from(trace: &'d serde::SMTTrace) -> Result<Self, Self::Error> {
-        Ok(Self::default())
+
+        let acc_trie : SingleOp<Fp> = (&trace.account_path[0], 
+            &trace.account_path[1], 
+            trace.account_key).try_into()?;
+
+        let state_trie : Option<SingleOp<Fp>> = if trace.state_path[0].is_some() && trace.state_path[1].is_some() {
+            Some((trace.state_path[0].as_ref().unwrap(), 
+                trace.state_path[1].as_ref().unwrap(), 
+                trace.state_key.unwrap()).try_into()?)
+        } else {
+            None
+        };
+
+        let comm_state_root = match trace.common_state_root {
+            Some(h) => Fp::read(&mut h.start_read()).map_err(|e| TraceError::DeErr(e))?,
+            None => Fp::zero(),
+        };
+
+        let old_state_root = state_trie.as_ref().map(|s| s.start_root()).unwrap_or(comm_state_root);
+        let account_before : Account<Fp> = if acc_trie.old.leaf().is_some() {
+            (&trace.account_update[0], old_state_root).try_into()?            
+        }else {
+            Default::default()
+        };
+        let account_before = Some(account_before);
+
+        let new_state_root = state_trie.as_ref().map(|s| s.new_root()).unwrap_or(comm_state_root);
+        let account_after : Account<Fp> = if acc_trie.old.leaf().is_some() {
+            (&trace.account_update[1], new_state_root).try_into()?            
+        }else {
+            Default::default()
+        };
+
+        Ok(Self{acc_trie, state_trie, account_before, account_after})
     }
 }
