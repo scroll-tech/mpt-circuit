@@ -2,6 +2,7 @@
 //!
 
 use super::{eth, serde, HashType};
+use ff::PrimeField;
 use halo2_proofs::arithmetic::FieldExt;
 use num_bigint::BigUint;
 use std::convert::TryFrom;
@@ -23,7 +24,7 @@ pub struct MPTPath<Fp> {
     pub key: Fp,
 }
 
-impl<Fp: FieldExt> MPTPath<Fp> {
+impl<Fp: PrimeField> MPTPath<Fp> {
     /// the root of MPT
     pub fn root(&self) -> Fp {
         self.hashes[0]
@@ -175,7 +176,7 @@ pub struct SingleOp<Fp> {
     pub new: MPTPath<Fp>,
 }
 
-impl<Fp: FieldExt> SingleOp<Fp> {
+impl<Fp: PrimeField> SingleOp<Fp> {
     /// indicate rows would take in circuit layout
     pub fn use_rows(&self) -> usize {
         self.siblings.len() + 1
@@ -190,7 +191,6 @@ impl<Fp: FieldExt> SingleOp<Fp> {
     pub fn new_root(&self) -> Fp {
         self.new.root()
     }
-
     /// data represent an update operation (only contains middle and leaf type)
     /// with the help of siblings and calculating path ad-hoc by hasher function
     pub fn create_update_op(
@@ -204,14 +204,22 @@ impl<Fp: FieldExt> SingleOp<Fp> {
 
         //decompose path
         let (path, key_res): (Vec<bool>, Fp) = {
-            assert!(layers < 128, "not able to decompose more than 128 layers");
-            let test = key.get_lower_128();
+            assert!((layers as u32) * 8 < Fp::NUM_BITS, "not able to decompose more than bits");
+            let mut ret = Vec::new();
+            let mut tested_key = key;
+            let invert_2 = Fp::one().double().invert().unwrap();
+            for _ in 0..layers {
+                if tested_key.is_odd().unwrap_u8() == 1 {
+                    tested_key = tested_key * invert_2 - invert_2;
+                    ret.push(true);
+                }else {
+                    tested_key = tested_key * invert_2;
+                    ret.push(false);
+                }
+            }
             (
-                (0..layers)
-                    .map(|i| (test & (1u128 << i as u128)) != 0u128)
-                    .collect(),
-                (key - Fp::from_u128(test & ((1u128 << layers) - 1)))
-                    * Fp::from_u128(1u128 << layers).invert().unwrap(),
+                ret,
+                tested_key,
             )
         };
         let (old_leaf, new_leaf) = leafs;
@@ -232,18 +240,6 @@ impl<Fp: FieldExt> SingleOp<Fp> {
             siblings,
             path,
         }
-    }
-
-    /// create an fully random update operation with leafs customable
-    pub fn create_rand_op(
-        layers: usize,
-        leafs: Option<(Fp, Fp)>,
-        hasher: impl FnMut(&Fp, &Fp) -> Fp + Clone,
-    ) -> Self {
-        let siblings: Vec<Fp> = (0..layers).map(|_| Fp::rand()).collect();
-        let key = Fp::rand();
-        let leafs = leafs.unwrap_or_else(|| (Fp::rand(), Fp::rand()));
-        Self::create_update_op(layers, &siblings, key, leafs, hasher)
     }
 
     /// create another updating op base on a previous action
@@ -269,6 +265,22 @@ impl<Fp: FieldExt> SingleOp<Fp> {
             siblings: self.siblings,
             path: self.path,
         }
+    }
+
+}
+
+impl<Fp: FieldExt> SingleOp<Fp> {
+
+    /// create an fully random update operation with leafs customable
+    pub fn create_rand_op(
+        layers: usize,
+        leafs: Option<(Fp, Fp)>,
+        hasher: impl FnMut(&Fp, &Fp) -> Fp + Clone,
+    ) -> Self {
+        let siblings: Vec<Fp> = (0..layers).map(|_| Fp::rand()).collect();
+        let key = Fp::rand();
+        let leafs = leafs.unwrap_or_else(|| (Fp::rand(), Fp::rand()));
+        Self::create_update_op(layers, &siblings, key, leafs, hasher)
     }
 }
 
@@ -330,7 +342,7 @@ pub struct Account<Fp> {
     pub hash_traces: Vec<(Fp, Fp, Fp)>,
 }
 
-impl<Fp: FieldExt> Account<Fp> {
+impl<Fp: PrimeField> Account<Fp> {
     /// calculating all traces ad-hoc with hasher function
     pub fn trace(mut self, mut hasher: impl FnMut(&Fp, &Fp) -> Fp) -> Self {
         let h1 = hasher(&self.codehash.0, &self.codehash.1);
@@ -377,7 +389,7 @@ pub struct AccountOp<Fp> {
     pub account_after: Account<Fp>,
 }
 
-impl<Fp: FieldExt> AccountOp<Fp> {
+impl<Fp: PrimeField> AccountOp<Fp> {
     /// indicate rows would take in the account trie part
     pub fn use_rows_trie_account(&self) -> usize {
         self.acc_trie.use_rows()
@@ -577,4 +589,63 @@ impl<'d, Fp: FieldExt + Hashable> TryFrom<&'d serde::SMTTrace> for AccountOp<Fp>
 
         Ok(Self{acc_trie, state_trie, account_before, account_after})
     }
+}
+
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use halo2_proofs::arithmetic::BaseExt;
+    use crate::test_utils::Fp;
+
+    fn decompose<Fp: PrimeField>(inp: Fp, l: usize) -> (Vec<bool>, Fp) {
+
+        let mut ret = Vec::new();
+        let mut tested_key = inp;
+        let invert_2 = Fp::one().double().invert().unwrap();
+        for _ in 0..l {
+            if tested_key.is_odd().unwrap_u8() == 1 {
+                tested_key = tested_key * invert_2 - invert_2;
+                ret.push(true);
+            }else {
+                tested_key = tested_key * invert_2;
+                ret.push(false);
+            }
+        }
+        (ret, tested_key)
+
+    }
+    
+    fn recover<Fp: PrimeField>(path: &[bool], res: Fp) -> Fp {
+        let mut mask = Fp::one();
+        let mut ret = Fp::zero();
+
+        for b in path {
+            ret += if *b { mask } else { Fp::zero() };
+            mask = mask.double();
+        }
+
+        ret + res * mask
+    }
+
+    #[test]
+    fn path_decomposing() {
+
+        let test1 = Fp::from(75u64);
+        let ret1 = decompose(test1, 4);
+        assert_eq!(ret1.0, vec![true, true, false, true]);
+        assert_eq!(ret1.1, Fp::from(4u64));
+
+        let test2 = Fp::from(16203805u64);
+        let ret2 = decompose(test2, 22);
+        assert_eq!(recover(&ret2.0, ret2.1), test2);
+
+        for _ in 0..1000 {
+            let test = Fp::rand();
+            let ret = decompose(test, 22);
+            assert_eq!(recover(&ret.0, ret.1), test);
+        }
+    }
+
 }
