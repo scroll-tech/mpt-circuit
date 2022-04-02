@@ -13,6 +13,7 @@ mod layers;
 mod mpt;
 #[cfg(test)]
 mod test_utils;
+mod hash;
 
 pub mod operation;
 pub mod serde;

@@ -2,6 +2,7 @@
 //!
 
 use super::{eth, serde, HashType};
+use crate::hash::Hashable;
 use ff::PrimeField;
 use halo2_proofs::arithmetic::FieldExt;
 use num_bigint::BigUint;
@@ -518,12 +519,6 @@ impl<'d, Fp: FieldExt> TryFrom<(&'d serde::SMTPath, &'d serde::SMTPath, serde::H
 
         Ok(Self{key, path, siblings, old, new})
     }
-}
-
-/// indicate an field can be hashed
-pub trait Hashable : Sized {
-    /// execute hash for any sequence of fields
-    fn hash(inp: Vec<Self>) -> Result<Self, String>;
 }
 
 impl<'d, Fp: FieldExt + Hashable> TryFrom<(&'d serde::AccountData, Fp)> for Account<Fp> {
