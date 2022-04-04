@@ -318,7 +318,8 @@ impl<Fp: FieldExt> Circuit<Fp> for EthTrie<Fp> {
                     .layer
                     .assign(&mut region, self.c_size, self.start_root)?;
 
-                let empty_account = operation::Account::<Fp>::default();
+                //notice, the empty account must be "dummized"
+                let empty_account = operation::Account::<Fp>::default().dummy();
                 for op in self.ops.iter() {
                     let op_root = op.account_root();
                     config.layer.pace_op(
@@ -549,4 +550,54 @@ mod test {
         let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
     }
+
+    #[test]
+    fn trace_to_eth_trie_each(){
+        let lines : Vec<&str> = TEST_TRACE.trim().split('\n').collect();
+        for ln in lines.into_iter() {
+            let k = 6;
+            let trace = serde_json::from_str::<serde::SMTTrace>(ln).unwrap();
+            let op : AccountOp<Fp> = (&trace).try_into().unwrap();
+
+            let start_root = op.account_root_before();
+            let final_root = op.account_root();
+
+            println!("{:?}", op);
+
+            let circuit = EthTrie::<Fp> {
+                c_size: 20,
+                start_root,
+                final_root,
+                ops: vec![op],
+            };
+
+            let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
+            assert_eq!(prover.verify(), Ok(()));            
+        }
+    }
+
+    #[test]
+    fn trace_to_eth_trie(){
+        let lines : Vec<&str> = TEST_TRACE.trim().split('\n').collect();
+        let ops : Vec<AccountOp<Fp>> = lines.into_iter().map(|ln|{
+            let trace = serde_json::from_str::<serde::SMTTrace>(ln).unwrap();
+            (&trace).try_into().unwrap()
+        }).collect();
+
+        let k = 8;
+
+        let start_root = ops.first().unwrap().account_root_before();
+        let final_root = ops.last().unwrap().account_root();    
+
+        let circuit = EthTrie::<Fp> {
+            c_size: 200,
+            start_root,
+            final_root,
+            ops,
+        };
+
+        let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
+        assert_eq!(prover.verify(), Ok(()));            
+        
+    }    
 }

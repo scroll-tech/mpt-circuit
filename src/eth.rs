@@ -133,7 +133,10 @@ impl AccountGadget {
             let old_nonce = meta.query_advice(old_state.input, Rotation::cur());
             let new_nonce = meta.query_advice(new_state.input, Rotation::cur());
 
-            vec![s_enable * row0 * (new_nonce - old_nonce - Expression::Constant(Fp::one()))]
+            vec![s_enable * row0 * 
+                (new_nonce.clone() - old_nonce.clone()) *
+                (new_nonce - old_nonce - Expression::Constant(Fp::one())) 
+            ]
         });
 
         //additional row

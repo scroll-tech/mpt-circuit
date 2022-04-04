@@ -365,6 +365,18 @@ impl<Fp: PrimeField> Account<Fp> {
         self
     }
 
+    /// insert 4 empty hash_trace to build a "empty" account data
+    pub fn dummy(self) -> Self {
+        if self.hash_traces.is_empty() {
+            Self {
+                hash_traces: vec![(Fp::zero(), Fp::zero(), Fp::zero());4],
+                ..self
+            }
+        } else {
+            self
+        }
+    }
+
     /// complete the account by calculating all traces ad-hoc with hasher function
     pub fn complete(self, hasher: impl FnMut(&Fp, &Fp) -> Fp) -> Self {
         if self.hash_traces.is_empty() {
