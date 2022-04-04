@@ -100,7 +100,7 @@ lazy_static! {
             (HashType::Middle, HashType::LeafExtFinal),
             (HashType::LeafExt, HashType::LeafExt),
             (HashType::LeafExt, HashType::LeafExtFinal),
-            (HashType::LeafExtFinal, HashType::Leaf),
+//            (HashType::LeafExtFinal, HashType::Leaf),
             (HashType::LeafExtFinal, HashType::Empty),
         ]
     };
