@@ -9,11 +9,11 @@
 pub use crate::serde::{Hash, Row, RowDeError};
 
 mod eth;
+mod hash;
 mod layers;
 mod mpt;
 #[cfg(test)]
 mod test_utils;
-mod hash;
 
 pub mod operation;
 pub mod serde;
@@ -552,12 +552,12 @@ mod test {
     }
 
     #[test]
-    fn trace_to_eth_trie_each(){
-        let lines : Vec<&str> = TEST_TRACE.trim().split('\n').collect();
+    fn trace_to_eth_trie_each() {
+        let lines: Vec<&str> = TEST_TRACE.trim().split('\n').collect();
         for ln in lines.into_iter() {
             let k = 6;
             let trace = serde_json::from_str::<serde::SMTTrace>(ln).unwrap();
-            let op : AccountOp<Fp> = (&trace).try_into().unwrap();
+            let op: AccountOp<Fp> = (&trace).try_into().unwrap();
 
             let start_root = op.account_root_before();
             let final_root = op.account_root();
@@ -572,22 +572,25 @@ mod test {
             };
 
             let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
-            assert_eq!(prover.verify(), Ok(()));            
+            assert_eq!(prover.verify(), Ok(()));
         }
     }
 
     #[test]
-    fn trace_to_eth_trie(){
-        let lines : Vec<&str> = TEST_TRACE.trim().split('\n').collect();
-        let ops : Vec<AccountOp<Fp>> = lines.into_iter().map(|ln|{
-            let trace = serde_json::from_str::<serde::SMTTrace>(ln).unwrap();
-            (&trace).try_into().unwrap()
-        }).collect();
+    fn trace_to_eth_trie() {
+        let lines: Vec<&str> = TEST_TRACE.trim().split('\n').collect();
+        let ops: Vec<AccountOp<Fp>> = lines
+            .into_iter()
+            .map(|ln| {
+                let trace = serde_json::from_str::<serde::SMTTrace>(ln).unwrap();
+                (&trace).try_into().unwrap()
+            })
+            .collect();
 
         let k = 8;
 
         let start_root = ops.first().unwrap().account_root_before();
-        let final_root = ops.last().unwrap().account_root();    
+        let final_root = ops.last().unwrap().account_root();
 
         let circuit = EthTrie::<Fp> {
             c_size: 200,
@@ -597,7 +600,6 @@ mod test {
         };
 
         let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
-        assert_eq!(prover.verify(), Ok(()));            
-        
-    }    
+        assert_eq!(prover.verify(), Ok(()));
+    }
 }

@@ -1,10 +1,10 @@
-use halo2_proofs::pairing::bn256::Fr;
 use ff::PrimeField;
-use poseidon_rs::Poseidon;
+use halo2_proofs::pairing::bn256::Fr;
 use lazy_static::lazy_static;
+use poseidon_rs::Poseidon;
 
 /// indicate an field can be hashed
-pub trait Hashable : Sized {
+pub trait Hashable: Sized {
     /// execute hash for any sequence of fields
     fn hash(inp: Vec<Self>) -> Result<Self, String>;
 }
@@ -13,13 +13,12 @@ lazy_static! {
     static ref POSEIDON_HASHER: Poseidon = Poseidon::new();
 }
 
-fn same_fr_convert<A: PrimeField, B: PrimeField>(fr : A) -> B {
+fn same_fr_convert<A: PrimeField, B: PrimeField>(fr: A) -> B {
     let mut ret = B::Repr::default();
     ret.as_mut().copy_from_slice(fr.to_repr().as_ref());
 
     B::from_repr(ret).unwrap()
 }
-
 
 impl Hashable for Fr {
     fn hash(inp: Vec<Self>) -> Result<Self, String> {
@@ -28,14 +27,12 @@ impl Hashable for Fr {
     }
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_poseidon_hash(){
+    fn test_poseidon_hash() {
         let b0: Fr = Fr::from_str_vartime("0").unwrap();
         let b1: Fr = Fr::from_str_vartime("1").unwrap();
         let b2: Fr = Fr::from_str_vartime("2").unwrap();
@@ -122,6 +119,6 @@ mod tests {
         assert_eq!(
             h.to_string(),
             "0x2d1a03850084442813c8ebf094dea47538490a68b05f2239134a4cca2f6302e1" // "20400040500897583745843009878988256314335038853985262692600694741116813247201"
-        );        
+        );
     }
 }

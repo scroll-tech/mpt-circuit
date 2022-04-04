@@ -54,13 +54,13 @@ where
     // handling "0x" prefix and a special case that only "0x" occur (i.e.: 0)
     let ret = if de_str.starts_with("0x") {
         if de_str.len() == 2 {
-            return Ok(BigUint::default())
+            return Ok(BigUint::default());
         }
         BigUint::parse_bytes(de_str.get(2..).unwrap().as_bytes(), 16)
-    }else {
+    } else {
         BigUint::parse_bytes(de_str.as_bytes(), 16)
     };
-    
+
     ret.ok_or_else(|| D::Error::custom(RowDeError::BigInt))
 }
 
@@ -184,10 +184,10 @@ impl TryFrom<&str> for Hash {
         // handling "0x" prefix
         if value.starts_with("0x") {
             hex::decode_to_slice(value.get(2..).unwrap(), &mut hash.0)?;
-        }else {
+        } else {
             hex::decode_to_slice(value, &mut hash.0)?;
         }
-        
+
         Ok(hash)
     }
 }
@@ -241,7 +241,7 @@ pub struct SMTTrace {
     pub account_path: [SMTPath; 2],
     /// update on accountData
     pub account_update: [AccountData; 2],
-    /// SMTPath for storage, 
+    /// SMTPath for storage,
     pub state_path: [Option<SMTPath>; 2],
     /// common State Root, if no change on storage part
     pub common_state_root: Option<Hash>,
@@ -282,14 +282,18 @@ mod tests {
 
     #[test]
     fn trace_parse() {
-        let lines : Vec<&str> = TEST_TRACE.trim().split('\n').collect();
+        let lines: Vec<&str> = TEST_TRACE.trim().split('\n').collect();
 
-        let trace0 : SMTTrace = serde_json::from_str(lines[0]).unwrap();
-        assert_eq!(trace0.account_path[0].path[0].value, Hash::try_from("0xb4f8bce5f7e6f384fbdf7561458705c55b25163e9aea66c862f5b8c40e13811d").unwrap());
+        let trace0: SMTTrace = serde_json::from_str(lines[0]).unwrap();
+        assert_eq!(
+            trace0.account_path[0].path[0].value,
+            Hash::try_from("0xb4f8bce5f7e6f384fbdf7561458705c55b25163e9aea66c862f5b8c40e13811d")
+                .unwrap()
+        );
 
         for ln in lines.into_iter().skip(1) {
             //println!("{}", ln);
             serde_json::from_str::<SMTTrace>(ln).unwrap();
         }
-    }    
+    }
 }
