@@ -233,7 +233,7 @@ impl LayerGadget {
     pub fn assign<Fp: FieldExt>(
         &self,
         region: &mut Region<'_, Fp>,
-        max_cols: usize,
+        max_rows: usize,
         init_root: Fp,
     ) -> Result<usize, Error> {
         // current we flush the first row, and start other circuits's assignation from row 1
@@ -255,32 +255,32 @@ impl LayerGadget {
         region.assign_advice(|| "root padding", self.new_root, 0, || Ok(Fp::zero()))?;
         region.assign_advice(|| "root padding", self.old_root, 0, || Ok(Fp::zero()))?;
 
-        for offset in 1..max_cols {
+        for offset in 1..max_rows {
             self.sel.enable(region, offset)?;
         }
 
         // flush one more row
         self.free_cols.iter().try_for_each(|col| {
             region
-                .assign_advice(|| "flushing last", *col, max_cols, || Ok(Fp::zero()))
+                .assign_advice(|| "flushing last", *col, max_rows, || Ok(Fp::zero()))
                 .map(|_| ())
         })?;
         region.assign_advice(
             || "root flushing",
             self.new_root,
-            max_cols,
+            max_rows,
             || Ok(Fp::zero()),
         )?;
         region.assign_advice(
             || "root flushing",
             self.old_root,
-            max_cols,
+            max_rows,
             || Ok(Fp::zero()),
         )?;
         region.assign_advice(
             || "terminalte series",
             self.series,
-            max_cols,
+            max_rows,
             || Ok(Fp::zero()),
         )?;
 
