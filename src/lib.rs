@@ -113,6 +113,11 @@ impl<Fp: FieldExt> SimpleTrie<Fp> {
         self.final_root = op.new_root();
         self.ops.push(op);
     }
+
+    /// Obtain the total rows required by each operation
+    pub fn use_rows(&self) -> usize {
+        self.ops.iter().fold(0, |acc, op| acc + op.use_rows())
+    }
 }
 
 impl<Fp: FieldExt> Circuit<Fp> for SimpleTrie<Fp> {
@@ -273,6 +278,11 @@ impl<Fp: FieldExt> EthTrie<Fp> {
         for op in ops {
             self.add_op(op)
         }
+    }
+
+    /// Obtain the total rows required by each operation
+    pub fn use_rows(&self) -> usize {
+        self.ops.iter().fold(0, |acc, op| acc + op.use_rows())
     }
 }
 

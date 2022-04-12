@@ -406,6 +406,11 @@ pub struct AccountOp<Fp> {
 }
 
 impl<Fp: PrimeField> AccountOp<Fp> {
+    /// indicate rows would take for whole operation
+    pub fn use_rows(&self) -> usize {
+        self.use_rows_account() + self.use_rows_trie_state() + self.use_rows_trie_account()
+    }
+
     /// indicate rows would take in the account trie part
     pub fn use_rows_trie_account(&self) -> usize {
         self.acc_trie.use_rows()
