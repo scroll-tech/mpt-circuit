@@ -2,3 +2,4 @@
 /layouts
 .vscode
 .cargo
+Cargo.lock
