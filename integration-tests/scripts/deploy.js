@@ -26,9 +26,26 @@ async function greeter() {
   return ["greeter", greeter.address]
 }
 
+async function erc20() {
+
+  const [owner] = await hre.ethers.getSigners();
+  const ownerAddr = await owner.getAddress();
+  console.log("signer", ownerAddr)
+
+  // We get the contract to deploy
+  const Token = await hre.ethers.getContractFactory("OpenZeppelinERC20TestToken");
+  const token = await Token.deploy(ownerAddr);
+
+  await token.deployed();
+
+  console.log("token deployed to:", token.address);
+
+  return ["token", token.address]
+}
+
 // We recommend this pattern to be able to use async/await everywhere
 // and properly handle errors.
-Promise.all([greeter()])
+Promise.all([greeter(), erc20()])
   .then(res => {
     let fd = fs.openSync(path.join(__dirname, 'deploy.json'), 'w')
     fs.writeFileSync(fd, JSON.stringify(Object.fromEntries(res)))

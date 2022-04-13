@@ -6,7 +6,9 @@ which would be read the test by the integration-test binary
 
 ## Prerequisite 
 
-A l2geth node should be launched, the default config in example require the node has enabled a http API so commonly it would be launch with following command line:
++ PUt a hardhat.config.js for configuration, can just copy the `hardhat.config.js.example`
+
++ Launch a l2geth node should be launched, the default config in example require the node has enabled a http API so commonly it would be launch with following command line:
 
 > geth --datadir=\<data dir\> --unlock \<miner address\> --mine --allow-insecure-unlock --http
 

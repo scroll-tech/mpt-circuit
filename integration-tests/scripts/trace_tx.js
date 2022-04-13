@@ -22,9 +22,9 @@ hre.web3.currentProvider.mySend = function(pl) {
 async function main() {
 
     let bln = await hre.web3.eth.getBlockNumber()
-    //console.log('blk num', bln)
+    console.log('blk num', bln)
     let blk = await hre.web3.eth.getBlock(bln)
-    //console.log('blk', blk.hash)
+    console.log('blk', blk.hash)
 
     let {result: r} = await hre.web3.currentProvider.mySend({
         method:"eth_getBlockResultByHash",

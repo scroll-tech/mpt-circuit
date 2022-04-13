@@ -8,16 +8,17 @@ const deploy = require("./deploy.json")
 
 async function main() {
 
-    const Greeter = await hre.ethers.getContractFactory("Greeter");
-    const addr = deploy.greeter
+    const Token = await hre.ethers.getContractFactory("OpenZeppelinERC20TestToken");
+    const addr = deploy.token
     if (!addr){
-      throw 'no addr for greeter contract'
+      throw 'no addr for token contract'
     }
-    const greeter = Greeter.attach(addr)
-    console.log('greet before', await greeter.retrieve())
-    const setGreetingTx = await greeter.set_value(new Date().getTime());
-    await setGreetingTx.wait()
-    console.log('greet after', await greeter.retrieve())
+    const token = Token.attach(addr)
+    const targetAddr = hre.ethers.utils.getAddress( "0x8ba1f109551bd432803012645ac136ddd64dba72" )
+    console.log('transfer before', await token.balanceOf(targetAddr))
+    const tx = await token.transfer(targetAddr, 1000);
+    await tx.wait()
+    console.log('transfer after', await token.balanceOf(targetAddr))
 
 }
 
