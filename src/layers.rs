@@ -63,6 +63,11 @@ impl LayerGadget {
         &self.free_cols
     }
 
+    // obtain the col which can control the start and end value (top and bottom of the enabled cells)
+    pub fn get_root_control(&self) -> Column<Advice> {
+        self.root_aux
+    }
+
     pub fn public_sel(&self) -> Selector {
         self.sel
     }
@@ -84,9 +89,11 @@ impl LayerGadget {
         let op_delta_aux = meta.advice_column();
         let control_table = [(); 5].map(|_| meta.lookup_table_column());
 
+        // require permutation with constants
         meta.enable_equality(series);
         meta.enable_equality(op_type);
         meta.enable_equality(ctrl_type);
+
         meta.enable_equality(root_aux);
 
         meta.create_gate("series", |meta| {
@@ -251,9 +258,9 @@ impl LayerGadget {
             Fp::from(self.start_op_code() as u64),
         )?;
         region.assign_advice_from_constant(|| "init ctrl", self.ctrl_type, 0, Fp::zero())?;
-        region.assign_advice_from_constant(|| "start root", self.root_aux, 0, init_root)?;
         region.assign_advice(|| "root padding", self.new_root, 0, || Ok(Fp::zero()))?;
         region.assign_advice(|| "root padding", self.old_root, 0, || Ok(Fp::zero()))?;
+        region.assign_advice(|| "start root", self.root_aux, 0, || Ok(init_root))?;
 
         for offset in 1..max_rows {
             self.sel.enable(region, offset)?;
@@ -354,37 +361,28 @@ impl LayerGadget {
         intra_op: &[OpBorder],
         start_op: (u32, u32),
     ) -> Result<(), Error> {
+        self.set_op_border_ex(layouter, inter_op, intra_op, &[start_op])
+    }
+
+    // set all transition rules
+    // + start_op: all possible starting op code and ctrl code
+    pub fn set_op_border_ex<Fp: FieldExt>(
+        &self,
+        layouter: &mut impl Layouter<Fp>,
+        inter_op: &[OpBorder],
+        intra_op: &[OpBorder],
+        start_op: &[(u32, u32)],
+    ) -> Result<(), Error> {
         layouter.assign_table(
             || "op trans",
             |mut table| {
-                //marking the start op and stop op, notice start_op_code is unique so it decided how the circuit is start
-                table.assign_cell(
-                    || "start op",
-                    self.control_table[0],
-                    0,
-                    || Ok(Fp::from(start_op.0 as u64)),
-                )?;
-                table.assign_cell(
-                    || "start ctrl",
-                    self.control_table[1],
-                    0,
-                    || Ok(Fp::from(start_op.1 as u64)),
-                )?;
-                table.assign_cell(
-                    || "marking op",
-                    self.control_table[2],
-                    0,
-                    || Ok(Fp::from(self.start_op_code() as u64)),
-                )?;
-                table.assign_cell(
-                    || "marking ctrl",
-                    self.control_table[3],
-                    0,
-                    || Ok(Fp::zero()),
-                )?;
-                table.assign_cell(|| "mark", self.control_table[4], 0, || Ok(Fp::one()))?;
+                //default lookup (0, 0, 0, 0, 0) and (0, 0, 0, 0, 1)
+                table.assign_cell(|| "default", self.control_table[0], 0, || Ok(Fp::zero()))?;
+                table.assign_cell(|| "default", self.control_table[1], 0, || Ok(Fp::zero()))?;
+                table.assign_cell(|| "default", self.control_table[2], 0, || Ok(Fp::zero()))?;
+                table.assign_cell(|| "default", self.control_table[3], 0, || Ok(Fp::zero()))?;
+                table.assign_cell(|| "default", self.control_table[4], 0, || Ok(Fp::zero()))?;
 
-                //and default lookup (0, 0, 0, 0, 0) and (0, 0, 0, 0, 1)
                 table.assign_cell(
                     || "default op cur",
                     self.control_table[0],
@@ -411,13 +409,43 @@ impl LayerGadget {
                 )?;
                 table.assign_cell(|| "mark", self.control_table[4], 1, || Ok(Fp::one()))?;
 
-                table.assign_cell(|| "default", self.control_table[0], 2, || Ok(Fp::zero()))?;
-                table.assign_cell(|| "default", self.control_table[1], 2, || Ok(Fp::zero()))?;
-                table.assign_cell(|| "default", self.control_table[2], 2, || Ok(Fp::zero()))?;
-                table.assign_cell(|| "default", self.control_table[3], 2, || Ok(Fp::zero()))?;
-                table.assign_cell(|| "default", self.control_table[4], 2, || Ok(Fp::zero()))?;
+                let mut offset = 2;
 
-                let mut offset = 3;
+                for start_case in start_op {
+                    //marking the start op, which decided how the circuit is start
+                    table.assign_cell(
+                        || "start op",
+                        self.control_table[0],
+                        offset,
+                        || Ok(Fp::from(start_case.0 as u64)),
+                    )?;
+                    table.assign_cell(
+                        || "start ctrl",
+                        self.control_table[1],
+                        offset,
+                        || Ok(Fp::from(start_case.1 as u64)),
+                    )?;
+                    table.assign_cell(
+                        || "marking op",
+                        self.control_table[2],
+                        offset,
+                        || Ok(Fp::from(self.start_op_code() as u64)),
+                    )?;
+                    table.assign_cell(
+                        || "marking ctrl",
+                        self.control_table[3],
+                        offset,
+                        || Ok(Fp::zero()),
+                    )?;
+                    table.assign_cell(
+                        || "mark",
+                        self.control_table[4],
+                        offset,
+                        || Ok(Fp::one()),
+                    )?;
+                    offset += 1;
+                }
+
                 for ((op_cur, ctrl_cur), (op_prev, ctrl_prev)) in inter_op {
                     table.assign_cell(
                         || "op cur",

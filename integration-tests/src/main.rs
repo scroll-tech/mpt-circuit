@@ -17,22 +17,19 @@ pub struct ExecutionResult {
     pub storage: StorageInfo,
 }
 
-
 #[derive(Deserialize, Default)]
 pub struct StorageInfo {
     #[serde(rename = "smtTrace", default)]
     pub smt_trace: Vec<SMTTrace>,
 }
 
-
 fn main() {
-
     let mut buffer = Vec::new();
     let mut f = File::open("integration-tests/trace.json").unwrap();
     f.read_to_end(&mut buffer).unwrap();
 
     let blk_result = serde_json::from_slice::<BlockResult>(&buffer).unwrap();
-    let mut ops :Vec<AccountOp<Fp>> = Vec::new();
+    let mut ops: Vec<AccountOp<Fp>> = Vec::new();
 
     for tx in blk_result.execution_results {
         for trace in &tx.storage.smt_trace {
@@ -40,12 +37,15 @@ fn main() {
         }
     }
 
-    let rows : usize = ops.iter().fold(0, |acc, op| acc + op.use_rows());
+    let rows: usize = ops.iter().fold(0, |acc, op| acc + op.use_rows());
     let log2_ceil = |n| u32::BITS - (n as u32).leading_zeros() - (n & (n - 1) == 0) as u32;
     let k = log2_ceil(rows);
     let k = k.max(6);
 
-    println!("start proving trace with mpt-circuit, has {} rows and k is {}", rows, k);
+    println!(
+        "start proving trace with mpt-circuit, has {} rows and k is {}",
+        rows, k
+    );
 
     let mut circuit = EthTrie::<Fp>::new(rows + 5);
     circuit.add_ops(ops);

@@ -64,7 +64,9 @@ use ff::Field;
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Chip, Layouter, Region},
-    plonk::{Advice, Column, ConstraintSystem, Error, Expression, Selector, TableColumn},
+    plonk::{
+        Advice, Column, ConstraintSystem, Error, Expression, Selector, TableColumn, VirtualCells,
+    },
     poly::Rotation,
 };
 use lazy_static::lazy_static;
@@ -144,18 +146,18 @@ impl MPTOpTables {
 
 // TODO: hash table maybe advice?
 #[derive(Clone, Debug)]
-pub(crate) struct HashTable(pub TableColumn, pub TableColumn, pub TableColumn);
+pub(crate) struct HashTable(pub Column<Advice>, pub Column<Advice>, pub Column<Advice>);
 
 impl HashTable {
     pub fn configure_create<Fp: Field>(meta: &mut ConstraintSystem<Fp>) -> Self {
         Self(
-            meta.lookup_table_column(),
-            meta.lookup_table_column(),
-            meta.lookup_table_column(),
+            meta.advice_column(),
+            meta.advice_column(),
+            meta.advice_column(),
         )
     }
 
-    fn configure_assign(cols: &[TableColumn]) -> Self {
+    fn configure_assign(cols: &[Column<Advice>]) -> Self {
         Self(cols[0], cols[1], cols[2])
     }
 
@@ -165,13 +167,13 @@ impl HashTable {
         layouter: &mut impl Layouter<Fp>,
         hashing_records: impl Iterator<Item = &'d (Fp, Fp, Fp)> + Clone,
     ) -> Result<(), Error> {
-        layouter.assign_table(
+        layouter.assign_region(
             || "hash table",
             |mut table| {
                 // default: 0, 0, 0
-                table.assign_cell(|| "default", self.0, 0, || Ok(Fp::zero()))?;
-                table.assign_cell(|| "default", self.1, 0, || Ok(Fp::zero()))?;
-                table.assign_cell(|| "default", self.2, 0, || Ok(Fp::zero()))?;
+                table.assign_advice(|| "default", self.0, 0, || Ok(Fp::zero()))?;
+                table.assign_advice(|| "default", self.1, 0, || Ok(Fp::zero()))?;
+                table.assign_advice(|| "default", self.2, 0, || Ok(Fp::zero()))?;
 
                 hashing_records
                     .clone()
@@ -180,11 +182,11 @@ impl HashTable {
                         let (lh, rh, h) = val;
                         let offset = offset + 1;
 
-                        table.assign_cell(|| "left", self.0, offset, || Ok(*lh))?;
+                        table.assign_advice(|| "left", self.0, offset, || Ok(*lh))?;
 
-                        table.assign_cell(|| "right", self.1, offset, || Ok(*rh))?;
+                        table.assign_advice(|| "right", self.1, offset, || Ok(*rh))?;
 
-                        table.assign_cell(|| "result", self.2, offset, || Ok(*h))?;
+                        table.assign_advice(|| "result", self.2, offset, || Ok(*h))?;
 
                         Ok(())
                     })
@@ -426,9 +428,12 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
         let s_row = g_config.s_row;
         let sibling = g_config.sibling;
         let path = g_config.path;
-        let left = hash_table.0;
-        let right = hash_table.1;
-        let hash = hash_table.2;
+        let left =
+            |meta: &mut VirtualCells<'_, Fp>| meta.query_advice(hash_table.0, Rotation::cur());
+        let right =
+            |meta: &mut VirtualCells<'_, Fp>| meta.query_advice(hash_table.1, Rotation::cur());
+        let hash =
+            |meta: &mut VirtualCells<'_, Fp>| meta.query_advice(hash_table.2, Rotation::cur());
         let trans_table = &g_config.tables;
 
         // Only lookup for hash table should be
@@ -454,7 +459,7 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
         // )
         //
         // from table formed by (left, right, hash)
-        meta.lookup("mpt node hash", |meta| {
+        meta.lookup_any("mpt node hash", |meta| {
             let hash_type = meta.query_advice(hash_type, Rotation::cur());
             let s_path = meta.query_selector(s_row)
                 * meta.query_advice(s_enable, Rotation::cur())
@@ -471,13 +476,13 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
             let hash_lookup = s_path * meta.query_advice(val, Rotation::prev());
 
             vec![
-                (left_lookup, left),
-                (right_lookup, right),
-                (hash_lookup, hash),
+                (left_lookup, left(meta)),
+                (right_lookup, right(meta)),
+                (hash_lookup, hash(meta)),
             ]
         });
 
-        meta.lookup("mpt leaf hash", |meta| {
+        meta.lookup_any("mpt leaf hash", |meta| {
             let hash_type = meta.query_advice(hash_type, Rotation::cur());
             let s_leaf = meta.query_advice(s_enable, Rotation::cur())
                 * lagrange_polynomial_for_hashtype::<_, 5>(hash_type); //Leaf
@@ -486,7 +491,11 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
             let val_leaf_col = s_leaf.clone() * meta.query_advice(val, Rotation::cur());
             let hash_lookup = s_leaf * meta.query_advice(val, Rotation::prev());
 
-            vec![(key_col, left), (val_leaf_col, right), (hash_lookup, hash)]
+            vec![
+                (key_col, left(meta)),
+                (val_leaf_col, right(meta)),
+                (hash_lookup, hash(meta)),
+            ]
         });
 
         //transition

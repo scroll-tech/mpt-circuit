@@ -274,7 +274,7 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
         let intermediate = free_cols[1];
 
         // first hash lookup
-        meta.lookup("account hash calc1", |meta| {
+        meta.lookup_any("account hash calc1", |meta| {
             // only enable on row 1, 3
             let s_enable = meta.query_advice(s_enable, Rotation::cur());
             let ctrl_type = meta.query_advice(ctrl_type, Rotation::cur());
@@ -285,21 +285,21 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
             vec![
                 (
                     enable.clone() * meta.query_advice(input, Rotation::prev()),
-                    hash_table.0,
+                    meta.query_advice(hash_table.0, Rotation::cur()),
                 ),
                 (
                     enable.clone() * meta.query_advice(input, Rotation::cur()),
-                    hash_table.1,
+                    meta.query_advice(hash_table.1, Rotation::cur()),
                 ),
                 (
                     enable * meta.query_advice(intermediate, Rotation::cur()),
-                    hash_table.2,
+                    meta.query_advice(hash_table.2, Rotation::cur()),
                 ),
             ]
         });
 
         // second hash lookup
-        meta.lookup("account hash calc2", |meta| {
+        meta.lookup_any("account hash calc2", |meta| {
             // only enable on row 1, 3
             let s_enable = meta.query_advice(s_enable, Rotation::cur());
             let ctrl_type = meta.query_advice(ctrl_type, Rotation::cur());
@@ -310,15 +310,15 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
             vec![
                 (
                     enable.clone() * meta.query_advice(intermediate, Rotation::cur()),
-                    hash_table.0,
+                    meta.query_advice(hash_table.0, Rotation::cur()),
                 ),
                 (
                     enable.clone() * meta.query_advice(exported, Rotation::cur()),
-                    hash_table.1,
+                    meta.query_advice(hash_table.1, Rotation::cur()),
                 ),
                 (
                     enable * meta.query_advice(exported, Rotation::prev()),
-                    hash_table.2,
+                    meta.query_advice(hash_table.2, Rotation::cur()),
                 ),
             ]
         });

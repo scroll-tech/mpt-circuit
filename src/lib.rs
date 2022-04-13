@@ -257,11 +257,6 @@ impl<Fp: FieldExt> EthTrie<Fp> {
         }
     }
 
-    /// create a circuit which include no op, just for dummy proof
-    pub fn empty() -> Self {
-        Self::new(2)
-    }
-
     /// Add an op into the circuit data
     pub fn add_op(&mut self, op: AccountOp<Fp>) {
         if self.ops.is_empty() {
@@ -491,18 +486,14 @@ impl<Fp: FieldExt> Circuit<Fp> for EthTrie<Fp> {
             ((OP_TRIE_STATE, HashType::Start as u32), (OP_ACCOUNT, 3)),
         ];
 
-        config.layer.set_op_border(
+        config.layer.set_op_border_ex(
             &mut layouter,
             &border_list,
             &op_border_list,
-            (
-                if self.ops.is_empty() {
-                    OP_PADDING
-                } else {
-                    OP_TRIE_ACCOUNT
-                },
-                HashType::Start as u32,
-            ),
+            &[
+                (OP_TRIE_ACCOUNT, HashType::Start as u32),
+                (OP_PADDING, HashType::Start as u32),
+            ],
         )
     }
 }
@@ -552,7 +543,7 @@ mod test {
     #[test]
     fn empty_eth_trie() {
         let k = 6;
-        let circuit = EthTrie::<Fp>::empty();
+        let circuit = EthTrie::<Fp>::new(20);
 
         let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
