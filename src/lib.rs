@@ -275,9 +275,9 @@ impl<Fp: FieldExt> EthTrie<Fp> {
         }
     }
 
-    /// Obtain the total rows required by each operation
+    /// Obtain the total required rows (include the top and bottom padding)
     pub fn use_rows(&self) -> usize {
-        self.ops.iter().fold(0, |acc, op| acc + op.use_rows())
+        self.c_size + 2
     }
 }
 
