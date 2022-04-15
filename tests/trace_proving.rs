@@ -1,7 +1,7 @@
 use halo2_mpt_circuits::{operation::AccountOp, serde, EthTrie};
 use halo2_proofs::dev::MockProver;
 use halo2_proofs::pairing::bn256::{Bn256, Fr as Fp, G1Affine};
-use halo2_proofs::plonk::{keygen_vk, Circuit, ProvingKey};
+use halo2_proofs::plonk::keygen_vk;
 use halo2_proofs::poly::commitment::Params;
 
 const TEST_TRACE: &'static str = include_str!("../traces.jsonl");
