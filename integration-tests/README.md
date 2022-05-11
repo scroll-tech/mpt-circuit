@@ -1,6 +1,6 @@
 # Integration test
 
-We have a series of scripts for interactiving with a l2geth, deliver transactions to it and collect the block trace as a json file,
+We have a series of scripts for interacting with a l2geth, deliver transactions to it and collect the block trace as a json file,
 
 which would be read the test by the integration-test binary
 
