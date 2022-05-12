@@ -85,27 +85,73 @@ For the nature of patricia tree, if there is no leaf with key `k` in the trie an
 ![a Merkle tree storing example](https://i.imgur.com/SaLpIn3.png)
 
 + While only leaf node A and B is inserted, the prefix path for node B (key 1000) is 1, and the root of current trie is `Rb`;
-+ Now node C (key 1010) will be inserted. For providing, we use the re-organized trie state which leaf node C just updated a corresponding empty node with key 1010, and the prefix path of this empty node is 101.
++ Now node C (key 1010) will be inserted. For providing, we use the re-organized trie state which leaf node C just updated the empty node with key 1010, and the prefix path of this empty node is 101.
 + For such a situation, the prefix path for node B has become 100 instead of 1.
-+ Notice this is a 'virtual' state for the trie, for the root of trie doesn't change from `Rb`. To provide this virtual BMPT path, we induce new node types for the reorganized branch node (whose prefix path is 1 and 10 in our case). The node hash for these node types is just equal to its child.
++ Notice this is a 'virtual' state for the trie, for the root of trie doesn't change from `Rb`. To provide this virtual BMPT path, we induce a special node types for the reorganized branch node (whose prefix path is 1 and 10 in our case).
+
+Since we are using binary Merkle tree, each layer in the tree would take one bit from the key. From top (root) of the trie, the least-significant bit in the key would be checked and for the leaf node with `l` bits as prefix, the partial key for leaf part would just right shift the original key by `l`. For example, for a leaf node with key is 19 (`B10011`) with 3 bits prefix for path, the path (from root to leaf) is `1-1-0` and the partial key is 2 (`B10`).
+
+Following is the layout of a BMPT path in proof, one row for each layer:
+
+![layout of a BMPT path](https://gist.githubusercontent.com/noel2004/40cc19fa97924d0e383ef6b7e53d5e6d/raw/23797d692ef91cd47d34fb4942a9a38c50de959c/1.svg)
 
 The BMPT transition proof use following columns:
 
 > `Old/NewHashType`: Record the type of a node in current row, the two column `Old-` and `New-` is dedicated to the state of trie before and after updating respectively. There are 6 types would be used:
->  + `START`: indicate the node is dedicated for the root hash of trie, both in old- and new- state the rows for BMPT path should start with this node
->  + `MID`: indicate a branch node
->  + `LEAF`: indicate a leaf node
->  + `LEAFEXT`: 
+>  + `Start`: indicate the node is dedicated for the root hash of trie, both in old- and new- state the rows for BMPT path should start with this node
+>  + `Mid`: indicate a branch node
+>  + `Leaf`: indicate a leaf node
+>  + `Empty`: indicate an empty node, the hash of this node is Fq::Zero
+>  + `LeafExt`: indicate a "virtual" node in the leaf inserted / deleted case, which in fact exist only in the updated state, the node hash for these node types is just equal to its child
+>  + `LeafExtFinal`: Parent of the empty node which would be updated
 
-> `Old/NewVal`:
+> `sibling`: The siblings of nodes in BMPT path
 
-> `sibling`:
+> `path`: The prefix bit in each layer of BMPT path, for the last layer (which the leaf node lies), record the residue of current key
 
-> `path`:
+> `depth`: An aux column which start from 1 on the first row of proof and double in the cell of next row
 
-> `depth`:
+and defining following columns in the data part:
 
-> `accKey`
+> `Old/NewVal` for `data_0` and `data_1`: For branch node, record the hash of its child which is in the BMPT path; for leaf node, record the value
+
+> `accKey` for `data_2`: Calculate the whole key from `path` and `depth` cols, as shown in the "key" column in the diagram before, so the output is laid in the cell of last row of the proof
+
+**Constraints**
+
+There is two groups of constraints: one for the validity of BMPT path and one for the validity of the correction in state transition
+
+There is two BMPT path in the proof (for the columns with 'Old-' and 'New-' prefix), to provide the validity of them we should:
+
++ construct and look up the hash calculations from hash table (see below) according to the node type for current row:
+
+    * For branch node (type is `Mid`), the hashing input has two fields which are from `-Val` and `Sibling`, and the output in `-Val(prev)` (cell above current row). They are lookup according to current `path` cell: when `path` is 1, lookup `Poseidon(Sibling, -Val) = -Val(prev)`, else lookup `Poseidon(-Val, Sibling) = -Val(prev)`
+    * For leaf node (type is `Leaf`) we lookup for the leaf scheme: `Poseidon(1, accKey, -Val) = -Val(prev)`
+    * For node type `LeafExt`, we constraint current `-Val` cell is equal to its child, i.e `-Val(next)` (cell below current row)
+    * For node type `LeafExtFinal`, we constraint current `sibling` cell is equal to the `-Val(prev)`
+
++ calculate the key in `accKey` col and make output in the bottom layer:
+
+    * constraint cell in `depth` is double to the cell above of it: `depth = 2*depth(prev)` and the first cell in `depth` is `Fq::one`
+    * constraint cell in `accKey` in the recursive way: `accKey = depth(prev) * path + accKey(prev)` and the first cell in `accKey` is zero
+
++ and also ensure the layout of path is valid, i.e: for a specified type in `-hashType`, there is only limited possible value for the cell below it, we lookup `-hashType, -hashType(prev)` from following constant transition rules:
+
+>    * `Start -> Mid / Leaf / Empty / LeafExt / LeafExtFinal`
+>    * `Mid -> Mid / Empty / Leaf / LeafExt / LeafExtFinal`
+>    * `LeafExt -> LeafExt / LeafExtFinal`
+>    * `LeafExtFinal -> Empty`
+
++ finally, we must constraint a proof must end its layout with `Empty` or `Leaf` node. We just assign `OldHashType` as the `ctrl_type` column in controlling part. For `op_type` is 1 or 3 (the two BMPT proof for two tries), the value of `op_type` can be change only when `ctrl_type` is `Empty` or `Leaf`
+
+To provide the transition, i.e. the relationship between two BMPT path is correct, we constraint the two node type in the same layer, that is, `OldHashType` and `NewHashType` has to be one of the following pairs (Notice the reversed of one pair is also valid):
+
+>    * `Start` - `Start`
+>    * `Leaf` - `Leaf`
+>    * `Empty` - `Leaf`
+>    * `Mid` - `Mid`
+>    * `LeafExt` - `Mid`
+>    * `LeafExtFinal` - `Mid`
 
 ## Hash table
 
