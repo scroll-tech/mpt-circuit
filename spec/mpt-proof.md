@@ -153,6 +153,47 @@ To provide the transition, i.e. the relationship between two BMPT path is correc
 >    * `LeafExt` - `Mid`
 >    * `LeafExtFinal` - `Mid`
 
+
+### Account data proof
+
+This provide the account data consist with its hash under the new zktrie scheme (not the original RLP encoding scheme) and the hash act as the value of leaf node in state trie.
+
+There are a pair of proofs which provide for the account data before and after updating respectively. For each use following columns:
+
+> `Data`: contain all fields in account data except for the account root (the root of storage trie for current account), i.e. the `nonce`, `balance` and `code_hash`, it take two cells for the `code_hash` field's first and last 16 bytes, which is 32 bytes long
+> `Data intermediate`: contain some intermediate value being use in the hashing scheme
+> `Old/NewHash`: being defined in `data_0` and `data_1` in the data part, recording the account hash on top row and the account root in bottom row
+
+The layout for account proof looks like following:
+
+|op_type|ctrl_type|     Data       |Data Intermediate|  Old/NewHash   |
+|-------|---------|----------------|-----------------|----------------|
+|   1   |         |                |                 |   *hash_final* |
+|   2   |    0    |     nonce      |                 |    hash_final  |
+|   2   |    1    |    balance     |      hash3      |      hash2     |
+|   2   |    2    |Codehash_first  |                 |      hash2     |
+|   2   |    3    |Codehash_Second |      hash1      |      Root      |
+|   3   |         |                |                 |      *Root*    |
+
+value of `1`, `2`, `3` in`op_type` col indicate the row dedicating to proof of state trie (proof 4), account data (proof 3) and storage trie (proof 2) respectively. we can see in account data proof  the top and bottom cell in data columns can be easily constrained to be equal to the cell above / below them. So the proofs are being "connected".
+
+The proof also lookup hashes for the hashing scheme:
+
+>    * `Poseidon(Codehash_first, Codehash_Second) = hash1`
+>    * `Poseidon(nonce, balance) = hash3`
+>    * `Poseidon(hash1, Root) = hash2`
+>    * `Poseidon(hash3, hash2) = hash_final`
+
+**Constraints**
+
+Current the proof has a layout with 4 or 5 rows, with cells in `ctrl_type` col being assigned from 0 ~ 3 (or 4, in case of 5 rows). And it also has a gate for some equality:
+
+>    * ctrl_type is 0: `hash_final = hash_final (prev)`
+>    * ctrl_type is 2: `hash2 - hash2 (prev)`
+>    * ctrl_type is 3: `Root - root (next)`
+
+The 5 rows layout is used when the value in `OldHash` and `NewHash` is equal. The value of 4 in `ctrl_type` indicate the row below current proof is not dedicated for a BMPT proof (proof 2) but a proof block for another state transition, since more proof is not needed when the storage roof of current account is unchanged.
+
 ## Hash table
 
 Proved by poseidon hash circuit. Inputs and output for each hash calculation are put in the same row. For a hash circuit which calculate the hash of at most N items we have N+2 cols: 
