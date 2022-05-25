@@ -53,6 +53,8 @@ So there are 5 kinds of proof (4 proof 'pair' mentioned before and a 'padding' p
 
 + Data part currently has 3 cols `data_0` ~ `data_2` which dedicate to values whose relations should be provided to be correct by a proof. Different proof assign specified data on that columns: For proof 1 and 3 (the BMPT proof), the hashes of nodes for the BMPT before and after updating are recorded in `data_0` and `data_1` respectively; for proof 2 `data_0` and `data_1` are used for account hash before and after being updated. proofs can also refer cells in data columns which belong to the rows adjacent to it, i.e. the data which has been provided by another proof.
 
+There are also 2 limb cols for each `data_N` col in case of a 256bit variable and assign it into 2 128-bit limbs, naming as `data_N_limb_0/1`.
+
 Since the transition is provided in a series of adjacent rows (a "block") in our layout, and the proof of state trie being stacked first. The beginning row of the proof block always contain the start and end trie root in the transition. So a `root_aux` col is used to 'carry' the end trie root to the last row of the proof block, to ensure the start trie root of next transition must equal to the end trie root of previous proof block. The layout look like follows:
 
 | series| data_0 *for old_root* | data_1 *for new_root* | root_aux |
@@ -160,20 +162,18 @@ This provide the account data consist with its hash under the new zktrie scheme 
 
 There are a pair of proofs which provide for the account data before and after updating respectively. For each use following columns:
 
-> `Data`: contain all fields in account data except for the account root (the root of storage trie for current account), i.e. the `nonce`, `balance` and `code_hash`, it take two cells for the `code_hash` field's first and last 16 bytes, which is 32 bytes long
-> `Data intermediate`: contain some intermediate value being use in the hashing scheme
-> `Old/NewHash`: being defined in `data_0` and `data_1` in the data part, recording the account hash on top row and the account root in bottom row
+> `data_0` and `data_1` in the data part contain all fields in account data except for the account root (the root of storage trie for current account), i.e. the `nonce`, `balance` and `code_hash`, for the 32 bytes codeHash, two cols would be assigned for the two 16 bytes limbs (first and last 16 bytes) and the RLC of them is recorded in `data_0/1` col
+> `Intermediate_1`, `Intermediate_2`: contain account root and some intermediate value being use in the hashing scheme
 
 The layout for account proof looks like following:
 
-|op_type|ctrl_type|     Data       |Data Intermediate|  Old/NewHash   |
-|-------|---------|----------------|-----------------|----------------|
-|   1   |         |                |                 |   *hash_final* |
-|   2   |    0    |     nonce      |                 |    hash_final  |
-|   2   |    1    |    balance     |      hash3      |      hash2     |
-|   2   |    2    |Codehash_first  |                 |      hash2     |
-|   2   |    3    |Codehash_Second |      hash1      |      Root      |
-|   3   |         |                |                 |      *Root*    |
+|op_type|ctrl_type|    datalimb_0   |   datalimb_1    | Intermediate_1  | Intermediate_2  |    data_0/1    |
+|-------|---------|-----------------|-----------------|-----------------|-----------------|----------------|
+|   1   |         |                 |                 |                 |                 |   *hash_final* |
+|   2   |    0    |                 |                 |                 |   hash_final    |    nonce       |
+|   2   |    1    |                 |                 |      hash3      |      hash2      |    balance     |
+|   2   |    2    | Codehash_first  |Codehash_Second  |      hash1      |      Root       |    code_hash   |
+|   3   |         |                 |                 |                 |                 |      *Root*    |
 
 value of `1`, `2`, `3` in`op_type` col indicate the row dedicating to proof of state trie (proof 4), account data (proof 3) and storage trie (proof 2) respectively. we can see in account data proof  the top and bottom cell in data columns can be easily constrained to be equal to the cell above / below them. So the proofs are being "connected".
 
@@ -186,13 +186,33 @@ The proof also lookup hashes for the hashing scheme:
 
 **Constraints**
 
-Current the proof has a layout with 4 or 5 rows, with cells in `ctrl_type` col being assigned from 0 ~ 3 (or 4, in case of 5 rows). And it also has a gate for some equality:
+Current the proof has a layout with 3 or 4 rows, with cells in `ctrl_type` col being assigned from 0 ~ 2 (or 3, in case of 4 rows). And it also has a gate for some equality:
 
->    * ctrl_type is 0: `hash_final = hash_final (prev)`
->    * ctrl_type is 2: `hash2 - hash2 (prev)`
->    * ctrl_type is 3: `Root - root (next)`
+>    * ctrl_type is 0: `hash_final = data_0/1 (prev)`
+>    * ctrl_type is 2: `Root = data_0/1 (next)`
 
-The 5 rows layout is used when the value in `OldHash` and `NewHash` is equal. The value of 4 in `ctrl_type` indicate the row below current proof is not dedicated for a BMPT proof (proof 2) but a proof block for another state transition, since more proof is not needed when the storage roof of current account is unchanged.
+The 4 rows layout is used when the value in `OldHash` and `NewHash` is equal. The value of 3 in `ctrl_type` indicate the row below current proof is not dedicated for a BMPT proof (proof 2) but a proof block for another state transition, since more proof is not needed when the storage roof of current account is unchanged.
+
+### Storage value proof
+
+This provide the hash of stored value and key is consistent with the key / value of leaf node in the BMPT proof for storage proof (proof 2). It has a one-row layout as follows:
+
+|op_type|ctrl_type|  data_0   | s_value_limb_1 | s_value_limb_2 | data_1  | s_value_limb_1 | s_value_limb_2 |  data_2  | key_limb_1 | key_limb_2 |
+|-------|---------|-----------|----------------|----------------|---------|----------------|----------------|--------- |------------|------------|
+|   3   |         | *s_hash*  |                |                |*e_hash* |                |                |*key_hash*|            |            |
+|   4   |   0     |  s_value  | s_value_first  | s_value_second | e_value | e_value_first  | e_value_second |   key    |  key_first | key_second |
+
+The data cols is assigned with the RLC of their corresponding 16-byte limbs and hash is being lookup:
+
+>    * `Poseidon(s_value_first, s_value_second) = s_hash`
+>    * `Poseidon(e_value_first, e_value_second) = e_hash`
+>    * `Poseidon(key_first, key_second) = key_hash`
+
+The value in `ctrl_type` is fixed to 0
+
+### padding 
+
+ Padding proof is used for fill the unused rows, it just constrain the `data_0` and `data_1` should be equal to each other, and cell in `data_1` col must equal to which above it. So the last cell in `data_1` col in mpt circuit would always equal to the last hash provided by a proof except padding.
 
 ## Hash table
 
