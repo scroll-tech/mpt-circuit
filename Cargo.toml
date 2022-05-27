@@ -24,7 +24,12 @@ print_layout = ["halo2_proofs/dev-graph"]
 [dev-dependencies]
 rand_chacha = "0.3.0"
 plotters = "0.3"
+bencher = "0.1"
 
 [[bin]]
 name = "integration-test"
 path = "integration-tests/src/main.rs"
+
+[[bench]]
+name = "hash"
+harness = false
