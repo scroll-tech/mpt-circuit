@@ -11,7 +11,7 @@ An alternative implement of BMPT (Binary Patricia Merkle Tree) has been applied 
 + In BMPT there are only branch and leaf nodes, and their hashes are calculated as following schemes:
 
     * Branch node is an 2 item node and `NodeHash = H(NodeHashLeft, NodeHashRight)`
-    * Leaf node is an 2 item node and `NodeHash = H(1, encodedPath, value)`
+    * Leaf node is an 2 item node and `NodeHash = H(H(1, encodedPath), value)`
 
 + In world state trie, the value of leaf node is obtained from account state and the hashing scheme is: `AccountHash = H(H(nonce, balance), H(H(CodeHash_first16, CodeHash_last16), storageRoot))`, in which `CodeHash_first16` and `CodeHash_last16` represent the first and last 16 bytes of the 32-byte codeHash item
 
