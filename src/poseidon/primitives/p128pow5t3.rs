@@ -5,6 +5,9 @@ use super::{Mds, Spec};
 
 pub trait P128Pow5T3Constants: std::fmt::Debug {
     type Fp: FieldExt;
+    fn partial_rounds() -> usize {
+        56
+    }
     fn round_constants() -> Vec<[Self::Fp; 3]>;
     fn mds() -> Mds<Self::Fp, 3>;
     fn mds_inv() -> Mds<Self::Fp, 3>;
@@ -27,7 +30,7 @@ impl<Fp: FieldExt, C: P128Pow5T3Constants<Fp = Fp>> Spec<Fp, 3, 2> for P128Pow5T
     }
 
     fn partial_rounds() -> usize {
-        56
+        C::partial_rounds()
     }
 
     fn sbox(val: Fp) -> Fp {
@@ -289,5 +292,26 @@ mod tests {
                     assert_eq!(result.to_repr(), tv.output);
                 }
         */
+    }
+
+    use halo2_proofs::pairing::bn256;
+    type P128Pow5T3Bn256 = super::P128Pow5T3<bn256::Fr>;
+
+    #[test]
+    fn hash_test_bn256() {
+        use crate::poseidon::primitives::ConstantLengthIden3;
+        use bn256::Fr;
+
+        let message = [
+            Fr::from_str_vartime("1").unwrap(),
+            Fr::from_str_vartime("2").unwrap(),
+        ];
+
+        let result = Hash::<_, P128Pow5T3Bn256, ConstantLengthIden3<2>, 3, 2>::init().hash(message);
+
+        assert_eq!(
+            result.to_string(),
+            "0x115cc0f5e7d690413df64c6b9662e9cf2a3617f2743245519e19607a4417189a"
+        );
     }
 }

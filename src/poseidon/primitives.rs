@@ -16,6 +16,7 @@ mod fields;
 #[macro_use]
 mod binops;
 
+pub(crate) mod bn256;
 #[cfg(test)]
 pub(crate) mod pasta;
 
@@ -132,14 +133,15 @@ pub(crate) fn permute<F: FieldExt, S: Spec<F, T, RATE>, const T: usize, const RA
 
 fn poseidon_sponge<F: FieldExt, S: Spec<F, T, RATE>, const T: usize, const RATE: usize>(
     state: &mut State<F, T>,
-    input: Option<&Absorbing<F, RATE>>,
+    input: Option<(&Absorbing<F, RATE>, usize)>,
     mds_matrix: &Mds<F, T>,
     round_constants: &[[F; T]],
 ) -> Squeezing<F, RATE> {
-    if let Some(Absorbing(input)) = input {
+    if let Some((Absorbing(input), layout_offset)) = input {
+        assert!(layout_offset <= T - RATE);
         // `Iterator::zip` short-circuits when one iterator completes, so this will only
         // mutate the rate portion of the state.
-        for (word, value) in state.iter_mut().zip(input.iter()) {
+        for (word, value) in state.iter_mut().skip(layout_offset).zip(input.iter()) {
             *word += value.expect("poseidon_sponge is called with a padded input");
         }
     }
@@ -197,6 +199,7 @@ pub(crate) struct Sponge<
     state: State<F, T>,
     mds_matrix: Mds<F, T>,
     round_constants: Vec<[F; T]>,
+    layout: usize,
     _marker: PhantomData<S>,
 }
 
@@ -216,8 +219,14 @@ impl<F: FieldExt, S: Spec<F, T, RATE>, const T: usize, const RATE: usize>
             state,
             mds_matrix,
             round_constants,
+            layout: 0,
             _marker: PhantomData::default(),
         }
+    }
+
+    pub(crate) fn set_layout(mut self, layout: usize) -> Self {
+        self.layout = layout;
+        self
     }
 
     /// Absorbs an element into the sponge.
@@ -232,7 +241,7 @@ impl<F: FieldExt, S: Spec<F, T, RATE>, const T: usize, const RATE: usize>
         // We've already absorbed as many elements as we can
         let _ = poseidon_sponge::<F, S, T, RATE>(
             &mut self.state,
-            Some(&self.mode),
+            Some((&self.mode, self.layout)),
             &self.mds_matrix,
             &self.round_constants,
         );
@@ -243,7 +252,7 @@ impl<F: FieldExt, S: Spec<F, T, RATE>, const T: usize, const RATE: usize>
     pub(crate) fn finish_absorbing(mut self) -> Sponge<F, S, Squeezing<F, RATE>, T, RATE> {
         let mode = poseidon_sponge::<F, S, T, RATE>(
             &mut self.state,
-            Some(&self.mode),
+            Some((&self.mode, self.layout)),
             &self.mds_matrix,
             &self.round_constants,
         );
@@ -253,6 +262,7 @@ impl<F: FieldExt, S: Spec<F, T, RATE>, const T: usize, const RATE: usize>
             state: self.state,
             mds_matrix: self.mds_matrix,
             round_constants: self.round_constants,
+            layout: self.layout,
             _marker: PhantomData::default(),
         }
     }
@@ -294,6 +304,13 @@ pub trait Domain<F: FieldExt, const RATE: usize> {
 
     /// Returns the padding to be appended to the input.
     fn padding(input_len: usize) -> Self::Padding;
+
+    /// Set the position of inputs in state: how many fields
+    /// of offset the first input should be put in, for iden3,
+    /// inputs are right aligned in the state array
+    fn layout(_width: usize) -> usize {
+        0
+    }
 }
 
 /// A Poseidon hash function used with constant input length.
@@ -323,6 +340,31 @@ impl<F: FieldExt, const RATE: usize, const L: usize> Domain<F, RATE> for Constan
         // that inputs of different lengths do not share the same permutation.
         let k = (L + RATE - 1) / RATE;
         iter::repeat(F::zero()).take(k * RATE - L)
+    }
+}
+
+/// A Poseidon hash function used with constant input length, this is iden3's specifications
+#[derive(Clone, Copy, Debug)]
+pub struct ConstantLengthIden3<const L: usize>;
+
+impl<F: FieldExt, const RATE: usize, const L: usize> Domain<F, RATE> for ConstantLengthIden3<L> {
+    type Padding = <ConstantLength<L> as Domain<F, RATE>>::Padding;
+
+    fn name() -> String {
+        format!("ConstantLength<{}> in iden3's style", L)
+    }
+
+    // iden3's scheme do not set any capacity mark
+    fn initial_capacity_element() -> F {
+        F::zero()
+    }
+
+    fn padding(input_len: usize) -> Self::Padding {
+        <ConstantLength<L> as Domain<F, RATE>>::padding(input_len)
+    }
+
+    fn layout(width: usize) -> usize {
+        width - RATE
     }
 }
 
@@ -358,7 +400,7 @@ impl<F: FieldExt, S: Spec<F, T, RATE>, D: Domain<F, RATE>, const T: usize, const
     /// Initializes a new hasher.
     pub fn init() -> Self {
         Hash {
-            sponge: Sponge::new(D::initial_capacity_element()),
+            sponge: Sponge::new(D::initial_capacity_element()).set_layout(D::layout(T)),
             _domain: PhantomData::default(),
         }
     }
@@ -379,10 +421,25 @@ impl<F: FieldExt, S: Spec<F, T, RATE>, const T: usize, const RATE: usize, const 
     }
 }
 
+impl<F: FieldExt, S: Spec<F, T, RATE>, const T: usize, const RATE: usize, const L: usize>
+    Hash<F, S, ConstantLengthIden3<L>, T, RATE>
+{
+    /// Hashes the given input.
+    pub fn hash(mut self, message: [F; L]) -> F {
+        for value in message
+            .into_iter()
+            .chain(<ConstantLength<L> as Domain<F, RATE>>::padding(L))
+        {
+            self.sponge.absorb(value);
+        }
+        self.sponge.finish_absorbing().squeeze()
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use halo2_proofs::arithmetic::FieldExt;
     use super::pasta::Fp;
+    use halo2_proofs::arithmetic::FieldExt;
 
     use super::{permute, ConstantLength, Hash, P128Pow5T3, Spec};
     type OrchardNullifier = P128Pow5T3<Fp>;
@@ -403,4 +460,3 @@ mod tests {
         assert_eq!(state[0], result);
     }
 }
-
