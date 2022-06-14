@@ -16,7 +16,6 @@ num-bigint = "0.4"
 hex = "0.4"
 thiserror = "1.0"
 bitvec = "0"
-poseidon-rs = { git = "https://github.com/noel2004/poseidon-rs.git", branch = "master"  }
 
 [features]
 # printout the layout of circuits for demo and some unittests

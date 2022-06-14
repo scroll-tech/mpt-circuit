@@ -16,7 +16,7 @@ lazy_static! {
 
         [0, 1, 2].map(|i| [0, 1, 2].map(|j| Fp::from_str_vartime(m_str[i][j]).unwrap()))
     };
-    pub static ref MDS_INV: [[Fp; 3]; 3] = { [[Fp::zero(); 3]; 3] };
+    pub static ref MDS_INV: [[Fp; 3]; 3] =  [[Fp::zero(); 3]; 3] ;
 }
 
 fn round_constants() -> Vec<&'static str> {

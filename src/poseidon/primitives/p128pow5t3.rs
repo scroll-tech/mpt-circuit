@@ -293,25 +293,4 @@ mod tests {
                 }
         */
     }
-
-    use halo2_proofs::pairing::bn256;
-    type P128Pow5T3Bn256 = super::P128Pow5T3<bn256::Fr>;
-
-    #[test]
-    fn hash_test_bn256() {
-        use crate::poseidon::primitives::ConstantLengthIden3;
-        use bn256::Fr;
-
-        let message = [
-            Fr::from_str_vartime("1").unwrap(),
-            Fr::from_str_vartime("2").unwrap(),
-        ];
-
-        let result = Hash::<_, P128Pow5T3Bn256, ConstantLengthIden3<2>, 3, 2>::init().hash(message);
-
-        assert_eq!(
-            result.to_string(),
-            "0x115cc0f5e7d690413df64c6b9662e9cf2a3617f2743245519e19607a4417189a"
-        );
-    }
 }

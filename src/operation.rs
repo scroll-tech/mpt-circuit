@@ -604,7 +604,7 @@ impl<'d, Fp: FieldExt + Hashable> TryFrom<(&'d serde::AccountData, Fp)> for Acco
             state_root,
             ..Default::default()
         };
-        Ok(acc.complete(|a, b| <Fp as Hashable>::hash(vec![*a, *b]).unwrap()))
+        Ok(acc.complete(|a, b| <Fp as Hashable>::hash([*a, *b])))
     }
 }
 
@@ -812,7 +812,7 @@ mod tests {
             ..Default::default()
         };
 
-        let data = data.complete(|a, b| <Fp as Hashable>::hash(vec![*a, *b]).unwrap());
+        let data = data.complete(|a, b| <Fp as Hashable>::hash([*a, *b]));
 
         //0x227e285425906a1f84d43e6e821bd3d49225e39e8395e9aa680a1574ff5f1eb8
         assert_eq!(
@@ -846,7 +846,7 @@ mod tests {
             ..Default::default()
         };
 
-        let data = data.complete(|a, b| <Fp as Hashable>::hash(vec![*a, *b]).unwrap());
+        let data = data.complete(|a, b| <Fp as Hashable>::hash([*a, *b]));
         println!("{:?}", data);
 
         //0x282e0113717ea7f0d515b8db9adaf15741c4ace339965482b771062e1f969fb6

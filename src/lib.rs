@@ -18,7 +18,7 @@ mod test_utils;
 pub mod operation;
 pub mod serde;
 
-mod poseidon;
+pub mod poseidon;
 
 /// Indicate the operation type of a row in MPT circuit
 #[derive(Clone, Copy, Debug, PartialEq)]

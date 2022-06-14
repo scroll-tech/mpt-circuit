@@ -2,34 +2,28 @@
 extern crate bencher;
 
 use bencher::Bencher;
-use ff::{Field, PrimeField};
-use halo2_proofs::pairing::bn256;
+use ff::Field;
+use halo2_proofs::pairing::bn256::Fr;
 use lazy_static::lazy_static;
-use poseidon_rs::{Fr, Poseidon};
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
-
-fn same_fr_convert<A: PrimeField, B: PrimeField>(fr: A) -> B {
-    let mut ret = B::Repr::default();
-    ret.as_mut().copy_from_slice(fr.to_repr().as_ref());
-
-    B::from_repr(ret).unwrap()
-}
+use halo2_mpt_circuits::poseidon::primitives::{ConstantLengthIden3, P128Pow5T3, Hash};
 
 lazy_static! {
     static ref RNDFRS: [Fr; 16] = {
         let rng = ChaCha8Rng::from_seed([101u8; 32]);
         [(); 16]
-            .map(|_| bn256::Fr::random(rng.clone()))
-            .map(same_fr_convert)
+            .map(|_| Fr::random(rng.clone()))
     };
 }
 
 macro_rules! hashes {
     ( $fname:ident, $n:expr ) => {
         fn $fname(bench: &mut Bencher) {
-            let hasher = Poseidon::new();
-            bench.iter(|| hasher.hash(Vec::from(&RNDFRS.as_slice()[..$n])).unwrap());
+
+            bench.iter(|| 
+                Hash::<Fr, P128Pow5T3<Fr>, ConstantLengthIden3<$n>, 3, 2>::init().hash(Vec::from(&RNDFRS.as_slice()[..$n]).try_into().unwrap())
+            );
         }
     };
 }
