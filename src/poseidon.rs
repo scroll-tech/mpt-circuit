@@ -12,7 +12,7 @@ use halo2_proofs::{
 };
 
 mod pow5;
-pub use pow5::{Pow5Chip, Pow5Config, StateWord};
+pub use pow5::{Pow5Chip, Pow5Config, StateWord, Var};
 
 pub mod primitives;
 use primitives::{Absorbing, ConstantLength, Domain, Spec, SpongeMode, Squeezing, State};

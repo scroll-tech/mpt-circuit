@@ -1,9 +1,10 @@
 pub(crate) mod fp;
 pub(crate) use halo2_proofs::pairing::bn256::Fr as Fp;
 
+use super::p128pow5t3::P128Pow5T3Constants;
 use super::Mds;
 
-impl super::p128pow5t3::P128Pow5T3Constants for Fp {
+impl P128Pow5T3Constants for Fp {
     type Fp = Fp;
 
     fn partial_rounds() -> usize {
@@ -46,5 +47,23 @@ mod tests {
             m[m.len() - 1][0].to_string(),
             "0x143021ec686a3f330d5f9e654638065ce6cd79e28c5b3753326244ee65a1b1a7"
         );
+    }
+
+    // Verify that MDS * MDS^-1 = I.
+    #[test]
+    fn verify_mds() {
+        let mds = <Fp as P128Pow5T3Constants>::mds();
+        let mds_inv = <Fp as P128Pow5T3Constants>::mds_inv();
+
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..3 {
+            for j in 0..3 {
+                let expected = if i == j { Fp::one() } else { Fp::zero() };
+                assert_eq!(
+                    (0..3).fold(Fp::zero(), |acc, k| acc + (mds[i][k] * mds_inv[k][j])),
+                    expected
+                );
+            }
+        }
     }
 }

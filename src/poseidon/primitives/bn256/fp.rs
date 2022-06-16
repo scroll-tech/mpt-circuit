@@ -1,4 +1,4 @@
-use ff::PrimeField;
+use ff::{Field, PrimeField};
 use halo2_proofs::pairing::bn256::Fr as Fp;
 use lazy_static::lazy_static;
 
@@ -16,7 +16,38 @@ lazy_static! {
 
         [0, 1, 2].map(|i| [0, 1, 2].map(|j| Fp::from_str_vartime(m_str[i][j]).unwrap()))
     };
-    pub static ref MDS_INV: [[Fp; 3]; 3] =  [[Fp::zero(); 3]; 3] ;
+    pub static ref MDS_INV: [[Fp; 3]; 3] = {
+        let mds = *MDS;
+
+        let det_items = |idx: usize| {
+            (0..3)
+                .map(|i| mds[(idx + i) % 3][i])
+                .reduce(|acc, fr| acc * fr)
+                .unwrap()
+                - (0..3)
+                    .map(|i| mds[(idx + 3 - i) % 3][i])
+                    .reduce(|acc, fr| acc * fr)
+                    .unwrap()
+        };
+
+        let det = (0..3)
+            .map(det_items)
+            .reduce(|acc, fr| acc + fr)
+            .unwrap()
+            .invert()
+            .unwrap();
+
+        let ci = |i: usize, j: usize| {
+            mds[(i + 1) % 3][(j + 1) % 3] * mds[(i + 2) % 3][(j + 2) % 3]
+                - mds[(i + 1) % 3][(j + 2) % 3] * mds[(i + 2) % 3][(j + 1) % 3]
+        };
+
+        [
+            [ci(0, 0) * det, ci(1, 0) * det, ci(2, 0) * det],
+            [ci(0, 1) * det, ci(1, 1) * det, ci(2, 1) * det],
+            [ci(0, 2) * det, ci(1, 2) * det, ci(2, 2) * det],
+        ]
+    };
 }
 
 fn round_constants() -> Vec<&'static str> {

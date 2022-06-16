@@ -41,6 +41,7 @@ pub struct Pow5Config<F: FieldExt, const WIDTH: usize, const RATE: usize> {
     rc_b: [Column<Fixed>; WIDTH],
     s_full: Selector,
     s_partial: Selector,
+    s_partial_single: Selector,
     s_pad_and_add: Selector,
 
     half_full_rounds: usize,
@@ -81,7 +82,7 @@ impl<F: FieldExt, const WIDTH: usize, const RATE: usize> Pow5Chip<F, WIDTH, RATE
         // Generate constants for the Poseidon permutation.
         // This gadget requires R_F and R_P to be even.
         assert!(S::full_rounds() & 1 == 0);
-        assert!(S::partial_rounds() & 1 == 0);
+        //assert!(S::partial_rounds() & 1 == 0);
         let half_full_rounds = S::full_rounds() / 2;
         let half_partial_rounds = S::partial_rounds() / 2;
         let (round_constants, m_reg, m_inv) = S::constants();
@@ -100,6 +101,7 @@ impl<F: FieldExt, const WIDTH: usize, const RATE: usize> Pow5Chip<F, WIDTH, RATE
 
         let s_full = meta.selector();
         let s_partial = meta.selector();
+        let s_partial_single = meta.selector();
         let s_pad_and_add = meta.selector();
 
         let alpha = [5, 0, 0, 0];
@@ -171,6 +173,30 @@ impl<F: FieldExt, const WIDTH: usize, const RATE: usize> Pow5Chip<F, WIDTH, RATE
                 .collect::<Vec<_>>()
         });
 
+        meta.create_gate("partial round single", |meta| {
+            let s_partial_single = meta.query_selector(s_partial_single);
+
+            (0..WIDTH)
+                .map(|next_idx| {
+                    let state_next = meta.query_advice(state[next_idx], Rotation::next());
+                    let cur_0 = meta.query_advice(state[0], Rotation::cur());
+                    let rc_a0 = meta.query_fixed(rc_a[0], Rotation::cur());
+
+                    let expr = pow_5(cur_0 + rc_a0) * m_reg[next_idx][0];
+                    let expr = expr
+                        + (1..WIDTH)
+                            .map(|idx| {
+                                let state_cur = meta.query_advice(state[idx], Rotation::cur());
+                                let rc_a = meta.query_fixed(rc_a[idx], Rotation::cur());
+                                (state_cur + rc_a) * m_reg[next_idx][idx]
+                            })
+                            .reduce(|acc, term| acc + term)
+                            .expect("WIDTH > 0");
+                    s_partial_single.clone() * (expr - state_next)
+                })
+                .collect::<Vec<_>>()
+        });
+
         meta.create_gate("pad-and-add", |meta| {
             let initial_state_rate = meta.query_advice(state[RATE], Rotation::prev());
             let output_state_rate = meta.query_advice(state[RATE], Rotation::next());
@@ -202,6 +228,7 @@ impl<F: FieldExt, const WIDTH: usize, const RATE: usize> Pow5Chip<F, WIDTH, RATE
             rc_b,
             s_full,
             s_partial,
+            s_partial_single,
             s_pad_and_add,
             half_full_rounds,
             half_partial_rounds,
@@ -264,13 +291,29 @@ impl<F: FieldExt, S: Spec<F, WIDTH, RATE>, const WIDTH: usize, const RATE: usize
                     })
                 })?;
 
+                let state = if config.half_partial_rounds * 2 < S::partial_rounds() {
+                    state.partial_round_single(
+                        &mut region,
+                        config,
+                        config.half_full_rounds + 2 * config.half_partial_rounds,
+                        config.half_full_rounds + config.half_partial_rounds,
+                    )
+                } else {
+                    Ok(state)
+                }?;
+
+                let odd_offset = S::partial_rounds() & 1;
+
                 let state = (0..config.half_full_rounds).fold(Ok(state), |res, r| {
                     res.and_then(|state| {
                         state.full_round(
                             &mut region,
                             config,
-                            config.half_full_rounds + 2 * config.half_partial_rounds + r,
-                            config.half_full_rounds + config.half_partial_rounds + r,
+                            config.half_full_rounds
+                                + 2 * config.half_partial_rounds
+                                + odd_offset
+                                + r,
+                            config.half_full_rounds + config.half_partial_rounds + odd_offset + r,
                         )
                     })
                 })?;
@@ -467,6 +510,46 @@ impl<F: FieldExt, const WIDTH: usize> Pow5State<F, WIDTH> {
 
             Ok((round + 1, state.collect::<Vec<_>>().try_into().unwrap()))
         })
+    }
+
+    fn partial_round_single<const RATE: usize>(
+        self,
+        region: &mut Region<F>,
+        config: &Pow5Config<F, WIDTH, RATE>,
+        round: usize,
+        offset: usize,
+    ) -> Result<Self, Error> {
+        Self::round(
+            region,
+            config,
+            round,
+            offset,
+            config.s_partial_single,
+            |_| {
+                let r: Option<Vec<F>> = self
+                    .0
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, word)| {
+                        word.0
+                            .value()
+                            .map(|v| *v + config.round_constants[round][idx])
+                            .map(|v| if idx == 0 { v.pow(&config.alpha) } else { v })
+                    })
+                    .collect();
+
+                let m = &config.m_reg;
+                let state = m.iter().map(|m_i| {
+                    r.as_ref().map(|r| {
+                        r.iter()
+                            .enumerate()
+                            .fold(F::zero(), |acc, (j, r_j)| acc + m_i[j] * r_j)
+                    })
+                });
+
+                Ok((round + 1, state.collect::<Vec<_>>().try_into().unwrap()))
+            },
+        )
     }
 
     fn partial_round<const RATE: usize>(

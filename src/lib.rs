@@ -9,7 +9,6 @@
 pub use crate::serde::{Hash, Row, RowDeError};
 
 mod eth;
-mod hash;
 mod layers;
 mod mpt;
 #[cfg(test)]
@@ -18,6 +17,7 @@ mod test_utils;
 pub mod operation;
 pub mod serde;
 
+pub mod hash;
 pub mod poseidon;
 
 /// Indicate the operation type of a row in MPT circuit
