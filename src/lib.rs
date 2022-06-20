@@ -127,7 +127,10 @@ impl<Fp: FieldExt> Circuit<Fp> for SimpleTrie<Fp> {
     type FloorPlanner = SimpleFloorPlanner;
 
     fn without_witnesses(&self) -> Self {
-        Self::default()
+        Self {
+            c_size: self.c_size,
+            ..Default::default()
+        }
     }
 
     fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
@@ -288,7 +291,10 @@ impl<Fp: FieldExt> Circuit<Fp> for EthTrie<Fp> {
     type FloorPlanner = SimpleFloorPlanner;
 
     fn without_witnesses(&self) -> Self {
-        Self::default()
+        Self {
+            c_size: self.c_size,
+            ..Default::default()
+        }
     }
 
     fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
