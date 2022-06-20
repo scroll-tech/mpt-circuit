@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 ff = "0.11"
-halo2_proofs = { path = "../../halo2/halo2_proofs" }
+halo2_proofs = { path = "../halo2/halo2_proofs" }
 rand = "0.8"
 lazy_static = "1.4.0"
 serde = { version = "1.0", features = ["derive"] }
