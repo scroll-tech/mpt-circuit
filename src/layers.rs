@@ -150,15 +150,14 @@ impl LayerGadget {
 
             let mut exps = Vec::new();
             //constrain all op type with its col
-            //TODO: this constraints cause verification failure
-/*            for (step_index, col) in s_stepflags.iter().enumerate() {
+            for (step_index, col) in s_stepflags.iter().enumerate() {
                 exps.push(
                     sel.clone()
                         * meta.query_advice(*col, Rotation::cur())
-                        * (Expression::Constant(Fp::from(step_index as u64))
-                            - meta.query_advice(op_type, Rotation::cur())),
+                        * (meta.query_advice(op_type, Rotation::cur())
+                            - Expression::Constant(Fp::from(step_index as u64))),
                 );
-            }*/
+            }
 
             // notice all flag is constrainted to boolean, and total_flag is 1, so one and at most one col must be true
             // and only that flag whose op_type is corresponding to its step code can be true
