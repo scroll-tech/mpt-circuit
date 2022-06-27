@@ -3,7 +3,10 @@ node_modules
 coverage
 coverage.json
 trace.json
+witness.json
 typechain
+witgen
+*.exe
 
 #Hardhat files
 cache

@@ -1,10 +1,10 @@
 use halo2_mpt_circuits::{operation::AccountOp, serde::SMTTrace, EthTrie};
 use halo2_proofs::dev::MockProver;
 use halo2_proofs::pairing::bn256::Fr as Fp;
-use serde::Deserialize;
 use std::fs::File;
 use std::io::Read;
-
+/*
+use serde::Deserialize;
 #[derive(Deserialize)]
 pub struct BlockResult {
     #[serde(rename = "executionResults", default)]
@@ -22,24 +22,18 @@ pub struct StorageInfo {
     #[serde(rename = "smtTrace", default)]
     pub smt_trace: Vec<SMTTrace>,
 }
-
+*/
 fn main() {
     let mut buffer = Vec::new();
-    let mut f = File::open("integration-tests/trace.json").unwrap();
+    let mut f = File::open("integration-tests/witness.json").unwrap();
     f.read_to_end(&mut buffer).unwrap();
 
-    let blk_result = serde_json::from_slice::<BlockResult>(&buffer).unwrap();
-    let mut ops: Vec<AccountOp<Fp>> = Vec::new();
-
-    for tx in blk_result.execution_results {
-        for trace in &tx.storage.smt_trace {
-            ops.push(trace.try_into().unwrap());
-        }
-    }
+    let traces : Vec<SMTTrace> = serde_json::from_slice(&buffer).unwrap();
+    let ops: Vec<AccountOp<Fp>> = traces.iter().map(|tr| tr.try_into().unwrap()).collect();
 
     let rows: usize = ops.iter().fold(0, |acc, op| acc + op.use_rows());
     let log2_ceil = |n| u32::BITS - (n as u32).leading_zeros() - (n & (n - 1) == 0) as u32;
-    let k = log2_ceil(rows);
+    let k = log2_ceil(rows) + 1;
     let k = k.max(6);
 
     println!(
@@ -47,11 +41,13 @@ fn main() {
         rows, k
     );
 
+    let final_root = ops.last().unwrap().account_root();
+
     let mut circuit = EthTrie::<Fp>::new(rows + 5);
     circuit.add_ops(ops);
 
     let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
     assert_eq!(prover.verify(), Ok(()));
 
-    println!("done");
+    println!("done, final hash {:?}", final_root);
 }
