@@ -638,12 +638,16 @@ impl<'d, Fp: FieldExt + Hashable> TryFrom<&'d serde::SMTTrace> for AccountOp<Fp>
         };
 
         // TODO: currently we just check if it is creation (no checking for deletion)
-        let account_before = if let Some(leaf) = acc_trie.old.leaf() {
+        let account_before = if let Some(account_data) = &trace.account_update[0] {
+            let leaf = acc_trie
+                .old
+                .leaf()
+                .expect("leaf should exist when there is account data");
             let old_state_root = state_trie
                 .as_ref()
                 .map(|s| s.start_root())
                 .unwrap_or(comm_state_root);
-            let account: Account<Fp> = (&trace.account_update[0], old_state_root).try_into()?;
+            let account: Account<Fp> = (account_data, old_state_root).try_into()?;
             // sanity check
             assert_eq!(account.account_hash(), leaf);
 
@@ -652,12 +656,16 @@ impl<'d, Fp: FieldExt + Hashable> TryFrom<&'d serde::SMTTrace> for AccountOp<Fp>
             None
         };
 
-        let account_after = if let Some(leaf) = acc_trie.new.leaf() {
+        let account_after = if let Some(account_data) = &trace.account_update[1] {
+            let leaf = acc_trie
+                .new
+                .leaf()
+                .expect("leaf should exist when there is account data");
             let new_state_root = state_trie
                 .as_ref()
                 .map(|s| s.new_root())
                 .unwrap_or(comm_state_root);
-            let account: Account<Fp> = (&trace.account_update[1], new_state_root).try_into()?;
+            let account: Account<Fp> = (account_data, new_state_root).try_into()?;
 
             // sanity check
             assert_eq!(account.account_hash(), leaf);
@@ -766,7 +774,10 @@ mod tests {
             .unwrap();
         println!("{:?}", account_op_test);
 
-        let account_data_test: Account<Fp> = (&trace.account_update[0], state_op_test.start_root())
+        let account_data_test: Account<Fp> = (
+            trace.account_update[0].as_ref().unwrap(),
+            state_op_test.start_root(),
+        )
             .try_into()
             .unwrap();
         println!("{:?}", account_data_test);
@@ -775,7 +786,10 @@ mod tests {
             account_op_test.old.leaf().unwrap()
         );
 
-        let account_data_test: Account<Fp> = (&trace.account_update[1], state_op_test.new_root())
+        let account_data_test: Account<Fp> = (
+            trace.account_update[1].as_ref().unwrap(),
+            state_op_test.new_root(),
+        )
             .try_into()
             .unwrap();
         println!("{:?}", account_data_test);

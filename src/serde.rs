@@ -240,7 +240,7 @@ pub struct SMTTrace {
     /// SMTPath for account
     pub account_path: [SMTPath; 2],
     /// update on accountData
-    pub account_update: [AccountData; 2],
+    pub account_update: [Option<AccountData>; 2],
     /// SMTPath for storage,
     pub state_path: [Option<SMTPath>; 2],
     /// common State Root, if no change on storage part

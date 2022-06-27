@@ -7,16 +7,19 @@ use halo2_proofs::transcript::{Blake2bRead, Blake2bWrite, Challenge255};
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
-const TEST_TRACE: &'static str = include_str!("../traces.jsonl");
+const TEST_TRACE: &'static str = include_str!("./traces.json");
+const TEST_TRACE_SMALL: &'static str = include_str!("./deploy_traces.json");
 
 #[test]
 fn trace_to_eth_trie_each() {
-    let lines: Vec<&str> = TEST_TRACE.trim().split('\n').collect();
-    for ln in lines.into_iter() {
-        let k = 6;
-        let trace = serde_json::from_str::<serde::SMTTrace>(ln).unwrap();
-        let op: AccountOp<Fp> = (&trace).try_into().unwrap();
+    let data: Vec<serde::SMTTrace> = serde_json::from_str(TEST_TRACE_SMALL).unwrap();
+    let ops: Vec<AccountOp<Fp>> = data
+        .into_iter()
+        .map(|tr| (&tr).try_into().unwrap())
+        .collect();
 
+    for op in ops {
+        let k = 6;
         println!("{:?}", op);
 
         let mut circuit = EthTrie::<Fp>::new(20);
@@ -29,13 +32,10 @@ fn trace_to_eth_trie_each() {
 
 #[test]
 fn trace_to_eth_trie() {
-    let lines: Vec<&str> = TEST_TRACE.trim().split('\n').collect();
-    let ops: Vec<AccountOp<Fp>> = lines
+    let data: Vec<serde::SMTTrace> = serde_json::from_str(TEST_TRACE_SMALL).unwrap();
+    let ops: Vec<AccountOp<Fp>> = data
         .into_iter()
-        .map(|ln| {
-            let trace = serde_json::from_str::<serde::SMTTrace>(ln).unwrap();
-            (&trace).try_into().unwrap()
-        })
+        .map(|tr| (&tr).try_into().unwrap())
         .collect();
 
     let k = 8;
@@ -50,13 +50,10 @@ fn trace_to_eth_trie() {
 #[test]
 fn vk_validity() {
     let params = Params::<G1Affine>::unsafe_setup::<Bn256>(8);
-    let lines: Vec<&str> = TEST_TRACE.trim().split('\n').collect();
-    let ops: Vec<AccountOp<Fp>> = lines
+    let data: Vec<serde::SMTTrace> = serde_json::from_str(TEST_TRACE_SMALL).unwrap();
+    let ops: Vec<AccountOp<Fp>> = data
         .into_iter()
-        .map(|ln| {
-            let trace = serde_json::from_str::<serde::SMTTrace>(ln).unwrap();
-            (&trace).try_into().unwrap()
-        })
+        .map(|tr| (&tr).try_into().unwrap())
         .collect();
 
     let mut circuit = EthTrie::<Fp>::new(200);
@@ -76,14 +73,11 @@ fn vk_validity() {
 }
 
 #[test]
-fn st_proof_and_verify() {
-    let lines: Vec<&str> = TEST_TRACE.trim().split('\n').collect();
-    let ops: Vec<AccountOp<Fp>> = lines
+fn proof_and_verify() {
+    let data: Vec<serde::SMTTrace> = serde_json::from_str(TEST_TRACE).unwrap();
+    let ops: Vec<AccountOp<Fp>> = data
         .into_iter()
-        .map(|ln| {
-            let trace = serde_json::from_str::<serde::SMTTrace>(ln).unwrap();
-            (&trace).try_into().unwrap()
-        })
+        .map(|tr| (&tr).try_into().unwrap())
         .collect();
 
     let k = 8;
