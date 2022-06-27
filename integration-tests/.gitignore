@@ -5,7 +5,6 @@ coverage.json
 trace.json
 witness.json
 typechain
-witgen
 *.exe
 
 #Hardhat files

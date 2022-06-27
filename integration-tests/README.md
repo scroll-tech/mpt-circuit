@@ -12,6 +12,10 @@ which would be read the test by the integration-test binary
 
 > geth --datadir=\<data dir\> --unlock \<miner address\> --mine --allow-insecure-unlock --http
 
++ Build the utility for witness generator:
+
+> go build -o src/witness_gen.go
+
 ## compile contracts
 
 > npx hardhat compile
@@ -32,7 +36,8 @@ Script read `deploy.json` for contract address and deliver a tx for testing
 
 > npx hardhat scripts/trace_tx.js
 
-Collect the trace of last block and save it inside `trace.json`
+Collect the trace of last block and save it inside `trace.json`, then generate the witness object in `witness.json`
 
 ## run test binary
 
+> cargo run integration-test
