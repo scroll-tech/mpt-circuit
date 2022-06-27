@@ -14,7 +14,7 @@ which would be read the test by the integration-test binary
 
 + Build the utility for witness generator:
 
-> go build -o src/witness_gen.go
+> go build src/witness_gen.go
 
 ## compile contracts
 
