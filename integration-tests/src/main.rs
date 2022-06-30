@@ -3,32 +3,21 @@ use halo2_proofs::dev::MockProver;
 use halo2_proofs::pairing::bn256::Fr as Fp;
 use std::fs::File;
 use std::io::Read;
-/*
-use serde::Deserialize;
-#[derive(Deserialize)]
-pub struct BlockResult {
-    #[serde(rename = "executionResults", default)]
-    pub execution_results: Vec<ExecutionResult>,
-}
 
-#[derive(Deserialize)]
-pub struct ExecutionResult {
-    #[serde(default)]
-    pub storage: StorageInfo,
-}
+use serde::Deserialize;
 
 #[derive(Deserialize, Default)]
-pub struct StorageInfo {
-    #[serde(rename = "smtTrace", default)]
-    pub smt_trace: Vec<SMTTrace>,
+pub struct BlockResult {
+    #[serde(rename = "mptwitness", default)]
+    pub mpt_witness: Vec<SMTTrace>,
 }
-*/
+
 fn main() {
     let mut buffer = Vec::new();
-    let mut f = File::open("integration-tests/witness.json").unwrap();
+    let mut f = File::open("integration-tests/trace.json").unwrap();
     f.read_to_end(&mut buffer).unwrap();
 
-    let traces : Vec<SMTTrace> = serde_json::from_slice(&buffer).unwrap();
+    let traces : Vec<SMTTrace> = serde_json::from_slice::<BlockResult>(&buffer).unwrap().mpt_witness;
     let ops: Vec<AccountOp<Fp>> = traces.iter().map(|tr| tr.try_into().unwrap()).collect();
 
     let rows: usize = ops.iter().fold(0, |acc, op| acc + op.use_rows());

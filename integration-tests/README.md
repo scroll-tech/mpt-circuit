@@ -8,13 +8,9 @@ which would be read the test by the integration-test binary
 
 + PUt a hardhat.config.js for configuration, can just copy the `hardhat.config.js.example`
 
-+ Launch a l2geth node should be launched, the default config in example require the node has enabled a http API so commonly it would be launch with following command line:
++ Launch a l2geth node should be launched, the default config in example require the node has enabled a http API so commonly it would be launch with following command line, and we need to enable the mptwitness switch:
 
-> geth --datadir=\<data dir\> --unlock \<miner address\> --mine --allow-insecure-unlock --http
-
-+ Build the utility for witness generator:
-
-> go build src/witness_gen.go
+> geth --datadir=\<data dir\> --unlock \<miner address\> --mine --allow-insecure-unlock --http --trace.mptwitness=1
 
 ## compile contracts
 
@@ -36,7 +32,7 @@ Script read `deploy.json` for contract address and deliver a tx for testing
 
 > npx hardhat scripts/trace_tx.js
 
-Collect the trace of last block and save it inside `trace.json`, then generate the witness object in `witness.json`
+Collect the trace and mpt witness data of last block and save it inside `trace.json`
 
 ## run test binary
 

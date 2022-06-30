@@ -6,7 +6,8 @@
 const hre = require("hardhat");
 const fs = require("fs")
 const path = require("path")
-const {exec} = require("child_process")
+const process = require("process")
+// const {exec} = require("child_process")
 
 hre.web3.currentProvider.mySend = function(pl) {
     return new Promise((resolve, reject) => {
@@ -22,7 +23,12 @@ hre.web3.currentProvider.mySend = function(pl) {
 
 async function main() {
 
+    let bln_arg = process.argv[2]
     let bln = await hre.web3.eth.getBlockNumber()
+    if (bln_arg){
+        bln = parseInt(bln_arg)
+    }
+
     console.log('blk num', bln)
     let blk = await hre.web3.eth.getBlock(bln)
     console.log('blk', blk.stateRoot)
@@ -38,7 +44,7 @@ async function main() {
     fs.writeFileSync(fd, JSON.stringify(r))
     fs.closeSync(fd)
 
-    return new Promise((resolve, reject) => {
+/*    return new Promise((resolve, reject) => {
         exec("witness_gen", err => {
             if (err) {
                 reject(err)
@@ -49,7 +55,7 @@ async function main() {
     })
 
 
-/*    let execResult = r.executionResults[0]
+    let execResult = r.executionResults[0]
     let digest = {
         gas: execResult.gas,
         failed: execResult.failed,
