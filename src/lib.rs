@@ -394,6 +394,7 @@ impl<Fp: FieldExt> Circuit<Fp> for EthTrie<Fp> {
                             op.account_before.as_ref().unwrap_or(&empty_account),
                             &op.account_after,
                         ),
+                        Some(op.state_trie.is_none()),
                     )?;
                     if let Some(trie) = &op.state_trie {
                         config.layer.pace_op(
@@ -514,39 +515,6 @@ mod test {
     use ff::Field;
     use halo2_proofs::dev::{MockProver, VerifyFailure};
     use operation::*;
-
-    #[test]
-    fn geth_case_simple_trie() {
-        let ops: Vec<SingleOp<Fp>> = Row::fold_flattern_rows(Row::from_lines(TEST_FILE).unwrap())
-            .iter()
-            .map(|v| SingleOp::<Fp>::from(v.as_slice()))
-            .collect();
-
-        let k = 5;
-        let circuit = SimpleTrie::<Fp> {
-            c_size: 22,
-            start_root: ops[0].start_root(),
-            final_root: ops.last().unwrap().new_root(),
-            ops,
-        };
-
-        #[cfg(feature = "print_layout")]
-        print_layout!("layouts/simple_trie_layout.png", k, &circuit);
-
-        let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
-        assert_eq!(prover.verify(), Ok(()));
-
-        //no padding
-        let circuit = SimpleTrie::<Fp> {
-            c_size: 20,
-            start_root: circuit.start_root,
-            final_root: circuit.final_root,
-            ops: circuit.ops,
-        };
-
-        let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
-        assert_eq!(prover.verify(), Ok(()));
-    }
 
     #[test]
     fn empty_eth_trie() {

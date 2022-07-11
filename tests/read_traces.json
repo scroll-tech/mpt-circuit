@@ -1,0 +1,123 @@
+[
+    {
+        "address": "0xe8d466681784504a8458d4ef34f141adada678fe",
+        "accountKey": "0x6d3e389f7dd8c147fe168ec3dfa575f588d5caee7bd4da9fd99c7ecf9cc5df00",
+        "accountPath": [
+            {
+                "pathPart": "0xd",
+                "root": "0x7ac10809829d7fec6a1243e6b2ee8298926adcaf3e615eb8d88ae98eadd9451b",
+                "path": [
+                    {
+                        "value": "0x966f591a10ee0f8d6e0812bffb1e0372ec01f297b09efa44ccfccde3a2547710",
+                        "sibling": "0x2713cea4abf2d3a79bbadf315c7d41d881525c97722f8eb3f0fbe5068f4d810e"
+                    },
+                    {
+                        "value": "0xafba7bdcd4d5ab06ec1261b7b64f9580d78846980a4f6d2210de67b42965fd05",
+                        "sibling": "0x537a6fac1254f68629734e6263e4d41e8d6ba08e0eba4e2317bad3b469159907"
+                    },
+                    {
+                        "value": "0x517f8472f911239556529d897fd992fb5447405474242c4e2343578e17174420",
+                        "sibling": "0xae72888fea2b0ee021bee3ae2e80f0a50b87a5a7966e98b29aa8770b7f485605"
+                    },
+                    {
+                        "value": "0x030bdceead648f55e9206d0f8b5958d20fe582a96f6014745da8fabb788c9329",
+                        "sibling": "0x2b0f273a4ab08abdad7b7f071b7522c4df9a8bad658bcec4f81f10ae294f6f07"
+                    }
+                ],
+                "leaf": {
+                    "value": "0x9086caa2f567a19252baf097b8c93071e4eba5a374a6ea16e2ec4c3d6608e50e",
+                    "sibling": "0x6d3e389f7dd8c147fe168ec3dfa575f588d5caee7bd4da9fd99c7ecf9cc5df00"
+                }
+            },
+            {
+                "pathPart": "0xd",
+                "root": "0x7ac10809829d7fec6a1243e6b2ee8298926adcaf3e615eb8d88ae98eadd9451b",
+                "path": [
+                    {
+                        "value": "0x966f591a10ee0f8d6e0812bffb1e0372ec01f297b09efa44ccfccde3a2547710",
+                        "sibling": "0x2713cea4abf2d3a79bbadf315c7d41d881525c97722f8eb3f0fbe5068f4d810e"
+                    },
+                    {
+                        "value": "0xafba7bdcd4d5ab06ec1261b7b64f9580d78846980a4f6d2210de67b42965fd05",
+                        "sibling": "0x537a6fac1254f68629734e6263e4d41e8d6ba08e0eba4e2317bad3b469159907"
+                    },
+                    {
+                        "value": "0x517f8472f911239556529d897fd992fb5447405474242c4e2343578e17174420",
+                        "sibling": "0xae72888fea2b0ee021bee3ae2e80f0a50b87a5a7966e98b29aa8770b7f485605"
+                    },
+                    {
+                        "value": "0x030bdceead648f55e9206d0f8b5958d20fe582a96f6014745da8fabb788c9329",
+                        "sibling": "0x2b0f273a4ab08abdad7b7f071b7522c4df9a8bad658bcec4f81f10ae294f6f07"
+                    }
+                ],
+                "leaf": {
+                    "value": "0x9086caa2f567a19252baf097b8c93071e4eba5a374a6ea16e2ec4c3d6608e50e",
+                    "sibling": "0x6d3e389f7dd8c147fe168ec3dfa575f588d5caee7bd4da9fd99c7ecf9cc5df00"
+                }
+            }
+        ],
+        "accountUpdate": [
+            {
+                "nonce": 1,
+                "balance": "0x0",
+                "codeHash": "0x178763dea206ad5ecfbf211ddeb69d930d18811bc617cb4bbb0c0e7f0d28a3aa"
+            },
+            {
+                "nonce": 1,
+                "balance": "0x0",
+                "codeHash": "0x178763dea206ad5ecfbf211ddeb69d930d18811bc617cb4bbb0c0e7f0d28a3aa"
+            }
+        ],
+        "stateKey": "0x34aedb4be7574a842f0fde19fc74dcf1a0369b31b42311b841f80bbc74556d23",
+        "statePath": [
+            {
+                "pathPart": "0x4",
+                "root": "0xd602fd89fd1a93548b3a437aba7528c3a661b3999d58f0dbc64bab22f517a406",
+                "path": [
+                    {
+                        "value": "0x810f991f851157b7a7b7a676955e46e9f51d3818e6f58077b4d15e1dbe5df806",
+                        "sibling": "0xa30d095d473836681a3a493131e9cb9d7ab65fd09a97487fc7cef2277fd3902a"
+                    },
+                    {
+                        "value": "0xfd54ec9e08d2ecd90cfc187d8cd5b2c4611c5f1a2abae6e51da2c1344c485230",
+                        "sibling": "0xf855e9ec031301edaf7f84f64a9dc5798916c8678a1f907597da2c3bf8b63a0e"
+                    },
+                    {
+                        "value": "0x52fb41bda5330046b2f736cfd86106e5b0aadc56e770f870958d7c15334f9609",
+                        "sibling": "0x57a298c09fb1f9609b74ff09c68470bf41a983d24995a2e05a1fb9546ce3050d"
+                    }
+                ],
+                "leaf": {
+                    "value": "0x94583cf4fc0b31df9bc554a79c8056f4de5325c66105620315cde5a4161e231a",
+                    "sibling": "0x84d07ce01938a8e3278d5a7b52cf4b853666886e48d30f623413b0a36e2b8e17"
+                }
+            },
+            {
+                "pathPart": "0x4",
+                "root": "0xd602fd89fd1a93548b3a437aba7528c3a661b3999d58f0dbc64bab22f517a406",
+                "path": [
+                    {
+                        "value": "0x810f991f851157b7a7b7a676955e46e9f51d3818e6f58077b4d15e1dbe5df806",
+                        "sibling": "0xa30d095d473836681a3a493131e9cb9d7ab65fd09a97487fc7cef2277fd3902a"
+                    },
+                    {
+                        "value": "0xfd54ec9e08d2ecd90cfc187d8cd5b2c4611c5f1a2abae6e51da2c1344c485230",
+                        "sibling": "0xf855e9ec031301edaf7f84f64a9dc5798916c8678a1f907597da2c3bf8b63a0e"
+                    },
+                    {
+                        "value": "0x52fb41bda5330046b2f736cfd86106e5b0aadc56e770f870958d7c15334f9609",
+                        "sibling": "0x57a298c09fb1f9609b74ff09c68470bf41a983d24995a2e05a1fb9546ce3050d"
+                    }
+                ],
+                "leaf": {
+                    "value": "0x94583cf4fc0b31df9bc554a79c8056f4de5325c66105620315cde5a4161e231a",
+                    "sibling": "0x84d07ce01938a8e3278d5a7b52cf4b853666886e48d30f623413b0a36e2b8e17"
+                }
+            }
+        ],
+        "stateUpdate": [
+            null,
+            null
+        ]
+    }
+]

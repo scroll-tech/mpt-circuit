@@ -173,6 +173,7 @@ impl AccountGadget {
         region: &mut Region<'_, Fp>,
         offset: usize,
         data: (&'d Account<Fp>, &'d Account<Fp>),
+        apply_last_row: Option<bool>,
     ) -> Result<usize, Error> {
         let old_acc_chip = AccountChip::<Fp> {
             offset,
@@ -185,12 +186,17 @@ impl AccountGadget {
             data: data.1,
         };
 
-        let end_offset = offset + CIRCUIT_ROW
-            - if data.0.state_root == data.1.state_root {
-                0
-            } else {
-                1
-            };
+        let apply_last_row = if let Some(apply) = apply_last_row {
+            if apply {
+                assert_eq!(data.0.state_root, data.1.state_root);
+            }
+
+            apply
+        } else {
+            data.0.state_root == data.1.state_root
+        };
+
+        let end_offset = offset + CIRCUIT_ROW - if apply_last_row { 0 } else { 1 };
 
         old_acc_chip.assign(region)?;
         new_acc_chip.assign(region)?;
@@ -519,7 +525,7 @@ mod test {
                     let till =
                         config
                             .gadget
-                            .assign(&mut region, 1, (&self.data.0, &self.data.1))?;
+                            .assign(&mut region, 1, (&self.data.0, &self.data.1), None)?;
                     for offset in 1..till {
                         config.sel.enable(&mut region, offset)?;
                     }

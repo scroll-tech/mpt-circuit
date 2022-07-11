@@ -9,6 +9,28 @@ use rand_chacha::ChaCha8Rng;
 
 const TEST_TRACE: &'static str = include_str!("./traces.json");
 const TEST_TRACE_SMALL: &'static str = include_str!("./deploy_traces.json");
+const TEST_TRACE_READONLY: &'static str = include_str!("./read_traces.json");
+
+#[test]
+fn trace_read_only() {
+
+    let data: Vec<serde::SMTTrace> = serde_json::from_str(TEST_TRACE_READONLY).unwrap();
+    let ops: Vec<AccountOp<Fp>> = data
+        .into_iter()
+        .map(|tr| (&tr).try_into().unwrap())
+        .collect();
+
+    println!("{:?}", ops[0]);
+
+    let k = 8;
+
+    let mut circuit = EthTrie::<Fp>::new(200);
+    circuit.add_ops(ops);
+
+    let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
+    assert_eq!(prover.verify(), Ok(()));
+}
+
 
 #[test]
 fn trace_to_eth_trie_each() {
