@@ -253,7 +253,7 @@ impl LayerGadget {
             region
                 .assign_advice(|| "flushing", *col, 0, || Ok(Fp::zero()))
                 .map(|_| ())
-        })?;   
+        })?;
         region.assign_advice_from_constant(|| "init series", self.series, 0, Fp::zero())?;
         region.assign_advice_from_constant(|| "init series", self.series, 1, Fp::one())?;
         region.assign_advice_from_constant(

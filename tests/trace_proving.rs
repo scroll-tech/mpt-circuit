@@ -13,7 +13,6 @@ const TEST_TRACE_READONLY: &'static str = include_str!("./read_traces.json");
 
 #[test]
 fn trace_read_only() {
-
     let data: Vec<serde::SMTTrace> = serde_json::from_str(TEST_TRACE_READONLY).unwrap();
     let ops: Vec<AccountOp<Fp>> = data
         .into_iter()
@@ -30,7 +29,6 @@ fn trace_read_only() {
     let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
     assert_eq!(prover.verify(), Ok(()));
 }
-
 
 #[test]
 fn trace_to_eth_trie_each() {

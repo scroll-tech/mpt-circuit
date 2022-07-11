@@ -44,7 +44,7 @@ impl<Fp: PrimeField> Default for MPTPath<Fp> {
             hash_types: vec![HashType::Start, HashType::Empty],
             hashes: vec![Fp::zero(), Fp::zero()],
             hash_traces: Default::default(),
-            status: MPTPathStatus::Empty,    
+            status: MPTPathStatus::Empty,
         }
     }
 }
@@ -59,7 +59,7 @@ impl<Fp: PrimeField> MPTPath<Fp> {
     pub fn leaf(&self) -> Option<Fp> {
         match *self.hash_types.last().unwrap() {
             HashType::Empty => None,
-            _ => Some(*self.hashes.last().unwrap())
+            _ => Some(*self.hashes.last().unwrap()),
         }
     }
 
@@ -83,12 +83,8 @@ impl<Fp: PrimeField> MPTPath<Fp> {
 
     /// shortcut entry for status
     pub fn is_extended(&self) -> bool {
-        match self.status {
-            MPTPathStatus::Extended(_) => true,
-            _ => false,
-        }
+        matches!(self.status, MPTPathStatus::Extended(_))
     }
-
 
     /// the depth of path, means how many bits would be attributed to path type
     pub fn depth(&self) -> usize {
@@ -144,29 +140,25 @@ impl<Fp: PrimeField> MPTPath<Fp> {
     ) -> Self {
         assert_eq!(path.len(), siblings.len());
 
-        let (status, mut hashes, mut hash_types, mut hash_traces) = 
-            if let Some(fp) = leaf {
-                let one = Fp::one();
-                let key_immediate = hasher(&one, &key);
-        
-                let leaf_hash = hasher(&key_immediate, &fp);
-                (
-                    MPTPathStatus::Leaf((key, key_immediate)),
-                    vec![fp, leaf_hash],
-                    vec![HashType::Leaf],
-                    vec![(one, key, key_immediate), (key_immediate, fp, leaf_hash)]
-                )                
+        let (status, mut hashes, mut hash_types, mut hash_traces) = if let Some(fp) = leaf {
+            let one = Fp::one();
+            let key_immediate = hasher(&one, &key);
 
-            }else {
-
-                (
-                    MPTPathStatus::Empty,
-                    vec![Fp::zero(), Fp::zero()],
-                    vec![HashType::Empty],
-                    Vec::new(),
-                )
-            };
-
+            let leaf_hash = hasher(&key_immediate, &fp);
+            (
+                MPTPathStatus::Leaf((key, key_immediate)),
+                vec![fp, leaf_hash],
+                vec![HashType::Leaf],
+                vec![(one, key, key_immediate), (key_immediate, fp, leaf_hash)],
+            )
+        } else {
+            (
+                MPTPathStatus::Empty,
+                vec![Fp::zero(), Fp::zero()],
+                vec![HashType::Empty],
+                Vec::new(),
+            )
+        };
 
         for (sibling, bit) in siblings.iter().rev().zip(path.iter().rev()) {
             let (l, r) = if *bit {
@@ -263,7 +255,9 @@ impl<Fp: PrimeField> SingleOp<Fp> {
 
         let old = MPTPath::<Fp>::create(&path, &siblings, key, Some(old_leaf), hasher.clone());
         let new = MPTPath::<Fp>::create(&path, &siblings, key, Some(new_leaf), hasher);
-        let key_immediate = old.key_immediate().expect("must have immediate value for leaf node");
+        let key_immediate = old
+            .key_immediate()
+            .expect("must have immediate value for leaf node");
         let path: Vec<Fp> = path
             .into_iter()
             .map(|b| if b { Fp::one() } else { Fp::zero() })
@@ -282,18 +276,9 @@ impl<Fp: PrimeField> SingleOp<Fp> {
 
     /// create another updating op base on a previous action
     pub fn update_next(self, new_leaf: Fp, hasher: impl FnMut(&Fp, &Fp) -> Fp + Clone) -> Self {
-        let path_bool: Vec<bool> = self
-            .path
-            .iter()
-            .map(|v| *v != Fp::zero())
-            .collect();
-        let new = MPTPath::<Fp>::create(
-            &path_bool,
-            &self.siblings,
-            self.key,
-            Some(new_leaf),
-            hasher,
-        );
+        let path_bool: Vec<bool> = self.path.iter().map(|v| *v != Fp::zero()).collect();
+        let new =
+            MPTPath::<Fp>::create(&path_bool, &self.siblings, self.key, Some(new_leaf), hasher);
         Self {
             old: self.new,
             new,
@@ -452,7 +437,6 @@ struct SMTPathParse<Fp: PrimeField>(MPTPath<Fp>, Vec<Fp>, Vec<Fp>);
 impl<'d, Fp: FieldExt + Hashable> TryFrom<&'d serde::SMTPath> for SMTPathParse<Fp> {
     type Error = TraceError;
     fn try_from(path_trace: &'d serde::SMTPath) -> Result<Self, Self::Error> {
-
         let mut siblings: Vec<Fp> = Vec::new();
         for n in &path_trace.path {
             let s = Fp::read(&mut n.sibling.start_read()).map_err(TraceError::DeErr)?;
@@ -465,7 +449,7 @@ impl<'d, Fp: FieldExt + Hashable> TryFrom<&'d serde::SMTPath> for SMTPathParse<F
         for i in 0..siblings.len() {
             let bit = (BigUint::from(1u64) << i) & &path_trace.path_part != BigUint::from(0u64);
             path_bits.push(bit);
-            path.push( if bit { Fp::one()} else {Fp::zero()});
+            path.push(if bit { Fp::one() } else { Fp::zero() });
         }
 
         let mut key = Fp::zero();
@@ -474,18 +458,16 @@ impl<'d, Fp: FieldExt + Hashable> TryFrom<&'d serde::SMTPath> for SMTPathParse<F
         if let Some(leaf_node) = &path_trace.leaf {
             key = Fp::read(&mut leaf_node.sibling.start_read()).map_err(TraceError::DeErr)?;
             leaf = Some(Fp::read(&mut leaf_node.value.start_read()).map_err(TraceError::DeErr)?);
-        } 
+        }
 
-        let mpt_path = MPTPath::create(&path_bits, &siblings, key, leaf, |a, b| <Fp as Hashable>::hash([*a, *b]));
+        let mpt_path = MPTPath::create(&path_bits, &siblings, key, leaf, |a, b| {
+            <Fp as Hashable>::hash([*a, *b])
+        });
         // sanity check
         let root = Fp::read(&mut path_trace.root.start_read()).map_err(TraceError::DeErr)?;
         assert_eq!(root, mpt_path.root());
 
-        Ok(SMTPathParse(
-            mpt_path,
-            siblings,
-            path,
-        ))
+        Ok(SMTPathParse(mpt_path, siblings, path))
     }
 }
 
@@ -505,10 +487,7 @@ impl<'d, Fp: FieldExt + Hashable> TryFrom<(&'d serde::SMTPath, &'d serde::SMTPat
         let mut new = after_parsed.0;
 
         // sanity check
-        for (a, b) in (&after_parsed.1)
-            .iter()
-            .zip(&before_parsed.1)
-        {
+        for (a, b) in (&after_parsed.1).iter().zip(&before_parsed.1) {
             if a != b {
                 println!("compare {:?} {:?}", a, b);
                 return Err(TraceError::DataErr("unmatch siblings".to_string()));
@@ -521,17 +500,24 @@ impl<'d, Fp: FieldExt + Hashable> TryFrom<(&'d serde::SMTPath, &'d serde::SMTPat
                 assert_eq!(new.key(), Some(key));
                 let ext_dist = new.depth() - old.depth();
                 old = old.extend(ext_dist);
-                (after_parsed.1,after_parsed.2, new.key_immediate().expect("should be leaf node"))
+                (
+                    after_parsed.1,
+                    after_parsed.2,
+                    new.key_immediate().expect("should be leaf node"),
+                )
             }
             Ordering::Greater => {
                 assert_eq!(old.key(), Some(key));
                 let ext_dist = old.depth() - new.depth();
                 new = new.extend(ext_dist);
-                (before_parsed.1,before_parsed.2, old.key_immediate().expect("should be leaf node"))
+                (
+                    before_parsed.1,
+                    before_parsed.2,
+                    old.key_immediate().expect("should be leaf node"),
+                )
             }
             Ordering::Equal => {
                 if old.key() != Some(key) && new.key() != Some(key) {
-
                     assert_eq!(old.key(), new.key());
                     let mut siblings = before_parsed.1;
                     let mut path = before_parsed.2;
@@ -541,11 +527,11 @@ impl<'d, Fp: FieldExt + Hashable> TryFrom<(&'d serde::SMTPath, &'d serde::SMTPat
                         let invert_2 = Fp::one().double().invert().unwrap();
                         let mut k1 = another_key;
                         let mut k2 = key;
-                        let mut common_prefix_depth : usize = 0;
+                        let mut common_prefix_depth: usize = 0;
                         let shiftr = |fp: Fp| {
                             if fp.is_odd().unwrap_u8() == 1 {
                                 fp * invert_2 - invert_2
-                            }else {
+                            } else {
                                 fp * invert_2
                             }
                         };
@@ -553,7 +539,7 @@ impl<'d, Fp: FieldExt + Hashable> TryFrom<(&'d serde::SMTPath, &'d serde::SMTPat
                         while k1.is_odd().unwrap_u8() == k2_bit {
                             k1 = shiftr(k1);
                             k2 = shiftr(k2);
-                            common_prefix_depth = common_prefix_depth + 1;
+                            common_prefix_depth += 1;
                             if common_prefix_depth > path.len() {
                                 path.push(Fp::from(k2_bit as u64));
                                 siblings.push(Fp::zero());
@@ -561,10 +547,10 @@ impl<'d, Fp: FieldExt + Hashable> TryFrom<(&'d serde::SMTPath, &'d serde::SMTPat
                             assert_ne!(k1, k2);
                             k2_bit = k2.is_odd().unwrap_u8();
                         }
-                        
+
                         assert!(common_prefix_depth >= old.depth());
                         let ext_dist = common_prefix_depth - old.depth() + 1;
-                        let last_node_hash = old.hashes[old.hashes.len()-2];
+                        let last_node_hash = old.hashes[old.hashes.len() - 2];
                         old = old.extend(ext_dist);
                         new = new.extend(ext_dist);
 
@@ -575,15 +561,20 @@ impl<'d, Fp: FieldExt + Hashable> TryFrom<(&'d serde::SMTPath, &'d serde::SMTPat
                     // and also insert the required key hash trace
                     let key_immediate = <Fp as Hashable>::hash([Fp::one(), key]);
                     old.hash_traces.push((Fp::one(), key, key_immediate));
-                    
-                    (siblings, path, key_immediate)
 
+                    (siblings, path, key_immediate)
+                } else if old.key() == Some(key) {
+                    (
+                        before_parsed.1,
+                        before_parsed.2,
+                        old.key_immediate().expect("should be leaf node"),
+                    )
                 } else {
-                    if old.key() == Some(key) {
-                        (before_parsed.1,before_parsed.2, old.key_immediate().expect("should be leaf node"))
-                    }else {
-                        (after_parsed.1,after_parsed.2, new.key_immediate().expect("should be leaf node"))
-                    }
+                    (
+                        after_parsed.1,
+                        after_parsed.2,
+                        new.key_immediate().expect("should be leaf node"),
+                    )
                 }
             }
         };

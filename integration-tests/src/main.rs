@@ -17,7 +17,9 @@ fn main() {
     let mut f = File::open("integration-tests/trace.json").unwrap();
     f.read_to_end(&mut buffer).unwrap();
 
-    let traces : Vec<SMTTrace> = serde_json::from_slice::<BlockResult>(&buffer).unwrap().mpt_witness;
+    let traces: Vec<SMTTrace> = serde_json::from_slice::<BlockResult>(&buffer)
+        .unwrap()
+        .mpt_witness;
     let ops: Vec<AccountOp<Fp>> = traces.iter().map(|tr| tr.try_into().unwrap()).collect();
 
     let rows: usize = ops.iter().fold(0, |acc, op| acc + op.use_rows());
