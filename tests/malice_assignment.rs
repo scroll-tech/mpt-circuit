@@ -17,7 +17,7 @@ pub fn mock_hash(a: &Fp, b: &Fp) -> Fp {
 */
 #[test]
 fn malice_case_truncated_line() {
-    let k = 5;
+    let k = 6;
     let mut circuit = SimpleTrie::<Fp>::new(20);
 
     let layers = 3;

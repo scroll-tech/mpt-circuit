@@ -4,8 +4,6 @@ use lazy_static::lazy_static;
 use rand::{random, SeedableRng};
 use rand_chacha::ChaCha8Rng; // why halo2-merkle tree use base field?
 
-pub const TEST_FILE: &'static str = include_str!("../rows.jsonl");
-
 lazy_static! {
     static ref GAMMA: Fp = Fp::random(ChaCha8Rng::from_seed([101u8; 32]));
 }

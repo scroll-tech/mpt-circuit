@@ -248,34 +248,3 @@ pub struct SMTTrace {
     /// key of address (hash of storage address)
     pub state_key: Option<Hash>,
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const TEST_FILE: &'static str = include_str!("../rows.jsonl");
-
-    #[test]
-    fn row_de() {
-        Row::from_lines(TEST_FILE).unwrap();
-    }
-
-    #[test]
-    fn row_parse() {
-        let rows = Row::from_lines(TEST_FILE).unwrap();
-        for row in rows.iter() {
-            println!("{:?}", row);
-        }
-    }
-
-    #[test]
-    fn row_parse_to_op() {
-        let ops = Row::fold_flattern_rows(Row::from_lines(TEST_FILE).unwrap());
-        for op in ops {
-            for row in op {
-                println!("{:?}", row);
-            }
-            println!("----");
-        }
-    }
-}
