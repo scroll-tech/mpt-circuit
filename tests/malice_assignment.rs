@@ -16,7 +16,7 @@ pub fn mock_hash(a: &Fp, b: &Fp) -> Fp {
     This case test a circuit layout which do not include a leaf line, i.e. hash_types is not Empty / Leaf, should fail
 */
 #[test]
-fn milice_case_truncated_line() {
+fn malice_case_truncated_line() {
     let k = 5;
     let mut circuit = SimpleTrie::<Fp>::new(20);
 
