@@ -2,6 +2,7 @@
 
 use crate::poseidon::primitives::{ConstantLengthIden3, Hash, P128Pow5T3};
 use halo2_proofs::pairing::bn256::Fr;
+use std::convert::TryFrom;
 
 /// indicate an field can be hashed in merkle tree (2 Fields to 1 Field)
 pub trait Hashable: Sized {
@@ -32,18 +33,51 @@ pub struct HashConfig {
 }
 
 /// Hash circuit
-pub struct HashCircuit<const CALCS: usize> {
+pub struct HashCircuit<Fp, const CALCS: usize> {
     /// the input messages for hashes
-    pub inputs: [Option<[Fr; 2]>; CALCS],
+    pub inputs: [Option<[Fp; 2]>; CALCS],
+    /// the expected hash output for checking
+    pub checks: [Option<Fp>; CALCS],
 }
 
-impl<const CALCS: usize> Circuit<Fr> for HashCircuit<CALCS> {
+impl<'d, Fp: Copy, const CALCS: usize> TryFrom<&'d[(Fp, Fp, Fp)]> for HashCircuit<Fp, CALCS> {
+
+    type Error = std::array::TryFromSliceError;
+    fn try_from(src: &'d[(Fp, Fp, Fp)]) -> Result<Self, Self::Error> {
+
+        let inputs : Vec<Option<[Fp;2]>> = (0..CALCS).map(|i|{
+            if i < src.len() {
+                let (a, b, _) = src[i];
+                Some([a, b])
+            } else {
+                None
+            }
+        }).collect();
+
+        let checks : Vec<Option<Fp>> = (0..CALCS).map(|i|{
+            if i < src.len() {
+                let (_, _, c) = src[i];
+                Some(c)
+            } else {
+                None
+            }
+        }).collect();
+
+        Ok(Self {
+            inputs: inputs.as_slice().try_into()?,
+            checks: checks.as_slice().try_into()?,
+        })
+    }
+}
+
+impl<const CALCS: usize> Circuit<Fr> for HashCircuit<Fr, CALCS> {
     type Config = HashConfig;
     type FloorPlanner = SimpleFloorPlanner;
 
     fn without_witnesses(&self) -> Self {
         Self {
             inputs: [None; CALCS],
+            checks: [None; CALCS],
         }
     }
 
@@ -98,28 +132,39 @@ impl<const CALCS: usize> Circuit<Fr> for HashCircuit<CALCS> {
                 let mut states = Vec::new();
                 let mut hashes = Vec::new();
 
+                // notice our hash table has a (0, 0, 0) at the beginning
+                for col in config.hash_table {
+                    region.assign_advice(
+                        || "dummy inputs",
+                        col,
+                        0,
+                        || Ok(Fr::zero()),
+                    )?;                    
+                }
+
                 for (i, inp) in self.inputs.into_iter().enumerate() {
                     let inp = inp.unwrap_or_else(|| [Fr::zero(), Fr::zero()]);
+                    let offset = i + 1;
 
                     let c1 = region.assign_advice(
                         || format!("hash input first_{}", i),
                         config.hash_table[0],
-                        i,
+                        offset,
                         || Ok(inp[0]),
                     )?;
 
                     let c2 = region.assign_advice(
                         || format!("hash input second_{}", i),
                         config.hash_table[1],
-                        i,
+                        offset,
                         || Ok(inp[1]),
                     )?;
 
                     let c3 = region.assign_advice(
                         || format!("hash output_{}", i),
                         config.hash_table[2],
-                        i,
-                        || Ok(Poseidon::init().hash(inp)),
+                        offset,
+                        || Ok(self.checks[i].unwrap_or_else(||Poseidon::init().hash(inp))),
                     )?;
 
                     //we directly specify the init state of permutation
@@ -204,8 +249,9 @@ mod tests {
         ];
 
         let k = 6;
-        let circuit = HashCircuit::<1> {
+        let circuit = HashCircuit::<Fr, 1> {
             inputs: [Some(message)],
+            checks: [None],
         };
         let prover = MockProver::run(k, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));

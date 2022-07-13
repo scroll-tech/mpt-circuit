@@ -164,7 +164,63 @@ impl HashTable {
         Self(cols[0], cols[1], cols[2])
     }
 
-    /// a helper entry to fill hash table, mostly for test purpose
+    /// a helper entry to fill hash table with specified rows, use padding record
+    /// when hashing_records is not enough
+    pub fn fill_with_paddings<'d, Fp: FieldExt, const ROWS: usize>(
+        &self,
+        layouter: &mut impl Layouter<Fp>,
+        hashing_records: impl Iterator<Item = &'d (Fp, Fp, Fp)> + Clone,
+        padding: (Fp, Fp, Fp)
+    ) -> Result<(), Error> {
+        layouter.assign_region(
+            || "hash table",
+            |mut table| {
+                // default: 0, 0, 0
+                table.assign_advice(|| "default", self.0, 0, || Ok(Fp::zero()))?;
+                table.assign_advice(|| "default", self.1, 0, || Ok(Fp::zero()))?;
+                table.assign_advice(|| "default", self.2, 0, || Ok(Fp::zero()))?;
+
+                let mut next_offset = 1;
+                hashing_records
+                    .clone()
+                    .enumerate()
+                    .try_for_each(|(offset, val)| {
+                        let (lh, rh, h) = val;
+                        let offset = offset + 1;
+
+                        table.assign_advice(|| "left", self.0, offset, || Ok(*lh))?;
+
+                        table.assign_advice(|| "right", self.1, offset, || Ok(*rh))?;
+
+                        table.assign_advice(|| "result", self.2, offset, || Ok(*h))?;
+
+                        next_offset = offset + 1;
+
+                        Ok(())
+                    }).and_then(
+                        |_|{
+                            (next_offset..ROWS).try_for_each(|offset| {
+                                let (lh, rh, h) = padding;
+            
+                                table.assign_advice(|| "left", self.0, offset, || Ok(lh))?;
+            
+                                table.assign_advice(|| "right", self.1, offset, || Ok(rh))?;
+            
+                                table.assign_advice(|| "result", self.2, offset, || Ok(h))?;
+            
+                                next_offset = offset + 1;
+                                Ok(())
+                            })                            
+                        }
+                    )
+
+            },
+        )?;
+
+        Ok(())
+    }
+
+    /// a helper entry to fill hash table
     pub fn fill<'d, Fp: FieldExt>(
         &self,
         layouter: &mut impl Layouter<Fp>,
