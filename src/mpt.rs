@@ -305,7 +305,7 @@ impl MPTOpGadget {
         i1.chain(i2)
     }
 
-/*    pub fn init<Fp: FieldExt>(&self, layouter: &mut impl Layouter<Fp>) -> Result<(), Error> {
+    /*    pub fn init<Fp: FieldExt>(&self, layouter: &mut impl Layouter<Fp>) -> Result<(), Error> {
         self.tables
             .fill_constant(layouter, Self::transition_rules())
     }*/
@@ -964,8 +964,11 @@ mod test {
                     .iter()
                     .map(|(a, b)| (*a as u32, *b as u32, CtrlTransitionKind::Mpt as u32)),
             )?;
-            
-            config.global.hash_table.fill(&mut layouter, self.data.hash_traces.iter())?;
+
+            config
+                .global
+                .hash_table
+                .fill(&mut layouter, self.data.hash_traces.iter())?;
 
             Ok(())
         }
@@ -1141,7 +1144,10 @@ mod test {
             )?;
 
             // op chip now need hash table (for key hash lookup)
-            config.global.hash_table.fill(&mut layouter, self.data.old.hash_traces.iter())?;
+            config
+                .global
+                .hash_table
+                .fill(&mut layouter, self.data.old.hash_traces.iter())?;
 
             Ok(())
         }
@@ -1299,8 +1305,14 @@ mod test {
             config: Self::Config,
             mut layouter: impl Layouter<Fp>,
         ) -> Result<(), Error> {
-            config.gadget.tables.fill_constant(&mut layouter, MPTOpGadget::transition_rules())?;
-            config.gadget.hash_table.fill(&mut layouter, self.data.hash_traces())?;
+            config
+                .gadget
+                .tables
+                .fill_constant(&mut layouter, MPTOpGadget::transition_rules())?;
+            config
+                .gadget
+                .hash_table
+                .fill(&mut layouter, self.data.hash_traces())?;
 
             layouter.assign_region(
                 || "mpt",

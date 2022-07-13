@@ -23,7 +23,7 @@ fn trace_read_only() {
 
     let k = 8;
 
-    let mut data : EthTrie<Fp> = Default::default();
+    let mut data: EthTrie<Fp> = Default::default();
     data.add_ops(ops);
     let (circuit, _) = data.circuits::<200>();
 
@@ -43,7 +43,7 @@ fn trace_to_eth_trie_each() {
         let k = 6;
         println!("{:?}", op);
 
-        let mut data : EthTrie<Fp> = Default::default();
+        let mut data: EthTrie<Fp> = Default::default();
         data.add_op(op);
         let (circuit, _) = data.circuits::<40>();
 
@@ -62,7 +62,7 @@ fn trace_to_eth_trie() {
 
     let k = 8;
 
-    let mut data : EthTrie<Fp> = Default::default();
+    let mut data: EthTrie<Fp> = Default::default();
     data.add_ops(ops);
     let (circuit, _) = data.circuits::<200>();
 
@@ -79,16 +79,16 @@ fn vk_validity() {
         .map(|tr| (&tr).try_into().unwrap())
         .collect();
 
-    let mut data : EthTrie<Fp> = Default::default();
+    let mut data: EthTrie<Fp> = Default::default();
     data.add_ops(ops);
     let (circuit, _) = data.circuits::<200>();
-    
+
     let vk1 = keygen_vk(&params, &circuit).unwrap();
 
     let mut vk1_buf: Vec<u8> = Vec::new();
     vk1.write(&mut vk1_buf).unwrap();
 
-    let data : EthTrie<Fp> = Default::default();
+    let data: EthTrie<Fp> = Default::default();
     let (circuit, _) = data.circuits::<200>();
     let vk2 = keygen_vk(&params, &circuit).unwrap();
 
@@ -112,7 +112,7 @@ fn proof_and_verify() {
     let os_rng = ChaCha8Rng::from_seed([101u8; 32]);
     let mut transcript = Blake2bWrite::<_, _, Challenge255<_>>::init(vec![]);
 
-    let mut data : EthTrie<Fp> = Default::default();
+    let mut data: EthTrie<Fp> = Default::default();
     data.add_ops(ops);
     let (circuit, _) = data.circuits::<200>();
 
@@ -129,7 +129,7 @@ fn proof_and_verify() {
     let verifier_params: ParamsVerifier<Bn256> = params.verifier(0).unwrap();
     let strategy = SingleVerifier::new(&verifier_params);
 
-    let data : EthTrie<Fp> = Default::default();
+    let data: EthTrie<Fp> = Default::default();
     let (circuit, _) = data.circuits::<200>();
     let vk = keygen_vk(&params, &circuit).unwrap();
 

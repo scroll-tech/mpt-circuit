@@ -507,7 +507,14 @@ mod test {
             config
                 .op_tabl
                 .fill_constant(&mut layouter, AccountGadget::transition_rules())?;
-            config.hash_tabl.fill(&mut layouter, self.data.0.hash_traces.iter().chain(self.data.1.hash_traces.iter()))?;
+            config.hash_tabl.fill(
+                &mut layouter,
+                self.data
+                    .0
+                    .hash_traces
+                    .iter()
+                    .chain(self.data.1.hash_traces.iter()),
+            )?;
 
             layouter.assign_region(
                 || "account",

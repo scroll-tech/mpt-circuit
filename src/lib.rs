@@ -53,7 +53,7 @@ use halo2_proofs::{
 };
 use layers::{LayerGadget, PaddingGadget};
 use mpt::MPTOpGadget;
-use operation::{AccountOp, SingleOp, HashTracesSrc};
+use operation::{AccountOp, HashTracesSrc, SingleOp};
 
 // building lagrange polynmials L for T so that L(n) = 1 when n = T else 0, n in [0, TO]
 fn lagrange_polynomial<Fp: ff::PrimeField, const T: usize, const TO: usize>(
@@ -205,8 +205,14 @@ impl<Fp: FieldExt> Circuit<Fp> for SimpleTrie<Fp> {
             },
         )?;
 
-        config.mpt.tables.fill_constant(&mut layouter, MPTOpGadget::transition_rules())?;
-        config.mpt.hash_table.fill(&mut layouter, self.ops.iter().flat_map(|op| op.hash_traces()))?;
+        config
+            .mpt
+            .tables
+            .fill_constant(&mut layouter, MPTOpGadget::transition_rules())?;
+        config.mpt.hash_table.fill(
+            &mut layouter,
+            self.ops.iter().flat_map(|op| op.hash_traces()),
+        )?;
 
         // only ctrl_type as HashType::leaf / empty can start new block
         let possible_end_block = [
@@ -253,7 +259,6 @@ const OP_TRIE_STATE: u32 = 2;
 const OP_ACCOUNT: u32 = 3;
 
 impl<Fp: FieldExt> EthTrie<Fp> {
-
     /// Add an op into the circuit data
     pub fn add_op(&mut self, op: AccountOp<Fp>) {
         if self.ops.is_empty() {
@@ -276,24 +281,29 @@ impl<Fp: FieldExt> EthTrie<Fp> {
     pub fn use_rows(&self) -> (usize, usize) {
         // calc rows for mpt circuit, we need to compare the rows used by adviced region and table region
         // there would be rare case that the hash table is shorter than adviced part
-        let adv_rows = self.ops.iter().fold(0usize, |acc, op|acc + op.use_rows());
-        let hash_rows = HashTracesSrc::from(self.ops.iter().flat_map(|op| op.hash_traces())).count();
+        let adv_rows = self.ops.iter().fold(0usize, |acc, op| acc + op.use_rows());
+        let hash_rows =
+            HashTracesSrc::from(self.ops.iter().flat_map(|op| op.hash_traces())).count();
 
         (adv_rows.max(hash_rows), 0)
-
     }
 
     /// Obtain the final root
-    pub fn final_root(&self) -> Fp { self.final_root }
+    pub fn final_root(&self) -> Fp {
+        self.final_root
+    }
 
     /// Create all associated circuit objects
     pub fn circuits<const ROW: usize>(&self) -> (impl Circuit<Fp> + '_, impl Circuit<Fp> + '_) {
-        (EthTrieCircuit::<Fp, ROW>(self.ops.as_slice()), EthTrieCircuit::<Fp, ROW>(self.ops.as_slice()))
+        (
+            EthTrieCircuit::<Fp, ROW>(self.ops.as_slice()),
+            EthTrieCircuit::<Fp, ROW>(self.ops.as_slice()),
+        )
     }
 }
 
 #[derive(Clone, Copy)]
-struct EthTrieCircuit<'d, F: FieldExt, const ROW: usize> (&'d [AccountOp<F>]);
+struct EthTrieCircuit<'d, F: FieldExt, const ROW: usize>(&'d [AccountOp<F>]);
 
 impl<Fp: FieldExt, const ROW: usize> Circuit<Fp> for EthTrieCircuit<'_, Fp, ROW> {
     type Config = EthTrieConfig;
@@ -358,18 +368,23 @@ impl<Fp: FieldExt, const ROW: usize> Circuit<Fp> for EthTrieCircuit<'_, Fp, ROW>
         config: Self::Config,
         mut layouter: impl Layouter<Fp>,
     ) -> Result<(), Error> {
-
-        let start_root = self.0.first().map(|op|op.account_root_before()).unwrap_or_else(Fp::zero);
-        let final_root = self.0.last().map(|op|op.account_root()).unwrap_or_else(Fp::zero);
+        let start_root = self
+            .0
+            .first()
+            .map(|op| op.account_root_before())
+            .unwrap_or_else(Fp::zero);
+        let final_root = self
+            .0
+            .last()
+            .map(|op| op.account_root())
+            .unwrap_or_else(Fp::zero);
 
         layouter.assign_region(
             || "main",
             |mut region| {
                 let mut series: usize = 1;
                 let mut last_op_code = config.layer.start_op_code();
-                let mut start = config
-                    .layer
-                    .assign(&mut region, ROW, start_root)?;
+                let mut start = config.layer.assign(&mut region, ROW, start_root)?;
 
                 //notice, the empty account must be "dummized"
                 let empty_account = operation::Account::<Fp>::default().dummy();
@@ -418,11 +433,7 @@ impl<Fp: FieldExt, const ROW: usize> Circuit<Fp> for EthTrieCircuit<'_, Fp, ROW>
                         last_op_code = OP_ACCOUNT;
                     }
 
-                    assert!(
-                        start <= ROW,
-                        "assigned rows for exceed limited {}",
-                        ROW
-                    );
+                    assert!(start <= ROW, "assigned rows for exceed limited {}", ROW);
 
                     series += 1;
                 }
@@ -447,7 +458,9 @@ impl<Fp: FieldExt, const ROW: usize> Circuit<Fp> for EthTrieCircuit<'_, Fp, ROW>
         )?;
 
         let hash_traces_i = self.0.iter().flat_map(|op| op.hash_traces());
-        config.hash_tbl.fill(&mut layouter, HashTracesSrc::from(hash_traces_i))?;
+        config
+            .hash_tbl
+            .fill(&mut layouter, HashTracesSrc::from(hash_traces_i))?;
 
         config.tables.fill_constant(
             &mut layouter,
@@ -496,7 +509,7 @@ mod test {
     #[test]
     fn empty_eth_trie() {
         let k = 6;
-        let data : EthTrie<Fp> = Default::default();
+        let data: EthTrie<Fp> = Default::default();
         let (circuit, _) = data.circuits::<20>();
 
         let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();

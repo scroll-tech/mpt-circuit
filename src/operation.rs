@@ -289,9 +289,11 @@ impl<Fp: PrimeField> SingleOp<Fp> {
 
     /// iterate all hash traces inside the op
     pub fn hash_traces(&self) -> impl Iterator<Item = &(Fp, Fp, Fp)> + Clone {
-        self.old.hash_traces.iter().chain(self.new.hash_traces.iter())
+        self.old
+            .hash_traces
+            .iter()
+            .chain(self.new.hash_traces.iter())
     }
-
 }
 
 impl<Fp: FieldExt> SingleOp<Fp> {
@@ -376,8 +378,6 @@ impl<Fp: PrimeField> Account<Fp> {
     }
 }
 
-
-
 /// Represent an operation in eth MPT, which update 2 layer of tries (state and account)
 #[derive(Clone, Debug, Default)]
 pub struct AccountOp<Fp: PrimeField> {
@@ -428,16 +428,20 @@ impl<Fp: PrimeField> AccountOp<Fp> {
     /// the root of account trie before operation
     pub fn account_root_before(&self) -> Fp {
         self.acc_trie.start_root()
-        
     }
 
     /// iter all the hash traces inside an operation (may contain duplications)
     pub fn hash_traces(&self) -> impl Iterator<Item = &(Fp, Fp, Fp)> + Clone {
-        self.acc_trie.hash_traces()
-        .chain(self.state_trie.iter().flat_map(|i|i.hash_traces()))
-        .chain(self.account_before.iter().flat_map(|i|i.hash_traces.iter()))
-        .chain(self.account_after.hash_traces.iter())
-    }    
+        self.acc_trie
+            .hash_traces()
+            .chain(self.state_trie.iter().flat_map(|i| i.hash_traces()))
+            .chain(
+                self.account_before
+                    .iter()
+                    .flat_map(|i| i.hash_traces.iter()),
+            )
+            .chain(self.account_after.hash_traces.iter())
+    }
 }
 
 /// include error raised in deserialize or data verification
@@ -715,37 +719,38 @@ impl<'d, Fp: FieldExt + Hashable> TryFrom<&'d serde::SMTTrace> for AccountOp<Fp>
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct HashableField<Fp: FieldExt> (Fp);
+struct HashableField<Fp: FieldExt>(Fp);
 
 impl<Fp: FieldExt> std::hash::Hash for HashableField<Fp> {
-    fn hash<H>(&self, state: &mut H) where H: std::hash::Hasher {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: std::hash::Hasher,
+    {
         state.write_u128(self.0.get_lower_128());
     }
 }
 
 impl<Fp: FieldExt> From<Fp> for HashableField<Fp> {
-    fn from(v: Fp) -> Self {Self(v)}
+    fn from(v: Fp) -> Self {
+        Self(v)
+    }
 }
 
-pub(crate) struct HashTracesSrc<T, Fp: FieldExt>
-{
+pub(crate) struct HashTracesSrc<T, Fp: FieldExt> {
     source: T,
     deduplicator: std::collections::HashSet<HashableField<Fp>>,
 }
 
-impl<T, Fp: FieldExt> From<T> for HashTracesSrc<T, Fp>{
-
+impl<T, Fp: FieldExt> From<T> for HashTracesSrc<T, Fp> {
     fn from(source: T) -> Self {
         Self {
             source,
             deduplicator: Default::default(),
         }
     }
-
 }
 
-impl<T: Clone, Fp: FieldExt> Clone for HashTracesSrc<T, Fp>
-{
+impl<T: Clone, Fp: FieldExt> Clone for HashTracesSrc<T, Fp> {
     fn clone(&self) -> Self {
         Self {
             source: self.source.clone(),
@@ -755,19 +760,18 @@ impl<T: Clone, Fp: FieldExt> Clone for HashTracesSrc<T, Fp>
 }
 
 impl<'d, T, Fp> Iterator for HashTracesSrc<T, Fp>
-    where T: Iterator<Item = &'d (Fp, Fp, Fp)>,
-          Fp: FieldExt
+where
+    T: Iterator<Item = &'d (Fp, Fp, Fp)>,
+    Fp: FieldExt,
 {
     type Item = &'d (Fp, Fp, Fp);
 
-    fn next(&mut self) -> Option<Self::Item>{
-
+    fn next(&mut self) -> Option<Self::Item> {
         for i in self.source.by_ref() {
-
             let cp_i = HashableField::from(i.2);
             if self.deduplicator.get(&cp_i).is_none() {
                 self.deduplicator.insert(cp_i);
-                return Some(i)
+                return Some(i);
             }
         }
         None

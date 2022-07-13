@@ -14,13 +14,11 @@ pub struct BlockResult {
 
 macro_rules! mock_prove {
     // `()` indicates that the macro takes no argument.
-    ($k: expr, $circuits:expr) => {
-        {
-            let (circuit, _) = $circuits;
-            let prover = MockProver::<Fp>::run($k, &circuit, vec![]).unwrap();
-            prover.verify()
-        }
-    };
+    ($k: expr, $circuits:expr) => {{
+        let (circuit, _) = $circuits;
+        let prover = MockProver::<Fp>::run($k, &circuit, vec![]).unwrap();
+        prover.verify()
+    }};
 }
 
 fn main() {
@@ -33,7 +31,7 @@ fn main() {
         .mpt_witness;
     let ops: Vec<AccountOp<Fp>> = traces.iter().map(|tr| tr.try_into().unwrap()).collect();
 
-    let mut data : EthTrie<Fp> = Default::default();
+    let mut data: EthTrie<Fp> = Default::default();
     data.add_ops(ops);
 
     let (rows, _) = data.use_rows();
@@ -54,7 +52,7 @@ fn main() {
         8 => mock_prove!(k, data.circuits::<200>()),
         9 => mock_prove!(k, data.circuits::<450>()),
         10 => mock_prove!(k, data.circuits::<900>()),
-        _ => panic!("too large k {}", k)
+        _ => panic!("too large k {}", k),
     };
 
     assert_eq!(prove_ret, Ok(()));
