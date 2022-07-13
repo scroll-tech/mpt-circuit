@@ -12,6 +12,17 @@ pub struct BlockResult {
     pub mpt_witness: Vec<SMTTrace>,
 }
 
+macro_rules! mock_prove {
+    // `()` indicates that the macro takes no argument.
+    ($k: expr, $circuits:expr) => {
+        {
+            let (circuit, _) = $circuits;
+            let prover = MockProver::<Fp>::run($k, &circuit, vec![]).unwrap();
+            prover.verify()
+        }
+    };
+}
+
 fn main() {
     let mut buffer = Vec::new();
     let mut f = File::open("integration-tests/trace.json").unwrap();
@@ -22,7 +33,10 @@ fn main() {
         .mpt_witness;
     let ops: Vec<AccountOp<Fp>> = traces.iter().map(|tr| tr.try_into().unwrap()).collect();
 
-    let rows: usize = ops.iter().fold(0, |acc, op| acc + op.use_rows());
+    let mut data : EthTrie<Fp> = Default::default();
+    data.add_ops(ops);
+
+    let (rows, _) = data.use_rows();
     let log2_ceil = |n| u32::BITS - (n as u32).leading_zeros() - (n & (n - 1) == 0) as u32;
     let k = log2_ceil(rows) + 1;
     let k = k.max(6);
@@ -32,13 +46,18 @@ fn main() {
         rows, k
     );
 
-    let final_root = ops.last().unwrap().account_root();
+    let final_root = data.final_root();
 
-    let mut circuit = EthTrie::<Fp>::new(rows + 5);
-    circuit.add_ops(ops);
+    let prove_ret = match k {
+        6 => mock_prove!(k, data.circuits::<40>()),
+        7 => mock_prove!(k, data.circuits::<90>()),
+        8 => mock_prove!(k, data.circuits::<200>()),
+        9 => mock_prove!(k, data.circuits::<450>()),
+        10 => mock_prove!(k, data.circuits::<900>()),
+        _ => panic!("too large k {}", k)
+    };
 
-    let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
-    assert_eq!(prover.verify(), Ok(()));
+    assert_eq!(prove_ret, Ok(()));
 
     println!("done, final hash {:?}", final_root);
 }

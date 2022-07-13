@@ -77,7 +77,7 @@ impl AccountGadget {
         exported: [Column<Advice>; 4],
         free: &[Column<Advice>],
         tables: mpt::MPTOpTables,
-        hash_tbls: (mpt::HashTable, mpt::HashTable), //(old, new)
+        hash_tbl: mpt::HashTable,
     ) -> Self {
         assert!(free.len() >= 6, "require at least 6 free cols");
         let s_enable = exported[1];
@@ -92,7 +92,7 @@ impl AccountGadget {
             ctrl_type,
             exported_old,
             &free[0..2],
-            hash_tbls.0,
+            hash_tbl.clone(),
         );
         let new_state = AccountChip::configure(
             meta,
@@ -101,7 +101,7 @@ impl AccountGadget {
             ctrl_type,
             exported_new,
             &free[2..4],
-            hash_tbls.1,
+            hash_tbl,
         );
 
         //transition
@@ -457,7 +457,7 @@ mod test {
         sel: Selector,
         free_cols: [Column<Advice>; 10],
         op_tabl: mpt::MPTOpTables,
-        hash_tabl: (mpt::HashTable, mpt::HashTable),
+        hash_tabl: mpt::HashTable,
     }
 
     // express for a single path block
@@ -479,10 +479,7 @@ mod test {
             let free_cols = [(); 10].map(|_| meta.advice_column());
             let exported_cols = [free_cols[0], free_cols[1], free_cols[2], free_cols[3]];
             let op_tabl = mpt::MPTOpTables::configure_create(meta);
-            let hash_tabl = (
-                mpt::HashTable::configure_create(meta),
-                mpt::HashTable::configure_create(meta),
-            );
+            let hash_tabl = mpt::HashTable::configure_create(meta);
 
             let gadget = AccountGadget::configure(
                 meta,
@@ -510,14 +507,7 @@ mod test {
             config
                 .op_tabl
                 .fill_constant(&mut layouter, AccountGadget::transition_rules())?;
-            config
-                .hash_tabl
-                .0
-                .fill(&mut layouter, self.data.0.hash_traces.iter())?;
-            config
-                .hash_tabl
-                .1
-                .fill(&mut layouter, self.data.1.hash_traces.iter())?;
+            config.hash_tabl.fill(&mut layouter, self.data.0.hash_traces.iter().chain(self.data.1.hash_traces.iter()))?;
 
             layouter.assign_region(
                 || "account",

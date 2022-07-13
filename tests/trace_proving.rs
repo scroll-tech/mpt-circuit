@@ -23,8 +23,9 @@ fn trace_read_only() {
 
     let k = 8;
 
-    let mut circuit = EthTrie::<Fp>::new(200);
-    circuit.add_ops(ops);
+    let mut data : EthTrie<Fp> = Default::default();
+    data.add_ops(ops);
+    let (circuit, _) = data.circuits::<200>();
 
     let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
     assert_eq!(prover.verify(), Ok(()));
@@ -42,8 +43,9 @@ fn trace_to_eth_trie_each() {
         let k = 6;
         println!("{:?}", op);
 
-        let mut circuit = EthTrie::<Fp>::new(20);
-        circuit.add_op(op);
+        let mut data : EthTrie<Fp> = Default::default();
+        data.add_op(op);
+        let (circuit, _) = data.circuits::<40>();
 
         let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
@@ -60,8 +62,9 @@ fn trace_to_eth_trie() {
 
     let k = 8;
 
-    let mut circuit = EthTrie::<Fp>::new(200);
-    circuit.add_ops(ops);
+    let mut data : EthTrie<Fp> = Default::default();
+    data.add_ops(ops);
+    let (circuit, _) = data.circuits::<200>();
 
     let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
     assert_eq!(prover.verify(), Ok(()));
@@ -76,14 +79,17 @@ fn vk_validity() {
         .map(|tr| (&tr).try_into().unwrap())
         .collect();
 
-    let mut circuit = EthTrie::<Fp>::new(200);
-    circuit.add_ops(ops.clone());
+    let mut data : EthTrie<Fp> = Default::default();
+    data.add_ops(ops);
+    let (circuit, _) = data.circuits::<200>();
+    
     let vk1 = keygen_vk(&params, &circuit).unwrap();
 
     let mut vk1_buf: Vec<u8> = Vec::new();
     vk1.write(&mut vk1_buf).unwrap();
 
-    let circuit = EthTrie::<Fp>::new(200);
+    let data : EthTrie<Fp> = Default::default();
+    let (circuit, _) = data.circuits::<200>();
     let vk2 = keygen_vk(&params, &circuit).unwrap();
 
     let mut vk2_buf: Vec<u8> = Vec::new();
@@ -106,8 +112,9 @@ fn proof_and_verify() {
     let os_rng = ChaCha8Rng::from_seed([101u8; 32]);
     let mut transcript = Blake2bWrite::<_, _, Challenge255<_>>::init(vec![]);
 
-    let mut circuit = EthTrie::<Fp>::new(200);
-    circuit.add_ops(ops.clone());
+    let mut data : EthTrie<Fp> = Default::default();
+    data.add_ops(ops);
+    let (circuit, _) = data.circuits::<200>();
 
     let prover = MockProver::run(k, &circuit, vec![]).unwrap();
     assert_eq!(prover.verify(), Ok(()));
@@ -121,7 +128,9 @@ fn proof_and_verify() {
     let mut transcript = Blake2bRead::<_, _, Challenge255<_>>::init(&proof_script[..]);
     let verifier_params: ParamsVerifier<Bn256> = params.verifier(0).unwrap();
     let strategy = SingleVerifier::new(&verifier_params);
-    let circuit = EthTrie::<Fp>::new(200);
+
+    let data : EthTrie<Fp> = Default::default();
+    let (circuit, _) = data.circuits::<200>();
     let vk = keygen_vk(&params, &circuit).unwrap();
 
     verify_proof(&verifier_params, &vk, strategy, &[&[]], &mut transcript).unwrap();

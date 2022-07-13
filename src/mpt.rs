@@ -214,9 +214,7 @@ struct MPTOpConfig {
     old_val: Column<Advice>,
     new_val: Column<Advice>,
 
-    old_hash_table: HashTable,
-    new_hash_table: HashTable,
-
+    hash_table: HashTable,
     tables: MPTOpTables,
 }
 
@@ -225,10 +223,10 @@ pub(crate) struct MPTOpGadget {
     op: OpChipConfig,
     old_path: PathChipConfig,
     new_path: PathChipConfig,
-    old_hash_table: HashTable,
-    new_hash_table: HashTable,
-    tables: MPTOpTables,
     s_enable: Column<Advice>,
+
+    pub hash_table: HashTable,
+    pub tables: MPTOpTables,
 }
 
 impl MPTOpGadget {
@@ -244,10 +242,7 @@ impl MPTOpGadget {
         free: &[Column<Advice>],
     ) -> Self {
         let tables = MPTOpTables::configure_create(meta);
-        let hash_tbls = (
-            HashTable::configure_create(meta),
-            HashTable::configure_create(meta),
-        );
+        let hash_tbls = HashTable::configure_create(meta);
 
         Self::configure(meta, sel, exported, free, tables, hash_tbls)
     }
@@ -263,7 +258,7 @@ impl MPTOpGadget {
         exported: [Column<Advice>; 4],
         free: &[Column<Advice>],
         tables: MPTOpTables,
-        hash_tbls: (HashTable, HashTable), //(old, new)
+        hash_tbl: HashTable,
     ) -> Self {
         assert!(free.len() >= 6, "require at least 6 free cols");
 
@@ -280,9 +275,7 @@ impl MPTOpGadget {
             s_enable: exported[1],
             old_val: exported[2],
             new_val: exported[3],
-
-            old_hash_table: hash_tbls.0,
-            new_hash_table: hash_tbls.1,
+            hash_table: hash_tbl,
         };
 
         meta.create_gate("flag boolean", |meta| {
@@ -297,8 +290,7 @@ impl MPTOpGadget {
             op: OpChip::<Fp>::configure(meta, &g_config),
             old_path: PathChip::<Fp>::configure(meta, &g_config, true),
             new_path: PathChip::<Fp>::configure(meta, &g_config, false),
-            old_hash_table: g_config.old_hash_table.clone(),
-            new_hash_table: g_config.new_hash_table.clone(),
+            hash_table: g_config.hash_table.clone(),
             tables: g_config.tables.clone(),
         }
     }
@@ -313,22 +305,10 @@ impl MPTOpGadget {
         i1.chain(i2)
     }
 
-    pub fn init<Fp: FieldExt>(&self, layouter: &mut impl Layouter<Fp>) -> Result<(), Error> {
+/*    pub fn init<Fp: FieldExt>(&self, layouter: &mut impl Layouter<Fp>) -> Result<(), Error> {
         self.tables
             .fill_constant(layouter, Self::transition_rules())
-    }
-
-    pub fn init_hash_table<'d, Fp: FieldExt>(
-        &self,
-        layouter: &mut impl Layouter<Fp>,
-        data: impl Iterator<Item = &'d SingleOp<Fp>> + Clone,
-    ) -> Result<(), Error> {
-        self.old_hash_table
-            .fill(layouter, data.clone().flat_map(|op| &op.old.hash_traces))?;
-        self.new_hash_table
-            .fill(layouter, data.flat_map(|op| &op.new.hash_traces))?;
-        Ok(())
-    }
+    }*/
 
     /// assign data and enable flag for MPT circuit
     pub fn assign<Fp: FieldExt>(
@@ -416,11 +396,7 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
         };
         let key = g_config.acc_key;
 
-        let hash_table = if from_old {
-            &g_config.old_hash_table
-        } else {
-            &g_config.new_hash_table
-        };
+        let hash_table = &g_config.hash_table;
 
         let s_row = g_config.s_row;
         let sibling = g_config.sibling;
@@ -646,7 +622,7 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
         let s_path = g_config.s_path;
         let type_table = &g_config.tables;
 
-        let hash_table = &g_config.old_hash_table;
+        let hash_table = &g_config.hash_table;
         let left =
             |meta: &mut VirtualCells<'_, Fp>| meta.query_advice(hash_table.0, Rotation::cur());
         let right =
@@ -852,8 +828,7 @@ mod test {
                 new_hash_type: meta.advice_column(),
                 old_val: meta.advice_column(),
                 new_val: meta.advice_column(),
-                old_hash_table: HashTable::configure_create(meta),
-                new_hash_table: HashTable::configure_create(meta),
+                hash_table: HashTable::configure_create(meta),
                 tables: MPTOpTables::configure_create(meta),
             }
         }
@@ -989,17 +964,8 @@ mod test {
                     .iter()
                     .map(|(a, b)| (*a as u32, *b as u32, CtrlTransitionKind::Mpt as u32)),
             )?;
-            if USE_OLD {
-                config
-                    .global
-                    .old_hash_table
-                    .fill(&mut layouter, self.data.hash_traces.iter())
-            } else {
-                config
-                    .global
-                    .new_hash_table
-                    .fill(&mut layouter, self.data.hash_traces.iter())
-            }?;
+            
+            config.global.hash_table.fill(&mut layouter, self.data.hash_traces.iter())?;
 
             Ok(())
         }
@@ -1174,11 +1140,8 @@ mod test {
                     .map(|(a, b)| (*a as u32, *b as u32, CtrlTransitionKind::Operation as u32)),
             )?;
 
-            // op chip now need old side's hash table (for key hash lookup)
-            config
-                .global
-                .old_hash_table
-                .fill(&mut layouter, self.data.old.hash_traces.iter())?;
+            // op chip now need hash table (for key hash lookup)
+            config.global.hash_table.fill(&mut layouter, self.data.old.hash_traces.iter())?;
 
             Ok(())
         }
@@ -1336,10 +1299,8 @@ mod test {
             config: Self::Config,
             mut layouter: impl Layouter<Fp>,
         ) -> Result<(), Error> {
-            config.gadget.init(&mut layouter)?;
-            config
-                .gadget
-                .init_hash_table(&mut layouter, [&self.data].into_iter())?;
+            config.gadget.tables.fill_constant(&mut layouter, MPTOpGadget::transition_rules())?;
+            config.gadget.hash_table.fill(&mut layouter, self.data.hash_traces())?;
 
             layouter.assign_region(
                 || "mpt",

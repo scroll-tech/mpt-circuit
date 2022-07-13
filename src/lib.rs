@@ -53,7 +53,7 @@ use halo2_proofs::{
 };
 use layers::{LayerGadget, PaddingGadget};
 use mpt::MPTOpGadget;
-use operation::{AccountOp, SingleOp};
+use operation::{AccountOp, SingleOp, HashTracesSrc};
 
 // building lagrange polynmials L for T so that L(n) = 1 when n = T else 0, n in [0, TO]
 fn lagrange_polynomial<Fp: ff::PrimeField, const T: usize, const TO: usize>(
@@ -205,8 +205,8 @@ impl<Fp: FieldExt> Circuit<Fp> for SimpleTrie<Fp> {
             },
         )?;
 
-        config.mpt.init(&mut layouter)?;
-        config.mpt.init_hash_table(&mut layouter, self.ops.iter())?;
+        config.mpt.tables.fill_constant(&mut layouter, MPTOpGadget::transition_rules())?;
+        config.mpt.hash_table.fill(&mut layouter, self.ops.iter().flat_map(|op| op.hash_traces()))?;
 
         // only ctrl_type as HashType::leaf / empty can start new block
         let possible_end_block = [
@@ -237,13 +237,12 @@ pub struct EthTrieConfig {
     state_trie: MPTOpGadget,
     padding: PaddingGadget,
     tables: mpt::MPTOpTables,
-    hash_tbls: (mpt::HashTable, mpt::HashTable),
+    hash_tbl: mpt::HashTable,
 }
 
 /// The chip for op on an storage trie
 #[derive(Clone, Default)]
 pub struct EthTrie<F: FieldExt> {
-    c_size: usize, //how many rows
     start_root: F,
     final_root: F,
     ops: Vec<AccountOp<F>>,
@@ -254,13 +253,6 @@ const OP_TRIE_STATE: u32 = 2;
 const OP_ACCOUNT: u32 = 3;
 
 impl<Fp: FieldExt> EthTrie<Fp> {
-    /// create a new, empty circuit with specified size
-    pub fn new(c_size: usize) -> Self {
-        Self {
-            c_size,
-            ..Default::default()
-        }
-    }
 
     /// Add an op into the circuit data
     pub fn add_op(&mut self, op: AccountOp<Fp>) {
@@ -280,29 +272,40 @@ impl<Fp: FieldExt> EthTrie<Fp> {
         }
     }
 
-    /// Obtain the total required rows (include the top and bottom padding)
-    pub fn use_rows(&self) -> usize {
-        self.c_size + 2
+    /// Obtain the total required rows for mpt and hash circuits (include the top and bottom padding)
+    pub fn use_rows(&self) -> (usize, usize) {
+        // calc rows for mpt circuit, we need to compare the rows used by adviced region and table region
+        // there would be rare case that the hash table is shorter than adviced part
+        let adv_rows = self.ops.iter().fold(0usize, |acc, op|acc + op.use_rows());
+        let hash_rows = HashTracesSrc::from(self.ops.iter().flat_map(|op| op.hash_traces())).count();
+
+        (adv_rows.max(hash_rows), 0)
+
+    }
+
+    /// Obtain the final root
+    pub fn final_root(&self) -> Fp { self.final_root }
+
+    /// Create all associated circuit objects
+    pub fn circuits<const ROW: usize>(&self) -> (impl Circuit<Fp> + '_, impl Circuit<Fp> + '_) {
+        (EthTrieCircuit::<Fp, ROW>(self.ops.as_slice()), EthTrieCircuit::<Fp, ROW>(self.ops.as_slice()))
     }
 }
 
-impl<Fp: FieldExt> Circuit<Fp> for EthTrie<Fp> {
+#[derive(Clone, Copy)]
+struct EthTrieCircuit<'d, F: FieldExt, const ROW: usize> (&'d [AccountOp<F>]);
+
+impl<Fp: FieldExt, const ROW: usize> Circuit<Fp> for EthTrieCircuit<'_, Fp, ROW> {
     type Config = EthTrieConfig;
     type FloorPlanner = SimpleFloorPlanner;
 
     fn without_witnesses(&self) -> Self {
-        Self {
-            c_size: self.c_size,
-            ..Default::default()
-        }
+        *self
     }
 
     fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
         let tables = mpt::MPTOpTables::configure_create(meta);
-        let hash_tbls = (
-            mpt::HashTable::configure_create(meta),
-            mpt::HashTable::configure_create(meta),
-        );
+        let hash_tbl = mpt::HashTable::configure_create(meta);
 
         let layer = LayerGadget::configure(
             meta,
@@ -317,7 +320,7 @@ impl<Fp: FieldExt> Circuit<Fp> for EthTrie<Fp> {
             layer.exported_cols(OP_TRIE_ACCOUNT),
             layer.get_free_cols(),
             tables.clone(),
-            hash_tbls.clone(),
+            hash_tbl.clone(),
         );
         let state_trie = MPTOpGadget::configure(
             meta,
@@ -325,7 +328,7 @@ impl<Fp: FieldExt> Circuit<Fp> for EthTrie<Fp> {
             layer.exported_cols(OP_TRIE_STATE),
             layer.get_free_cols(),
             tables.clone(),
-            hash_tbls.clone(),
+            hash_tbl.clone(),
         );
         let account = AccountGadget::configure(
             meta,
@@ -333,7 +336,7 @@ impl<Fp: FieldExt> Circuit<Fp> for EthTrie<Fp> {
             layer.exported_cols(OP_ACCOUNT),
             layer.get_free_cols(),
             tables.clone(),
-            hash_tbls.clone(),
+            hash_tbl.clone(),
         );
 
         let cst = meta.fixed_column();
@@ -346,7 +349,7 @@ impl<Fp: FieldExt> Circuit<Fp> for EthTrie<Fp> {
             account,
             padding,
             tables,
-            hash_tbls,
+            hash_tbl,
         }
     }
 
@@ -355,6 +358,10 @@ impl<Fp: FieldExt> Circuit<Fp> for EthTrie<Fp> {
         config: Self::Config,
         mut layouter: impl Layouter<Fp>,
     ) -> Result<(), Error> {
+
+        let start_root = self.0.first().map(|op|op.account_root_before()).unwrap_or_else(Fp::zero);
+        let final_root = self.0.last().map(|op|op.account_root()).unwrap_or_else(Fp::zero);
+
         layouter.assign_region(
             || "main",
             |mut region| {
@@ -362,11 +369,11 @@ impl<Fp: FieldExt> Circuit<Fp> for EthTrie<Fp> {
                 let mut last_op_code = config.layer.start_op_code();
                 let mut start = config
                     .layer
-                    .assign(&mut region, self.c_size, self.start_root)?;
+                    .assign(&mut region, ROW, start_root)?;
 
                 //notice, the empty account must be "dummized"
                 let empty_account = operation::Account::<Fp>::default().dummy();
-                for op in self.ops.iter() {
+                for op in self.0 {
                     let op_root = op.account_root();
                     config.layer.pace_op(
                         &mut region,
@@ -412,66 +419,36 @@ impl<Fp: FieldExt> Circuit<Fp> for EthTrie<Fp> {
                     }
 
                     assert!(
-                        start <= self.c_size,
+                        start <= ROW,
                         "assigned rows for exceed limited {}",
-                        self.c_size
+                        ROW
                     );
 
                     series += 1;
                 }
 
-                let row_left = self.c_size - start;
+                let row_left = ROW - start;
                 if row_left > 0 {
                     config.layer.pace_op(
                         &mut region,
                         start,
                         series,
                         (last_op_code, OP_PADDING),
-                        self.final_root,
+                        final_root,
                         row_left,
                     )?;
                     config
                         .padding
-                        .padding(&mut region, start, row_left, self.final_root)?;
+                        .padding(&mut region, start, row_left, final_root)?;
                 }
 
                 Ok(())
             },
         )?;
 
-        let empty_trace: Vec<(Fp, Fp, Fp)> = Vec::default();
+        let hash_traces_i = self.0.iter().flat_map(|op| op.hash_traces());
+        config.hash_tbl.fill(&mut layouter, HashTracesSrc::from(hash_traces_i))?;
 
-        let hashs_old = self.ops.iter().flat_map(|op| {
-            let i = op.acc_trie.old.hash_traces.iter();
-            let i = if let Some(acc) = &op.account_before {
-                i.chain(acc.hash_traces.iter())
-            } else {
-                i.chain(empty_trace.iter())
-            };
-            if let Some(trie) = &op.state_trie {
-                i.chain(trie.old.hash_traces.iter())
-            } else {
-                i.chain(empty_trace.iter())
-            }
-        });
-
-        config.hash_tbls.0.fill(&mut layouter, hashs_old)?;
-
-        let hashs_new = self.ops.iter().flat_map(|op| {
-            let i = op
-                .acc_trie
-                .new
-                .hash_traces
-                .iter()
-                .chain(op.account_after.hash_traces.iter());
-            if let Some(trie) = &op.state_trie {
-                i.chain(trie.new.hash_traces.iter())
-            } else {
-                i.chain(empty_trace.iter())
-            }
-        });
-
-        config.hash_tbls.1.fill(&mut layouter, hashs_new)?;
         config.tables.fill_constant(
             &mut layouter,
             MPTOpGadget::transition_rules().chain(AccountGadget::transition_rules()),
@@ -519,7 +496,8 @@ mod test {
     #[test]
     fn empty_eth_trie() {
         let k = 6;
-        let circuit = EthTrie::<Fp>::new(20);
+        let data : EthTrie<Fp> = Default::default();
+        let (circuit, _) = data.circuits::<20>();
 
         let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
@@ -563,12 +541,13 @@ mod test {
         let final_root = op1.account_root();
 
         let k = 6;
-        let circuit = EthTrie::<Fp> {
-            c_size: 20,
+        let trie = EthTrie::<Fp> {
             start_root,
             final_root,
             ops: vec![op1],
         };
+
+        let (circuit, _) = trie.circuits::<40>();
 
         #[cfg(feature = "print_layout")]
         print_layout!("layouts/eth_trie_layout.png", k, &circuit);
