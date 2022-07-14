@@ -243,7 +243,7 @@ mod tests {
             .titled("Hash circuit Layout", ("sans-serif", 60))
             .unwrap();
 
-        let circuit = HashCircuit::<1> { inputs: [None] };
+        let circuit = HashCircuit::<Fr, 1> { inputs: [None], checks: [None] };
         halo2_proofs::dev::CircuitLayout::default()
             .show_equality_constraints(true)
             .render(6, &circuit, &root)
