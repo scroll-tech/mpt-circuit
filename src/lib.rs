@@ -51,10 +51,10 @@ use halo2_proofs::{
     circuit::{Layouter, SimpleFloorPlanner},
     plonk::{Circuit, ConstraintSystem, Error, Expression},
 };
+use hash::{HashCircuit, Hashable};
 use layers::{LayerGadget, PaddingGadget};
 use mpt::MPTOpGadget;
 use operation::{AccountOp, HashTracesSrc, SingleOp};
-use hash::{HashCircuit, Hashable};
 
 // building lagrange polynmials L for T so that L(n) = 1 when n = T else 0, n in [0, TO]
 fn lagrange_polynomial<Fp: ff::PrimeField, const T: usize, const TO: usize>(
@@ -298,8 +298,9 @@ impl<Fp: Hashable> EthTrie<Fp> {
 
     /// Create all associated circuit objects
     pub fn circuits<const ROW: usize>(&self) -> (impl Circuit<Fp> + '_, impl Circuit<Fp> + '_) {
-        let hashes : Vec<_> = HashTracesSrc::from(self.ops.iter().flat_map(|op| op.hash_traces())).collect();
-        let hash_circuits : HashCircuit::<Fp, ROW> = hashes.as_slice().try_into().unwrap();
+        let hashes: Vec<_> =
+            HashTracesSrc::from(self.ops.iter().flat_map(|op| op.hash_traces())).collect();
+        let hash_circuits: HashCircuit<Fp, ROW> = hashes.as_slice().try_into().unwrap();
         (
             EthTrieCircuit::<Fp, ROW>(self.ops.as_slice()),
             hash_circuits,
@@ -464,9 +465,13 @@ impl<Fp: Hashable, const ROW: usize> Circuit<Fp> for EthTrieCircuit<'_, Fp, ROW>
 
         let hash_traces_i = self.0.iter().flat_map(|op| op.hash_traces());
         config.hash_tbl.fill_with_paddings(
-            &mut layouter, 
+            &mut layouter,
             HashTracesSrc::from(hash_traces_i),
-            (Fp::zero(), Fp::zero(), Hashable::hash([Fp::zero(), Fp::zero()])),
+            (
+                Fp::zero(),
+                Fp::zero(),
+                Hashable::hash([Fp::zero(), Fp::zero()]),
+            ),
             ROW,
         )?;
 

@@ -392,7 +392,6 @@ pub struct AccountOp<Fp: PrimeField> {
 }
 
 impl<Fp: PrimeField> AccountOp<Fp> {
-
     /// indicate rows would take for whole operation
     pub fn use_rows(&self) -> usize {
         self.use_rows_account() + self.use_rows_trie_state() + self.use_rows_trie_account()
@@ -451,7 +450,7 @@ impl<Fp: Hashable> AccountOp<Fp> {
         (
             Fp::zero(),
             Fp::zero(),
-            Hashable::hash([Fp::zero(), Fp::zero()])
+            Hashable::hash([Fp::zero(), Fp::zero()]),
         )
     }
 }

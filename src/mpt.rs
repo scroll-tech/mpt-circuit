@@ -174,14 +174,14 @@ impl HashTable {
         padding: (Fp, Fp, Fp),
         filled_rows: usize,
     ) -> Result<(), Error> {
-
         let paddings = [padding];
 
-        self.fill(layouter, 
+        self.fill(
+            layouter,
             hashing_records
-            .map(|i|i) //shrink the lifetime from 'd
-            .chain(paddings.iter().cycle())
-            .take(filled_rows)
+                .map(|i| i) //shrink the lifetime from 'd
+                .chain(paddings.iter().cycle())
+                .take(filled_rows),
         )
     }
 

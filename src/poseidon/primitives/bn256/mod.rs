@@ -5,7 +5,6 @@ use super::p128pow5t3::P128Pow5T3Constants;
 use super::Mds;
 
 impl P128Pow5T3Constants for Fp {
-
     fn partial_rounds() -> usize {
         57
     }

@@ -22,7 +22,7 @@ fn hash_circuit() {
     let k = 7;
     let circuit = hash::HashCircuit::<Fp, 3> {
         inputs: [Some(message1), Some(message2), None],
-        checks: [None;3],
+        checks: [None; 3],
     };
     let prover = MockProver::run(k, &circuit, vec![]).unwrap();
     assert_eq!(prover.verify(), Ok(()));
@@ -34,7 +34,7 @@ fn vk_validity() {
 
     let circuit = hash::HashCircuit::<Fp, 3> {
         inputs: [None, None, None],
-        checks: [None;3],
+        checks: [None; 3],
     };
     let vk1 = keygen_vk(&params, &circuit).unwrap();
 
@@ -53,7 +53,7 @@ fn vk_validity() {
             ]),
             None,
         ],
-        checks: [None;3],
+        checks: [None; 3],
     };
     let vk2 = keygen_vk(&params, &circuit).unwrap();
 
@@ -83,7 +83,7 @@ fn proof_and_verify() {
             ]),
             None,
         ],
-        checks: [None;3],
+        checks: [None; 3],
     };
 
     let prover = MockProver::run(k, &circuit, vec![]).unwrap();
@@ -100,7 +100,7 @@ fn proof_and_verify() {
     let strategy = SingleVerifier::new(&verifier_params);
     let circuit = hash::HashCircuit::<Fp, 3> {
         inputs: [None, None, None],
-        checks: [None;3],
+        checks: [None; 3],
     };
     let vk = keygen_vk(&params, &circuit).unwrap();
 

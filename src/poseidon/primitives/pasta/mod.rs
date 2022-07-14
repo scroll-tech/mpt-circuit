@@ -6,7 +6,6 @@ pub(crate) mod test_vectors;
 use super::Mds;
 
 impl super::p128pow5t3::P128Pow5T3Constants for Fp {
-
     fn round_constants() -> Vec<[Self; 3]> {
         return fp::ROUND_CONSTANTS.to_vec();
     }

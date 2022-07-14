@@ -1,25 +1,23 @@
 //! The hash circuit base on poseidon.
 
-
-use crate::poseidon::primitives::{ConstantLengthIden3, Hash, Spec, P128Pow5T3};
-use halo2_proofs::{arithmetic::FieldExt, circuit::Chip};
+use crate::poseidon::primitives::{ConstantLengthIden3, Hash, P128Pow5T3, Spec};
 use halo2_proofs::pairing::bn256::Fr;
+use halo2_proofs::{arithmetic::FieldExt, circuit::Chip};
 use std::convert::TryFrom;
 
-trait PoseidonChip<Fp: FieldExt> : Chip<Fp> {
+trait PoseidonChip<Fp: FieldExt>: Chip<Fp> {
     fn construct(config: &Self::Config) -> Self;
 }
 
 /// indicate an field can be hashed in merkle tree (2 Fields to 1 Field)
 pub trait Hashable: FieldExt {
     /// the spec type used in circuit for this hashable field
-    type SpecType : Spec<Self, 3, 2>;
+    type SpecType: Spec<Self, 3, 2>;
     /// execute hash for any sequence of fields
     fn hash(inp: [Self; 2]) -> Self;
     /// obtain the rows consumed by each circuit block
     fn hash_block_size() -> usize {
-        Self::SpecType::full_rounds() +
-        (Self::SpecType::partial_rounds() + 1) / 2
+        Self::SpecType::full_rounds() + (Self::SpecType::partial_rounds() + 1) / 2
     }
 }
 
@@ -54,28 +52,30 @@ pub struct HashCircuit<Fp, const CALCS: usize> {
     pub checks: [Option<Fp>; CALCS],
 }
 
-impl<'d, Fp: Copy, const CALCS: usize> TryFrom<&[&'d(Fp, Fp, Fp)]> for HashCircuit<Fp, CALCS> {
-
+impl<'d, Fp: Copy, const CALCS: usize> TryFrom<&[&'d (Fp, Fp, Fp)]> for HashCircuit<Fp, CALCS> {
     type Error = std::array::TryFromSliceError;
-    fn try_from(src: &[&'d(Fp, Fp, Fp)]) -> Result<Self, Self::Error> {
+    fn try_from(src: &[&'d (Fp, Fp, Fp)]) -> Result<Self, Self::Error> {
+        let inputs: Vec<Option<[Fp; 2]>> = (0..CALCS)
+            .map(|i| {
+                if i < src.len() {
+                    let (a, b, _) = src[i];
+                    Some([*a, *b])
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let inputs : Vec<Option<[Fp;2]>> = (0..CALCS).map(|i|{
-            if i < src.len() {
-                let (a, b, _) = src[i];
-                Some([*a, *b])
-            } else {
-                None
-            }
-        }).collect();
-
-        let checks : Vec<Option<Fp>> = (0..CALCS).map(|i|{
-            if i < src.len() {
-                let (_, _, c) = src[i];
-                Some(*c)
-            } else {
-                None
-            }
-        }).collect();
+        let checks: Vec<Option<Fp>> = (0..CALCS)
+            .map(|i| {
+                if i < src.len() {
+                    let (_, _, c) = src[i];
+                    Some(*c)
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         Ok(Self {
             inputs: inputs.as_slice().try_into()?,
@@ -148,12 +148,7 @@ impl<Fp: Hashable, const CALCS: usize> Circuit<Fp> for HashCircuit<Fp, CALCS> {
 
                 // notice our hash table has a (0, 0, 0) at the beginning
                 for col in config.hash_table {
-                    region.assign_advice(
-                        || "dummy inputs",
-                        col,
-                        0,
-                        || Ok(Fp::zero()),
-                    )?;                    
+                    region.assign_advice(|| "dummy inputs", col, 0, || Ok(Fp::zero()))?;
                 }
 
                 for (i, inp) in self.inputs.into_iter().enumerate() {
@@ -178,7 +173,7 @@ impl<Fp: Hashable, const CALCS: usize> Circuit<Fp> for HashCircuit<Fp, CALCS> {
                         || format!("hash output_{}", i),
                         config.hash_table[2],
                         offset,
-                        || Ok(self.checks[i].unwrap_or_else(||Hashable::hash(inp))),
+                        || Ok(self.checks[i].unwrap_or_else(|| Hashable::hash(inp))),
                     )?;
 
                     //we directly specify the init state of permutation
