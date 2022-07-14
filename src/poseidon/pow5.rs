@@ -977,7 +977,8 @@ mod tests {
     fn print_poseidon_chip() {
         use plotters::prelude::*;
 
-        let root = BitMapBackend::new("poseidon-chip-layout.png", (1024, 768)).into_drawing_area();
+        let root =
+            BitMapBackend::new("layouts/poseidon-chip-layout.png", (1024, 768)).into_drawing_area();
         root.fill(&WHITE).unwrap();
         let root = root
             .titled("Poseidon Chip Layout", ("sans-serif", 60))

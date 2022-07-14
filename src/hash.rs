@@ -250,15 +250,15 @@ mod tests {
     fn print_circuit() {
         use plotters::prelude::*;
 
-        let root = BitMapBackend::new("hash-layout.png", (1024, 768)).into_drawing_area();
+        let root = BitMapBackend::new("layouts/hash-layout.png", (1024, 768)).into_drawing_area();
         root.fill(&WHITE).unwrap();
         let root = root
             .titled("Hash circuit Layout", ("sans-serif", 60))
             .unwrap();
 
-        let circuit = HashCircuit::<Fr, 1> {
-            inputs: [None],
-            checks: [None],
+        let circuit = HashCircuit::<Fr> {
+            calcs: 1,
+            ..Default::default()
         };
         halo2_proofs::dev::CircuitLayout::default()
             .show_equality_constraints(true)
