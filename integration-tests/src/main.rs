@@ -12,16 +12,6 @@ pub struct BlockResult {
     pub mpt_witness: Vec<SMTTrace>,
 }
 
-macro_rules! mock_prove {
-    // `()` indicates that the macro takes no argument.
-    ($k: expr, $circuits:expr) => {{
-        let (circuit, hash_circuit) = $circuits;
-        let prover_mpt = MockProver::<Fp>::run($k, &circuit, vec![]).unwrap();
-        let prover_hash = MockProver::<Fp>::run($k + 5, &hash_circuit, vec![]).unwrap();
-        (prover_mpt.verify(), prover_hash.verify())
-    }};
-}
-
 fn main() {
     let mut buffer = Vec::new();
     let mut f = File::open("integration-tests/trace.json").unwrap();
@@ -47,17 +37,20 @@ fn main() {
 
     let final_root = data.final_root();
 
-    let (prove_mpt_ret, prove_hash_ret) = match k {
-        6 => mock_prove!(k, data.circuits::<40>()),
-        7 => mock_prove!(k, data.circuits::<90>()),
-        8 => mock_prove!(k, data.circuits::<200>()),
-        9 => mock_prove!(k, data.circuits::<450>()),
-        10 => mock_prove!(k, data.circuits::<900>()),
+    let (circuit, hash_circuit) = match k {
+        6 => data.circuits(40),
+        7 => data.circuits(90),
+        8 => data.circuits(200),
+        9 => data.circuits(450),
+        10 => data.circuits(900),
         _ => panic!("too large k {}", k),
     };
 
-    assert_eq!(prove_mpt_ret, Ok(()));
-    assert_eq!(prove_hash_ret, Ok(()));
+    let prover_mpt = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
+    let prover_hash = MockProver::<Fp>::run(k + 5, &hash_circuit, vec![]).unwrap();
+
+    assert_eq!(prover_mpt.verify(), Ok(()));
+    assert_eq!(prover_hash.verify(), Ok(()));
 
     println!("done, final hash {:?}", final_root);
 }

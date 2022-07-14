@@ -3,7 +3,6 @@
 use crate::poseidon::primitives::{ConstantLengthIden3, Hash, P128Pow5T3, Spec};
 use halo2_proofs::pairing::bn256::Fr;
 use halo2_proofs::{arithmetic::FieldExt, circuit::Chip};
-use std::convert::TryFrom;
 
 trait PoseidonChip<Fp: FieldExt>: Chip<Fp> {
     fn construct(config: &Self::Config) -> Self;
@@ -45,53 +44,44 @@ pub struct HashConfig<Fp: FieldExt> {
 }
 
 /// Hash circuit
-pub struct HashCircuit<Fp, const CALCS: usize> {
+#[derive(Clone, Default)]
+pub struct HashCircuit<Fp> {
+    /// the records in circuits
+    pub calcs: usize,
     /// the input messages for hashes
-    pub inputs: [Option<[Fp; 2]>; CALCS],
+    pub inputs: Vec<[Fp; 2]>,
     /// the expected hash output for checking
-    pub checks: [Option<Fp>; CALCS],
+    pub checks: Vec<Option<Fp>>,
 }
 
-impl<'d, Fp: Copy, const CALCS: usize> TryFrom<&[&'d (Fp, Fp, Fp)]> for HashCircuit<Fp, CALCS> {
-    type Error = std::array::TryFromSliceError;
-    fn try_from(src: &[&'d (Fp, Fp, Fp)]) -> Result<Self, Self::Error> {
-        let inputs: Vec<Option<[Fp; 2]>> = (0..CALCS)
-            .map(|i| {
-                if i < src.len() {
-                    let (a, b, _) = src[i];
-                    Some([*a, *b])
-                } else {
-                    None
-                }
-            })
+impl<'d, Fp: Copy> HashCircuit<Fp> {
+    /// create circuit from traces
+    pub fn new(calcs: usize, src: &[&'d (Fp, Fp, Fp)]) -> Self {
+        let inputs: Vec<_> = src.iter().take(calcs).map(|(a, b, _)| [*a, *b]).collect();
+
+        let checks: Vec<_> = src
+            .iter()
+            .take(calcs)
+            .map(|(_, _, c)| Some(*c))
+            .chain([None])
             .collect();
 
-        let checks: Vec<Option<Fp>> = (0..CALCS)
-            .map(|i| {
-                if i < src.len() {
-                    let (_, _, c) = src[i];
-                    Some(*c)
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        Ok(Self {
-            inputs: inputs.as_slice().try_into()?,
-            checks: checks.as_slice().try_into()?,
-        })
+        Self {
+            calcs,
+            inputs,
+            checks,
+        }
     }
 }
 
-impl<Fp: Hashable, const CALCS: usize> Circuit<Fp> for HashCircuit<Fp, CALCS> {
+impl<Fp: Hashable> Circuit<Fp> for HashCircuit<Fp> {
     type Config = HashConfig<Fp>;
     type FloorPlanner = SimpleFloorPlanner;
 
     fn without_witnesses(&self) -> Self {
         Self {
-            inputs: [None; CALCS],
-            checks: [None; CALCS],
+            calcs: self.calcs,
+            ..Default::default()
         }
     }
 
@@ -146,13 +136,30 @@ impl<Fp: Hashable, const CALCS: usize> Circuit<Fp> for HashCircuit<Fp, CALCS> {
                 let mut states = Vec::new();
                 let mut hashes = Vec::new();
 
+                let dummy_input: [Option<&[Fp; 2]>; 1] = [None];
+                let dummy_check: [Option<&Fp>; 1] = [None];
+                let inputs_i = self
+                    .inputs
+                    .iter()
+                    .map(Some)
+                    .chain(dummy_input.into_iter().cycle())
+                    .take(self.calcs);
+                let checks_i = self
+                    .checks
+                    .iter()
+                    .map(|i| i.as_ref())
+                    .chain(dummy_check.into_iter().cycle())
+                    .take(self.calcs);
+
                 // notice our hash table has a (0, 0, 0) at the beginning
                 for col in config.hash_table {
                     region.assign_advice(|| "dummy inputs", col, 0, || Ok(Fp::zero()))?;
                 }
 
-                for (i, inp) in self.inputs.into_iter().enumerate() {
-                    let inp = inp.unwrap_or_else(|| [Fp::zero(), Fp::zero()]);
+                for (i, (inp, check)) in inputs_i.zip(checks_i).enumerate() {
+                    let inp = inp
+                        .map(|[a, b]| [*a, *b])
+                        .unwrap_or_else(|| [Fp::zero(), Fp::zero()]);
                     let offset = i + 1;
 
                     let c1 = region.assign_advice(
@@ -173,7 +180,13 @@ impl<Fp: Hashable, const CALCS: usize> Circuit<Fp> for HashCircuit<Fp, CALCS> {
                         || format!("hash output_{}", i),
                         config.hash_table[2],
                         offset,
-                        || Ok(self.checks[i].unwrap_or_else(|| Hashable::hash(inp))),
+                        || {
+                            Ok(if let Some(v) = check {
+                                *v
+                            } else {
+                                Hashable::hash(inp)
+                            })
+                        },
                     )?;
 
                     //we directly specify the init state of permutation
@@ -243,7 +256,10 @@ mod tests {
             .titled("Hash circuit Layout", ("sans-serif", 60))
             .unwrap();
 
-        let circuit = HashCircuit::<Fr, 1> { inputs: [None], checks: [None] };
+        let circuit = HashCircuit::<Fr, 1> {
+            inputs: [None],
+            checks: [None],
+        };
         halo2_proofs::dev::CircuitLayout::default()
             .show_equality_constraints(true)
             .render(6, &circuit, &root)
@@ -258,9 +274,10 @@ mod tests {
         ];
 
         let k = 6;
-        let circuit = HashCircuit::<Fr, 1> {
-            inputs: [Some(message)],
-            checks: [None],
+        let circuit = HashCircuit::<Fr> {
+            calcs: 1,
+            inputs: vec![message],
+            ..Default::default()
         };
         let prover = MockProver::run(k, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));

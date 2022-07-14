@@ -297,26 +297,25 @@ impl<Fp: Hashable> EthTrie<Fp> {
     }
 
     /// Create all associated circuit objects
-    pub fn circuits<const ROW: usize>(&self) -> (impl Circuit<Fp> + '_, impl Circuit<Fp> + '_) {
+    pub fn circuits(&self, rows: usize) -> (impl Circuit<Fp>, impl Circuit<Fp>) {
         let hashes: Vec<_> =
             HashTracesSrc::from(self.ops.iter().flat_map(|op| op.hash_traces())).collect();
-        let hash_circuits: HashCircuit<Fp, ROW> = hashes.as_slice().try_into().unwrap();
         (
-            EthTrieCircuit::<Fp, ROW>(self.ops.as_slice()),
-            hash_circuits,
+            EthTrieCircuit(self.ops.clone(), rows),
+            HashCircuit::new(rows, &hashes),
         )
     }
 }
 
-#[derive(Clone, Copy)]
-struct EthTrieCircuit<'d, F: FieldExt, const ROW: usize>(&'d [AccountOp<F>]);
+#[derive(Clone)]
+struct EthTrieCircuit<F: FieldExt>(Vec<AccountOp<F>>, usize);
 
-impl<Fp: Hashable, const ROW: usize> Circuit<Fp> for EthTrieCircuit<'_, Fp, ROW> {
+impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
     type Config = EthTrieConfig;
     type FloorPlanner = SimpleFloorPlanner;
 
     fn without_witnesses(&self) -> Self {
-        *self
+        Self(Vec::new(), self.1)
     }
 
     fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
@@ -384,17 +383,18 @@ impl<Fp: Hashable, const ROW: usize> Circuit<Fp> for EthTrieCircuit<'_, Fp, ROW>
             .last()
             .map(|op| op.account_root())
             .unwrap_or_else(Fp::zero);
+        let rows = self.1;
 
         layouter.assign_region(
             || "main",
             |mut region| {
                 let mut series: usize = 1;
                 let mut last_op_code = config.layer.start_op_code();
-                let mut start = config.layer.assign(&mut region, ROW, start_root)?;
+                let mut start = config.layer.assign(&mut region, rows, start_root)?;
 
                 //notice, the empty account must be "dummized"
                 let empty_account = operation::Account::<Fp>::default().dummy();
-                for op in self.0 {
+                for op in self.0.iter() {
                     let op_root = op.account_root();
                     config.layer.pace_op(
                         &mut region,
@@ -439,12 +439,12 @@ impl<Fp: Hashable, const ROW: usize> Circuit<Fp> for EthTrieCircuit<'_, Fp, ROW>
                         last_op_code = OP_ACCOUNT;
                     }
 
-                    assert!(start <= ROW, "assigned rows for exceed limited {}", ROW);
+                    assert!(start <= rows, "assigned rows for exceed limited {}", rows);
 
                     series += 1;
                 }
 
-                let row_left = ROW - start;
+                let row_left = rows - start;
                 if row_left > 0 {
                     config.layer.pace_op(
                         &mut region,
@@ -472,7 +472,7 @@ impl<Fp: Hashable, const ROW: usize> Circuit<Fp> for EthTrieCircuit<'_, Fp, ROW>
                 Fp::zero(),
                 Hashable::hash([Fp::zero(), Fp::zero()]),
             ),
-            ROW,
+            rows,
         )?;
 
         config.tables.fill_constant(
@@ -523,7 +523,7 @@ mod test {
     fn empty_eth_trie() {
         let k = 6;
         let data: EthTrie<Fp> = Default::default();
-        let (circuit, _) = data.circuits::<20>();
+        let (circuit, _) = data.circuits(20);
 
         let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
@@ -573,7 +573,7 @@ mod test {
             ops: vec![op1],
         };
 
-        let (circuit, _) = trie.circuits::<40>();
+        let (circuit, _) = trie.circuits(40);
 
         #[cfg(feature = "print_layout")]
         print_layout!("layouts/eth_trie_layout.png", k, &circuit);

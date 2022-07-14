@@ -25,7 +25,7 @@ fn trace_read_only() {
 
     let mut data: EthTrie<Fp> = Default::default();
     data.add_ops(ops);
-    let (circuit, _) = data.circuits::<200>();
+    let (circuit, _) = data.circuits(200);
 
     let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
     assert_eq!(prover.verify(), Ok(()));
@@ -45,7 +45,7 @@ fn trace_to_eth_trie_each() {
 
         let mut data: EthTrie<Fp> = Default::default();
         data.add_op(op);
-        let (circuit, _) = data.circuits::<40>();
+        let (circuit, _) = data.circuits(40);
 
         let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
@@ -64,7 +64,7 @@ fn trace_to_eth_trie() {
 
     let mut data: EthTrie<Fp> = Default::default();
     data.add_ops(ops);
-    let (circuit, _) = data.circuits::<200>();
+    let (circuit, _) = data.circuits(200);
 
     let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
     assert_eq!(prover.verify(), Ok(()));
@@ -81,7 +81,7 @@ fn vk_validity() {
 
     let mut data: EthTrie<Fp> = Default::default();
     data.add_ops(ops);
-    let (circuit, _) = data.circuits::<200>();
+    let (circuit, _) = data.circuits(200);
 
     let vk1 = keygen_vk(&params, &circuit).unwrap();
 
@@ -89,7 +89,7 @@ fn vk_validity() {
     vk1.write(&mut vk1_buf).unwrap();
 
     let data: EthTrie<Fp> = Default::default();
-    let (circuit, _) = data.circuits::<200>();
+    let (circuit, _) = data.circuits(200);
     let vk2 = keygen_vk(&params, &circuit).unwrap();
 
     let mut vk2_buf: Vec<u8> = Vec::new();
@@ -114,7 +114,7 @@ fn proof_and_verify() {
 
     let mut data: EthTrie<Fp> = Default::default();
     data.add_ops(ops);
-    let (circuit, _) = data.circuits::<200>();
+    let (circuit, _) = data.circuits(200);
 
     let prover = MockProver::run(k, &circuit, vec![]).unwrap();
     assert_eq!(prover.verify(), Ok(()));
@@ -130,7 +130,7 @@ fn proof_and_verify() {
     let strategy = SingleVerifier::new(&verifier_params);
 
     let data: EthTrie<Fp> = Default::default();
-    let (circuit, _) = data.circuits::<200>();
+    let (circuit, _) = data.circuits(200);
     let vk = keygen_vk(&params, &circuit).unwrap();
 
     verify_proof(&verifier_params, &vk, strategy, &[&[]], &mut transcript).unwrap();

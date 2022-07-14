@@ -20,9 +20,10 @@ fn hash_circuit() {
     ];
 
     let k = 7;
-    let circuit = hash::HashCircuit::<Fp, 3> {
-        inputs: [Some(message1), Some(message2), None],
-        checks: [None; 3],
+    let circuit = hash::HashCircuit::<Fp> {
+        inputs: vec![message1, message2],
+        calcs: 3,
+        ..Default::default()
     };
     let prover = MockProver::run(k, &circuit, vec![]).unwrap();
     assert_eq!(prover.verify(), Ok(()));
@@ -32,28 +33,28 @@ fn hash_circuit() {
 fn vk_validity() {
     let params = Params::<G1Affine>::unsafe_setup::<Bn256>(8);
 
-    let circuit = hash::HashCircuit::<Fp, 3> {
-        inputs: [None, None, None],
-        checks: [None; 3],
+    let circuit = hash::HashCircuit::<Fp> {
+        calcs: 3,
+        ..Default::default()
     };
     let vk1 = keygen_vk(&params, &circuit).unwrap();
 
     let mut vk1_buf: Vec<u8> = Vec::new();
     vk1.write(&mut vk1_buf).unwrap();
 
-    let circuit = hash::HashCircuit::<Fp, 3> {
-        inputs: [
-            Some([
+    let circuit = hash::HashCircuit::<Fp> {
+        inputs: vec![
+            [
                 Fp::from_str_vartime("1").unwrap(),
                 Fp::from_str_vartime("2").unwrap(),
-            ]),
-            Some([
+            ],
+            [
                 Fp::from_str_vartime("0").unwrap(),
                 Fp::from_str_vartime("1").unwrap(),
-            ]),
-            None,
+            ],
         ],
-        checks: [None; 3],
+        calcs: 3,
+        ..Default::default()
     };
     let vk2 = keygen_vk(&params, &circuit).unwrap();
 
@@ -71,19 +72,19 @@ fn proof_and_verify() {
     let os_rng = ChaCha8Rng::from_seed([101u8; 32]);
     let mut transcript = Blake2bWrite::<_, _, Challenge255<_>>::init(vec![]);
 
-    let circuit = hash::HashCircuit::<Fp, 3> {
-        inputs: [
-            Some([
+    let circuit = hash::HashCircuit::<Fp> {
+        inputs: vec![
+            [
                 Fp::from_str_vartime("1").unwrap(),
                 Fp::from_str_vartime("2").unwrap(),
-            ]),
-            Some([
+            ],
+            [
                 Fp::from_str_vartime("0").unwrap(),
                 Fp::from_str_vartime("1").unwrap(),
-            ]),
-            None,
+            ],
         ],
-        checks: [None; 3],
+        calcs: 3,
+        ..Default::default()
     };
 
     let prover = MockProver::run(k, &circuit, vec![]).unwrap();
@@ -98,9 +99,9 @@ fn proof_and_verify() {
     let mut transcript = Blake2bRead::<_, _, Challenge255<_>>::init(&proof_script[..]);
     let verifier_params: ParamsVerifier<Bn256> = params.verifier(0).unwrap();
     let strategy = SingleVerifier::new(&verifier_params);
-    let circuit = hash::HashCircuit::<Fp, 3> {
-        inputs: [None, None, None],
-        checks: [None; 3],
+    let circuit = hash::HashCircuit::<Fp> {
+        calcs: 3,
+        ..Default::default()
     };
     let vk = keygen_vk(&params, &circuit).unwrap();
 
