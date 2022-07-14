@@ -3,14 +3,13 @@ use std::marker::PhantomData;
 
 use super::{Mds, Spec};
 
-pub trait P128Pow5T3Constants: std::fmt::Debug {
-    type Fp: FieldExt;
+pub trait P128Pow5T3Constants: FieldExt {
     fn partial_rounds() -> usize {
         56
     }
-    fn round_constants() -> Vec<[Self::Fp; 3]>;
-    fn mds() -> Mds<Self::Fp, 3>;
-    fn mds_inv() -> Mds<Self::Fp, 3>;
+    fn round_constants() -> Vec<[Self; 3]>;
+    fn mds() -> Mds<Self, 3>;
+    fn mds_inv() -> Mds<Self, 3>;
 }
 
 /// Poseidon-128 using the $x^5$ S-box, with a width of 3 field elements, and the
@@ -24,13 +23,13 @@ pub struct P128Pow5T3<C> {
     _marker: PhantomData<C>,
 }
 
-impl<Fp: FieldExt, C: P128Pow5T3Constants<Fp = Fp>> Spec<Fp, 3, 2> for P128Pow5T3<C> {
+impl<Fp: P128Pow5T3Constants> Spec<Fp, 3, 2> for P128Pow5T3<Fp> {
     fn full_rounds() -> usize {
         8
     }
 
     fn partial_rounds() -> usize {
-        C::partial_rounds()
+        Fp::partial_rounds()
     }
 
     fn sbox(val: Fp) -> Fp {
@@ -42,7 +41,7 @@ impl<Fp: FieldExt, C: P128Pow5T3Constants<Fp = Fp>> Spec<Fp, 3, 2> for P128Pow5T
     }
 
     fn constants() -> (Vec<[Fp; 3]>, Mds<Fp, 3>, Mds<Fp, 3>) {
-        (C::round_constants(), C::mds(), C::mds_inv())
+        (Fp::round_constants(), Fp::mds(), Fp::mds_inv())
     }
 }
 

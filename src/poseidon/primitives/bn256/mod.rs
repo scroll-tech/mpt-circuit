@@ -5,19 +5,18 @@ use super::p128pow5t3::P128Pow5T3Constants;
 use super::Mds;
 
 impl P128Pow5T3Constants for Fp {
-    type Fp = Fp;
 
     fn partial_rounds() -> usize {
         57
     }
 
-    fn round_constants() -> Vec<[Self::Fp; 3]> {
+    fn round_constants() -> Vec<[Fp; 3]> {
         fp::ROUND_CONSTANTS.to_vec()
     }
-    fn mds() -> Mds<Self::Fp, 3> {
+    fn mds() -> Mds<Fp, 3> {
         *fp::MDS
     }
-    fn mds_inv() -> Mds<Self::Fp, 3> {
+    fn mds_inv() -> Mds<Fp, 3> {
         *fp::MDS_INV
     }
 }

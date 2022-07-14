@@ -1,11 +1,19 @@
 //! The hash circuit base on poseidon.
 
-use crate::poseidon::primitives::{ConstantLengthIden3, Hash, P128Pow5T3};
+
+use crate::poseidon::primitives::{ConstantLengthIden3, Hash, Spec, P128Pow5T3};
+use halo2_proofs::{arithmetic::FieldExt, circuit::Chip};
 use halo2_proofs::pairing::bn256::Fr;
 use std::convert::TryFrom;
 
+trait PoseidonChip<Fp: FieldExt> : Chip<Fp> {
+    fn construct(config: &Self::Config) -> Self;
+}
+
 /// indicate an field can be hashed in merkle tree (2 Fields to 1 Field)
-pub trait Hashable: Sized {
+pub trait Hashable: FieldExt {
+    /// the spec type used in circuit for this hashable field
+    type SpecType : Spec<Self, 3, 2>;
     /// execute hash for any sequence of fields
     fn hash(inp: [Self; 2]) -> Self;
 }
@@ -13,6 +21,7 @@ pub trait Hashable: Sized {
 type Poseidon = Hash<Fr, P128Pow5T3<Fr>, ConstantLengthIden3<2>, 3, 2>;
 
 impl Hashable for Fr {
+    type SpecType = P128Pow5T3<Self>;
     fn hash(inp: [Self; 2]) -> Self {
         Poseidon::init().hash(inp)
     }
@@ -26,8 +35,8 @@ use halo2_proofs::{
 
 /// The config for hash circuit
 #[derive(Clone, Debug)]
-pub struct HashConfig {
-    permute_config: Pow5Config<Fr, 3, 2>,
+pub struct HashConfig<Fp: FieldExt> {
+    permute_config: Pow5Config<Fp, 3, 2>,
     hash_table: [Column<Advice>; 3],
     constants: [Column<Fixed>; 6],
 }
@@ -40,15 +49,15 @@ pub struct HashCircuit<Fp, const CALCS: usize> {
     pub checks: [Option<Fp>; CALCS],
 }
 
-impl<'d, Fp: Copy, const CALCS: usize> TryFrom<&'d[(Fp, Fp, Fp)]> for HashCircuit<Fp, CALCS> {
+impl<'d, Fp: Copy, const CALCS: usize> TryFrom<&[&'d(Fp, Fp, Fp)]> for HashCircuit<Fp, CALCS> {
 
     type Error = std::array::TryFromSliceError;
-    fn try_from(src: &'d[(Fp, Fp, Fp)]) -> Result<Self, Self::Error> {
+    fn try_from(src: &[&'d(Fp, Fp, Fp)]) -> Result<Self, Self::Error> {
 
         let inputs : Vec<Option<[Fp;2]>> = (0..CALCS).map(|i|{
             if i < src.len() {
                 let (a, b, _) = src[i];
-                Some([a, b])
+                Some([*a, *b])
             } else {
                 None
             }
@@ -57,7 +66,7 @@ impl<'d, Fp: Copy, const CALCS: usize> TryFrom<&'d[(Fp, Fp, Fp)]> for HashCircui
         let checks : Vec<Option<Fp>> = (0..CALCS).map(|i|{
             if i < src.len() {
                 let (_, _, c) = src[i];
-                Some(c)
+                Some(*c)
             } else {
                 None
             }
@@ -70,8 +79,8 @@ impl<'d, Fp: Copy, const CALCS: usize> TryFrom<&'d[(Fp, Fp, Fp)]> for HashCircui
     }
 }
 
-impl<const CALCS: usize> Circuit<Fr> for HashCircuit<Fr, CALCS> {
-    type Config = HashConfig;
+impl<Fp: Hashable, const CALCS: usize> Circuit<Fp> for HashCircuit<Fp, CALCS> {
+    type Config = HashConfig<Fp>;
     type FloorPlanner = SimpleFloorPlanner;
 
     fn without_witnesses(&self) -> Self {
@@ -81,7 +90,7 @@ impl<const CALCS: usize> Circuit<Fr> for HashCircuit<Fr, CALCS> {
         }
     }
 
-    fn configure(meta: &mut ConstraintSystem<Fr>) -> Self::Config {
+    fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
         let state = [0; 3].map(|_| meta.advice_column());
         let partial_sbox = meta.advice_column();
         let constants = [0; 6].map(|_| meta.fixed_column());
@@ -93,7 +102,7 @@ impl<const CALCS: usize> Circuit<Fr> for HashCircuit<Fr, CALCS> {
         meta.enable_equality(constants[0]);
 
         HashConfig {
-            permute_config: Pow5Chip::configure::<P128Pow5T3<Fr>>(
+            permute_config: Pow5Chip::configure::<Fp::SpecType>(
                 meta,
                 state,
                 partial_sbox,
@@ -108,7 +117,7 @@ impl<const CALCS: usize> Circuit<Fr> for HashCircuit<Fr, CALCS> {
     fn synthesize(
         &self,
         config: Self::Config,
-        mut layouter: impl Layouter<Fr>,
+        mut layouter: impl Layouter<Fp>,
     ) -> Result<(), Error> {
         let constant_cells = layouter.assign_region(
             || "constant heading",
@@ -117,7 +126,7 @@ impl<const CALCS: usize> Circuit<Fr> for HashCircuit<Fr, CALCS> {
                     || "constant zero",
                     config.constants[0],
                     0,
-                    || Ok(Fr::zero()),
+                    || Ok(Fp::zero()),
                 )?;
 
                 Ok([StateWord::from(c0)])
@@ -138,12 +147,12 @@ impl<const CALCS: usize> Circuit<Fr> for HashCircuit<Fr, CALCS> {
                         || "dummy inputs",
                         col,
                         0,
-                        || Ok(Fr::zero()),
+                        || Ok(Fp::zero()),
                     )?;                    
                 }
 
                 for (i, inp) in self.inputs.into_iter().enumerate() {
-                    let inp = inp.unwrap_or_else(|| [Fr::zero(), Fr::zero()]);
+                    let inp = inp.unwrap_or_else(|| [Fp::zero(), Fp::zero()]);
                     let offset = i + 1;
 
                     let c1 = region.assign_advice(
@@ -164,7 +173,7 @@ impl<const CALCS: usize> Circuit<Fr> for HashCircuit<Fr, CALCS> {
                         || format!("hash output_{}", i),
                         config.hash_table[2],
                         offset,
-                        || Ok(self.checks[i].unwrap_or_else(||Poseidon::init().hash(inp))),
+                        || Ok(self.checks[i].unwrap_or_else(||Hashable::hash(inp))),
                     )?;
 
                     //we directly specify the init state of permutation
@@ -182,8 +191,8 @@ impl<const CALCS: usize> Circuit<Fr> for HashCircuit<Fr, CALCS> {
             let chip = Pow5Chip::construct(config.permute_config.clone());
 
             let final_state = <Pow5Chip<_, 3, 2> as PoseidonInstructions<
-                Fr,
-                P128Pow5T3<Fr>,
+                Fp,
+                Fp::SpecType,
                 3,
                 2,
             >>::permute(&chip, &mut layouter, &state)?;

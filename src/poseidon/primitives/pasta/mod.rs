@@ -6,15 +6,14 @@ pub(crate) mod test_vectors;
 use super::Mds;
 
 impl super::p128pow5t3::P128Pow5T3Constants for Fp {
-    type Fp = pallas::Base;
 
-    fn round_constants() -> Vec<[Self::Fp; 3]> {
+    fn round_constants() -> Vec<[Self; 3]> {
         return fp::ROUND_CONSTANTS.to_vec();
     }
-    fn mds() -> Mds<Self::Fp, 3> {
+    fn mds() -> Mds<Self, 3> {
         return fp::MDS;
     }
-    fn mds_inv() -> Mds<Self::Fp, 3> {
+    fn mds_inv() -> Mds<Self, 3> {
         return fp::MDS_INV;
     }
 }

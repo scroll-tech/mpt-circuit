@@ -392,6 +392,7 @@ pub struct AccountOp<Fp: PrimeField> {
 }
 
 impl<Fp: PrimeField> AccountOp<Fp> {
+
     /// indicate rows would take for whole operation
     pub fn use_rows(&self) -> usize {
         self.use_rows_account() + self.use_rows_trie_state() + self.use_rows_trie_account()
@@ -444,6 +445,17 @@ impl<Fp: PrimeField> AccountOp<Fp> {
     }
 }
 
+impl<Fp: Hashable> AccountOp<Fp> {
+    /// providing the padding record for hash table
+    pub fn padding_hash() -> (Fp, Fp, Fp) {
+        (
+            Fp::zero(),
+            Fp::zero(),
+            Hashable::hash([Fp::zero(), Fp::zero()])
+        )
+    }
+}
+
 /// include error raised in deserialize or data verification
 #[derive(Debug)]
 pub enum TraceError {
@@ -456,7 +468,7 @@ pub enum TraceError {
 // parse Trace data into MPTPath and additional data (siblings and path)
 struct SMTPathParse<Fp: PrimeField>(MPTPath<Fp>, Vec<Fp>, Vec<Fp>);
 
-impl<'d, Fp: FieldExt + Hashable> TryFrom<&'d serde::SMTPath> for SMTPathParse<Fp> {
+impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTPath> for SMTPathParse<Fp> {
     type Error = TraceError;
     fn try_from(path_trace: &'d serde::SMTPath) -> Result<Self, Self::Error> {
         let mut siblings: Vec<Fp> = Vec::new();
@@ -493,7 +505,7 @@ impl<'d, Fp: FieldExt + Hashable> TryFrom<&'d serde::SMTPath> for SMTPathParse<F
     }
 }
 
-impl<'d, Fp: FieldExt + Hashable> TryFrom<(&'d serde::SMTPath, &'d serde::SMTPath, serde::Hash)>
+impl<'d, Fp: Hashable> TryFrom<(&'d serde::SMTPath, &'d serde::SMTPath, serde::Hash)>
     for SingleOp<Fp>
 {
     type Error = TraceError;
@@ -616,7 +628,7 @@ impl<'d, Fp: FieldExt + Hashable> TryFrom<(&'d serde::SMTPath, &'d serde::SMTPat
     }
 }
 
-impl<'d, Fp: FieldExt + Hashable> TryFrom<(&'d serde::AccountData, Fp)> for Account<Fp> {
+impl<'d, Fp: Hashable> TryFrom<(&'d serde::AccountData, Fp)> for Account<Fp> {
     type Error = TraceError;
     fn try_from(acc_trace: (&'d serde::AccountData, Fp)) -> Result<Self, Self::Error> {
         let (acc, state_root) = acc_trace;
@@ -643,7 +655,7 @@ impl<'d, Fp: FieldExt + Hashable> TryFrom<(&'d serde::AccountData, Fp)> for Acco
     }
 }
 
-impl<'d, Fp: FieldExt + Hashable> TryFrom<&'d serde::SMTTrace> for AccountOp<Fp> {
+impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTTrace> for AccountOp<Fp> {
     type Error = TraceError;
     fn try_from(trace: &'d serde::SMTTrace) -> Result<Self, Self::Error> {
         let acc_trie: SingleOp<Fp> = (
@@ -736,6 +748,7 @@ impl<Fp: FieldExt> From<Fp> for HashableField<Fp> {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct HashTracesSrc<T, Fp: FieldExt> {
     source: T,
     deduplicator: std::collections::HashSet<HashableField<Fp>>,
@@ -745,15 +758,6 @@ impl<T, Fp: FieldExt> From<T> for HashTracesSrc<T, Fp> {
     fn from(source: T) -> Self {
         Self {
             source,
-            deduplicator: Default::default(),
-        }
-    }
-}
-
-impl<T: Clone, Fp: FieldExt> Clone for HashTracesSrc<T, Fp> {
-    fn clone(&self) -> Self {
-        Self {
-            source: self.source.clone(),
             deduplicator: Default::default(),
         }
     }
