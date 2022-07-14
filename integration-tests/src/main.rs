@@ -15,9 +15,10 @@ pub struct BlockResult {
 macro_rules! mock_prove {
     // `()` indicates that the macro takes no argument.
     ($k: expr, $circuits:expr) => {{
-        let (circuit, _) = $circuits;
-        let prover = MockProver::<Fp>::run($k, &circuit, vec![]).unwrap();
-        prover.verify()
+        let (circuit, hash_circuit) = $circuits;
+        let prover_mpt = MockProver::<Fp>::run($k, &circuit, vec![]).unwrap();
+        let prover_hash = MockProver::<Fp>::run($k + 5, &hash_circuit, vec![]).unwrap();
+        (prover_mpt.verify(), prover_hash.verify())
     }};
 }
 
@@ -34,19 +35,19 @@ fn main() {
     let mut data: EthTrie<Fp> = Default::default();
     data.add_ops(ops);
 
-    let (rows, _) = data.use_rows();
+    let (rows, hash_rows) = data.use_rows();
     let log2_ceil = |n| u32::BITS - (n as u32).leading_zeros() - (n & (n - 1) == 0) as u32;
     let k = log2_ceil(rows) + 1;
     let k = k.max(6);
 
     println!(
-        "start proving trace with mpt-circuit, has {} rows and k is {}",
-        rows, k
+        "start proving trace with mpt-circuit, has {} rows, {} hash_rows and base k is {}",
+        rows, hash_rows, k
     );
 
     let final_root = data.final_root();
 
-    let prove_ret = match k {
+    let (prove_mpt_ret, prove_hash_ret) = match k {
         6 => mock_prove!(k, data.circuits::<40>()),
         7 => mock_prove!(k, data.circuits::<90>()),
         8 => mock_prove!(k, data.circuits::<200>()),
@@ -55,7 +56,8 @@ fn main() {
         _ => panic!("too large k {}", k),
     };
 
-    assert_eq!(prove_ret, Ok(()));
+    assert_eq!(prove_mpt_ret, Ok(()));
+    assert_eq!(prove_hash_ret, Ok(()));
 
     println!("done, final hash {:?}", final_root);
 }

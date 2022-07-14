@@ -57,6 +57,7 @@
 //  * verify the acckey column by accumulating the path bit and LeafPath bits ☑
 //
 //  while assignation, OpChip response to assign sibling, acckey and path
+#![allow(clippy::map_identity)]
 
 use super::{CtrlTransitionKind, HashType};
 use crate::operation::{MPTPath, SingleOp};
@@ -166,58 +167,22 @@ impl HashTable {
 
     /// a helper entry to fill hash table with specified rows, use padding record
     /// when hashing_records is not enough
-    pub fn fill_with_paddings<'d, Fp: FieldExt, const ROWS: usize>(
+    pub fn fill_with_paddings<'d, Fp: FieldExt>(
         &self,
         layouter: &mut impl Layouter<Fp>,
         hashing_records: impl Iterator<Item = &'d (Fp, Fp, Fp)> + Clone,
-        padding: (Fp, Fp, Fp)
+        padding: (Fp, Fp, Fp),
+        filled_rows: usize,
     ) -> Result<(), Error> {
-        layouter.assign_region(
-            || "hash table",
-            |mut table| {
-                // default: 0, 0, 0
-                table.assign_advice(|| "default", self.0, 0, || Ok(Fp::zero()))?;
-                table.assign_advice(|| "default", self.1, 0, || Ok(Fp::zero()))?;
-                table.assign_advice(|| "default", self.2, 0, || Ok(Fp::zero()))?;
 
-                let mut next_offset = 1;
-                hashing_records
-                    .clone()
-                    .enumerate()
-                    .try_for_each(|(offset, val)| {
-                        let (lh, rh, h) = val;
-                        let offset = offset + 1;
+        let paddings = [padding];
 
-                        table.assign_advice(|| "left", self.0, offset, || Ok(*lh))?;
-
-                        table.assign_advice(|| "right", self.1, offset, || Ok(*rh))?;
-
-                        table.assign_advice(|| "result", self.2, offset, || Ok(*h))?;
-
-                        next_offset = offset + 1;
-
-                        Ok(())
-                    }).and_then(
-                        |_|{
-                            (next_offset..ROWS).try_for_each(|offset| {
-                                let (lh, rh, h) = padding;
-            
-                                table.assign_advice(|| "left", self.0, offset, || Ok(lh))?;
-            
-                                table.assign_advice(|| "right", self.1, offset, || Ok(rh))?;
-            
-                                table.assign_advice(|| "result", self.2, offset, || Ok(h))?;
-            
-                                next_offset = offset + 1;
-                                Ok(())
-                            })                            
-                        }
-                    )
-
-            },
-        )?;
-
-        Ok(())
+        self.fill(layouter, 
+            hashing_records
+            .map(|i|i) //shrink the lifetime from 'd
+            .chain(paddings.iter().cycle())
+            .take(filled_rows)
+        )
     }
 
     /// a helper entry to fill hash table

@@ -54,6 +54,7 @@ use halo2_proofs::{
 use layers::{LayerGadget, PaddingGadget};
 use mpt::MPTOpGadget;
 use operation::{AccountOp, HashTracesSrc, SingleOp};
+use hash::{HashCircuit, Hashable};
 
 // building lagrange polynmials L for T so that L(n) = 1 when n = T else 0, n in [0, TO]
 fn lagrange_polynomial<Fp: ff::PrimeField, const T: usize, const TO: usize>(
@@ -277,6 +278,13 @@ impl<Fp: FieldExt> EthTrie<Fp> {
         }
     }
 
+    /// Obtain the final root
+    pub fn final_root(&self) -> Fp {
+        self.final_root
+    }
+}
+
+impl<Fp: Hashable> EthTrie<Fp> {
     /// Obtain the total required rows for mpt and hash circuits (include the top and bottom padding)
     pub fn use_rows(&self) -> (usize, usize) {
         // calc rows for mpt circuit, we need to compare the rows used by adviced region and table region
@@ -285,19 +293,16 @@ impl<Fp: FieldExt> EthTrie<Fp> {
         let hash_rows =
             HashTracesSrc::from(self.ops.iter().flat_map(|op| op.hash_traces())).count();
 
-        (adv_rows.max(hash_rows), 0)
-    }
-
-    /// Obtain the final root
-    pub fn final_root(&self) -> Fp {
-        self.final_root
+        (adv_rows.max(hash_rows), hash_rows * Fp::hash_block_size())
     }
 
     /// Create all associated circuit objects
     pub fn circuits<const ROW: usize>(&self) -> (impl Circuit<Fp> + '_, impl Circuit<Fp> + '_) {
+        let hashes : Vec<_> = HashTracesSrc::from(self.ops.iter().flat_map(|op| op.hash_traces())).collect();
+        let hash_circuits : HashCircuit::<Fp, ROW> = hashes.as_slice().try_into().unwrap();
         (
             EthTrieCircuit::<Fp, ROW>(self.ops.as_slice()),
-            EthTrieCircuit::<Fp, ROW>(self.ops.as_slice()),
+            hash_circuits,
         )
     }
 }
@@ -305,7 +310,7 @@ impl<Fp: FieldExt> EthTrie<Fp> {
 #[derive(Clone, Copy)]
 struct EthTrieCircuit<'d, F: FieldExt, const ROW: usize>(&'d [AccountOp<F>]);
 
-impl<Fp: FieldExt, const ROW: usize> Circuit<Fp> for EthTrieCircuit<'_, Fp, ROW> {
+impl<Fp: Hashable, const ROW: usize> Circuit<Fp> for EthTrieCircuit<'_, Fp, ROW> {
     type Config = EthTrieConfig;
     type FloorPlanner = SimpleFloorPlanner;
 
@@ -458,9 +463,12 @@ impl<Fp: FieldExt, const ROW: usize> Circuit<Fp> for EthTrieCircuit<'_, Fp, ROW>
         )?;
 
         let hash_traces_i = self.0.iter().flat_map(|op| op.hash_traces());
-        config
-            .hash_tbl
-            .fill(&mut layouter, HashTracesSrc::from(hash_traces_i))?;
+        config.hash_tbl.fill_with_paddings(
+            &mut layouter, 
+            HashTracesSrc::from(hash_traces_i),
+            (Fp::zero(), Fp::zero(), Hashable::hash([Fp::zero(), Fp::zero()])),
+            ROW,
+        )?;
 
         config.tables.fill_constant(
             &mut layouter,

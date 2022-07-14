@@ -16,6 +16,11 @@ pub trait Hashable: FieldExt {
     type SpecType : Spec<Self, 3, 2>;
     /// execute hash for any sequence of fields
     fn hash(inp: [Self; 2]) -> Self;
+    /// obtain the rows consumed by each circuit block
+    fn hash_block_size() -> usize {
+        Self::SpecType::full_rounds() +
+        (Self::SpecType::partial_rounds() + 1) / 2
+    }
 }
 
 type Poseidon = Hash<Fr, P128Pow5T3<Fr>, ConstantLengthIden3<2>, 3, 2>;
