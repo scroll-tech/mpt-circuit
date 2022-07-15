@@ -51,7 +51,7 @@ use halo2_proofs::{
     circuit::{Layouter, SimpleFloorPlanner},
     plonk::{Circuit, ConstraintSystem, Error, Expression},
 };
-use hash::{HashCircuit, Hashable};
+use hash::Hashable;
 use layers::{LayerGadget, PaddingGadget};
 use mpt::MPTOpGadget;
 use operation::{AccountOp, HashTracesSrc, SingleOp};
@@ -284,6 +284,11 @@ impl<Fp: FieldExt> EthTrie<Fp> {
     }
 }
 
+/// the mpt circuit type
+#[derive(Clone, Default)]
+pub struct EthTrieCircuit<F: FieldExt>(pub Vec<AccountOp<F>>, pub usize);
+pub use hash::HashCircuit;
+
 impl<Fp: Hashable> EthTrie<Fp> {
     /// Obtain the total required rows for mpt and hash circuits (include the top and bottom padding)
     pub fn use_rows(&self) -> (usize, usize) {
@@ -297,7 +302,7 @@ impl<Fp: Hashable> EthTrie<Fp> {
     }
 
     /// Create all associated circuit objects
-    pub fn circuits(&self, rows: usize) -> (impl Circuit<Fp>, impl Circuit<Fp>) {
+    pub fn circuits(&self, rows: usize) -> (EthTrieCircuit<Fp>, HashCircuit<Fp>) {
         let hashes: Vec<_> =
             HashTracesSrc::from(self.ops.iter().flat_map(|op| op.hash_traces())).collect();
         (
@@ -306,9 +311,6 @@ impl<Fp: Hashable> EthTrie<Fp> {
         )
     }
 }
-
-#[derive(Clone)]
-struct EthTrieCircuit<F: FieldExt>(Vec<AccountOp<F>>, usize);
 
 impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
     type Config = EthTrieConfig;
