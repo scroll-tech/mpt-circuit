@@ -16,7 +16,7 @@ pub trait Hashable: FieldExt {
     fn hash(inp: [Self; 2]) -> Self;
     /// obtain the rows consumed by each circuit block
     fn hash_block_size() -> usize {
-        Self::SpecType::full_rounds() + (Self::SpecType::partial_rounds() + 1) / 2
+        1 + Self::SpecType::full_rounds() + (Self::SpecType::partial_rounds() + 1) / 2
     }
 }
 
