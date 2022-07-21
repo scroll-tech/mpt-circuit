@@ -4,24 +4,23 @@
 // When running the script with `npx hardhat run <script>` you'll find the Hardhat
 // Runtime Environment's members available in the global scope.
 const hre = require("hardhat");
-const deploy = require("./deploy.json")
 
 async function main() {
 
-    const Token = await hre.ethers.getContractFactory("ERC20");
-    const addr = deploy.token
-    if (!addr){
-      throw 'no addr for token contract'
-    }
-    const token = Token.attach(addr)
     const [owner] = await hre.ethers.getSigners();
-    console.log('my balance now', await token.balanceOf(owner.address))
-    const targetAddr = hre.ethers.utils.getAddress( "0x8ba1f109551bd432803012645ac136ddd64dba72" )
-    console.log('transfer before', await token.balanceOf(targetAddr))
-    const tx = await token.transfer(targetAddr, 1000);
-    await tx.wait()
-    console.log('transfer after', await token.balanceOf(targetAddr))
+    console.log('my balance now', await owner.getBalance(), owner.address)
 
+    let anotherAcc = new hre.ethers.Wallet("0x160276a92fce4c44039c24471f4c3ca7cacab358094ecd1b4863897eb2bcdba7", hre.ethers.provider)
+
+    console.log('target balance before', await anotherAcc.getBalance())
+
+    const tx = await owner.sendTransaction({
+        to: anotherAcc.address,
+        value: BigInt("10000000000000000"),
+    })
+    await tx.wait()
+
+    console.log('target balance after', await anotherAcc.getBalance())
 }
 
   // We recommend this pattern to be able to use async/await everywhere
@@ -34,4 +33,3 @@ async function main() {
       console.error(error);
       process.exit(1);
     });
-  

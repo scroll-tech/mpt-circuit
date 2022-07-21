@@ -16,11 +16,14 @@ async function main() {
     const token = Token.attach(addr)
     const [owner] = await hre.ethers.getSigners();
     console.log('my balance now', await token.balanceOf(owner.address))
-    const targetAddr = hre.ethers.utils.getAddress( "0x8ba1f109551bd432803012645ac136ddd64dba72" )
-    console.log('transfer before', await token.balanceOf(targetAddr))
-    const tx = await token.transfer(targetAddr, 1000);
-    await tx.wait()
-    console.log('transfer after', await token.balanceOf(targetAddr))
+
+    let pre_txs = [0,1,2,3,4].map(i => "0x000000000000000000000000000000000000000"+i)
+      .map(hre.ethers.utils.getAddress)
+      .map(addr => token.transfer(addr, 1000))
+    
+    let txs = await Promise.all(pre_txs)
+    await Promise.all(txs.map(tx => tx.wait()))
+    console.log('transfer after', await token.balanceOf(owner.address))
 
 }
 
