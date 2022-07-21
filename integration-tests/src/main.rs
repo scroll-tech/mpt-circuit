@@ -43,11 +43,12 @@ fn main() {
         8 => data.circuits(200),
         9 => data.circuits(450),
         10 => data.circuits(900),
+        11 => data.circuits(1950),
         _ => panic!("too large k {}", k),
     };
 
     let prover_mpt = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
-    let prover_hash = MockProver::<Fp>::run(k + 5, &hash_circuit, vec![]).unwrap();
+    let prover_hash = MockProver::<Fp>::run(k + 6, &hash_circuit, vec![]).unwrap();
 
     assert_eq!(prover_mpt.verify(), Ok(()));
     assert_eq!(prover_hash.verify(), Ok(()));

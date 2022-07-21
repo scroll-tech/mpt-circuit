@@ -125,7 +125,9 @@ impl AccountGadget {
         });
 
         //additional row
-        meta.create_gate("nonce", |meta| {
+        // TODO: nonce now can increase more than 1, we should constraint it with lookup table (better than a compare circuit)
+        // BUT: this constraint should also exist in state circui so do we really need it?
+        /*        meta.create_gate("nonce", |meta| {
             let s_enable = meta.query_selector(sel) * meta.query_advice(s_enable, Rotation::cur());
             let row0 = AccountChip::<'_, Fp>::lagrange_polynomial_for_row::<0>(
                 meta.query_advice(ctrl_type, Rotation::cur()),
@@ -139,7 +141,7 @@ impl AccountGadget {
                     * (new_nonce.clone() - old_nonce.clone())
                     * (new_nonce - old_nonce - Expression::Constant(Fp::one())),
             ]
-        });
+        });*/
 
         //additional row
         meta.create_gate("padding row", |meta| {
