@@ -394,8 +394,7 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
                 let mut last_op_code = config.layer.start_op_code();
                 let mut start = config.layer.assign(&mut region, rows, start_root)?;
 
-                //notice, the empty account must be "dummized"
-                let empty_account = operation::Account::<Fp>::default().dummy();
+                let empty_account = Default::default();
                 for op in self.0.iter() {
                     let op_root = op.account_root();
                     config.layer.pace_op(

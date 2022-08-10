@@ -327,8 +327,7 @@ pub struct Account<Fp> {
     pub codehash: (Fp, Fp),
     /// the root of state trie
     pub state_root: Fp,
-    /// the cached traces for calculated all hashes required in obtain the account hash
-    /// the last one calculate the final hash
+    /// cached traces
     pub hash_traces: Vec<(Fp, Fp, Fp)>,
 }
 
@@ -350,16 +349,14 @@ impl<Fp: PrimeField> Account<Fp> {
         self
     }
 
-    /// insert 4 empty hash_trace to build a "empty" account data
-    pub fn dummy(self) -> Self {
+    /// access the cached traces for calculated all hashes required in obtain the account hash
+    /// there is totally 4 of them and the last one calculate the final hash
+    pub fn hash_traces(&self, i: usize) -> Fp {
         if self.hash_traces.is_empty() {
-            Self {
-                hash_traces: vec![(Fp::zero(), Fp::zero(), Fp::zero()); 4],
-                ..self
-            }
-        } else {
-            self
-        }
+            Fp::zero()
+        }else {
+            self.hash_traces[i].2
+        }        
     }
 
     /// complete the account by calculating all traces ad-hoc with hasher function
@@ -373,8 +370,12 @@ impl<Fp: PrimeField> Account<Fp> {
 
     /// the hash of account, which act as leaf value in account trie
     pub fn account_hash(&self) -> Fp {
-        assert_eq!(self.hash_traces.len(), 4);
-        self.hash_traces[3].2
+        if self.hash_traces.is_empty() {
+            Fp::zero()
+        }else {
+            assert_eq!(self.hash_traces.len(), 4);
+            self.hash_traces[3].2    
+        }
     }
 }
 

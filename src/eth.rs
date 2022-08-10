@@ -143,7 +143,7 @@ impl AccountGadget {
             ]
         });*/
 
-        //additional row
+        //additional row can only be actived under 2 circumstance: equal storage root or deleted node (new storage root is 0)
         meta.create_gate("padding row", |meta| {
             let s_enable = meta.query_selector(sel) * meta.query_advice(s_enable, Rotation::cur());
             let row4 = AccountChip::<'_, Fp>::lagrange_polynomial_for_row::<4>(
@@ -152,7 +152,7 @@ impl AccountGadget {
             let old_root = meta.query_advice(exported_old, Rotation::cur());
             let new_root = meta.query_advice(exported_new, Rotation::cur());
 
-            vec![s_enable * row4 * (new_root - old_root)]
+            vec![s_enable * row4 * new_root.clone() * (new_root - old_root) ]
         });
 
         Self {
@@ -360,7 +360,7 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
     }
 
     fn assign(&self, region: &mut Region<'_, Fp>) -> Result<usize, Error> {
-        assert_eq!(self.data.hash_traces.len(), 4);
+        
         let config = &self.config;
         // fill the connected circuit
         let offset = self.offset - 1;
@@ -387,13 +387,13 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
             || "intermediate 1",
             config.intermediate,
             offset,
-            || Ok(self.data.hash_traces[2].2),
+            || Ok(self.data.hash_traces(2)),
         )?;
         region.assign_advice(
             || "exported 1",
             config.exported,
             offset,
-            || Ok(self.data.hash_traces[1].2),
+            || Ok(self.data.hash_traces(1)),
         )?;
         // row 2
         let offset = offset + 1;
@@ -407,7 +407,7 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
             || "exported 2",
             config.exported,
             offset,
-            || Ok(self.data.hash_traces[1].2),
+            || Ok(self.data.hash_traces(1)),
         )?;
         // row 3
         let offset = offset + 1;
@@ -421,7 +421,7 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
             || "intermediate 3",
             config.intermediate,
             offset,
-            || Ok(self.data.hash_traces[0].2),
+            || Ok(self.data.hash_traces(0)),
         )?;
         region.assign_advice(
             || "exported 3",
