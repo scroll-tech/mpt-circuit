@@ -61,6 +61,20 @@ async function creater() {
   return ["creater", creater.address]
 }
 
+async function destructor() {
+
+  // We get the contract to deploy
+  const Creater = await hre.ethers.getContractFactory("SuiciderCreater");
+  const creater = await Creater.deploy();
+
+  await creater.deployed();
+
+  console.log("Creater for suicider deployed to:", creater.address);
+
+  return ["suicider", creater.address]
+}
+
+
 async function caller() {
 
   let [_, greeterAddr] = await greeterDep
@@ -159,7 +173,7 @@ async function dao() {
 
 // We recommend this pattern to be able to use async/await everywhere
 // and properly handle errors.
-Promise.all([greeterDep, erc20(), creater(), caller(), nft(), sushiDep, chef(), voteDep, dao()])
+Promise.all([greeterDep, erc20(), creater(), destructor(), caller(), nft(), sushiDep, chef(), voteDep, dao()])
   .then(res => {
     let fd = fs.openSync(path.join(__dirname, 'deploy.json'), 'w')
     fs.writeFileSync(fd, JSON.stringify(Object.fromEntries(res)))

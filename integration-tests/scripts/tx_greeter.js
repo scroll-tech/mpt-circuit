@@ -15,8 +15,7 @@ async function main() {
     }
     const greeter = Greeter.attach(addr)
     console.log('greet before', await greeter.retrieve())
-    let anotherAcc = new hre.ethers.Wallet("0x160276a92fce4c44039c24471f4c3ca7cacab358094ecd1b4863897eb2bcdba7", hre.ethers.provider)
-    const setGreetingTx = await greeter.connect(anotherAcc).set_value(new Date().getTime());
+    const setGreetingTx = await greeter.set_value(new Date().getTime());
     await setGreetingTx.wait()
     console.log('greet after', await greeter.retrieve())
 

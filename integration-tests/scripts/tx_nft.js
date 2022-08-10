@@ -29,15 +29,20 @@ async function main() {
     await tx.wait()
     console.log('target balance now', await anotherAcc.getBalance())
 
-    const tx1 = await nft.mint(owner.address, tokenId)
-//    await tx1.wait()
-//    console.log('nft owner is', await nft.ownerOf(tokenId))
-    const tx2 = await nft.transferFrom(owner.address, anotherAcc.address, tokenId)
-//    await tx2.wait()
-//    console.log('nft owner after transfer is', await nft.ownerOf(tokenId))
-    
+    const gPrice = await owner.getGasPrice()
+    console.log('estimate gasprice', gPrice)
+/*
+    const tx0 = await nft.mint(owner.address, tokenId + 1)
+    await tx0.wait()
+    console.log('mine leading token', await nft.ownerOf(tokenId + 1))
+    const tx01 = await nft.transferFrom(owner.address, anotherAcc.address, tokenId+1)
+    await tx01.wait()
+    console.log('nft owner after transfer is', await nft.ownerOf(tokenId+1))
+*/
+    // with 3 times of gasprice, we ensure the tx1/2 is executed before tx3
+    const tx1 = await nft.mint(owner.address, tokenId, {gasPrice: gPrice * 3})
+    const tx2 = await nft.transferFrom(owner.address, anotherAcc.address, tokenId, {gasPrice: gPrice * 3})
     const tx3 = await nft.connect(anotherAcc).burn(tokenId)
-//    await tx3.wait()
 
     await Promise.all([tx1.wait(), tx2.wait(), tx3.wait()])
 
