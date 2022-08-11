@@ -354,9 +354,9 @@ impl<Fp: PrimeField> Account<Fp> {
     pub fn hash_traces(&self, i: usize) -> Fp {
         if self.hash_traces.is_empty() {
             Fp::zero()
-        }else {
+        } else {
             self.hash_traces[i].2
-        }        
+        }
     }
 
     /// complete the account by calculating all traces ad-hoc with hasher function
@@ -372,9 +372,9 @@ impl<Fp: PrimeField> Account<Fp> {
     pub fn account_hash(&self) -> Fp {
         if self.hash_traces.is_empty() {
             Fp::zero()
-        }else {
+        } else {
             assert_eq!(self.hash_traces.len(), 4);
-            self.hash_traces[3].2    
+            self.hash_traces[3].2
         }
     }
 }

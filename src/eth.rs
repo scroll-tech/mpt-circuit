@@ -152,7 +152,7 @@ impl AccountGadget {
             let old_root = meta.query_advice(exported_old, Rotation::cur());
             let new_root = meta.query_advice(exported_new, Rotation::cur());
 
-            vec![s_enable * row4 * new_root.clone() * (new_root - old_root) ]
+            vec![s_enable * row4 * new_root.clone() * (new_root - old_root)]
         });
 
         Self {
@@ -360,7 +360,6 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
     }
 
     fn assign(&self, region: &mut Region<'_, Fp>) -> Result<usize, Error> {
-        
         let config = &self.config;
         // fill the connected circuit
         let offset = self.offset - 1;
