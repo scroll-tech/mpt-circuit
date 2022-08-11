@@ -36,6 +36,21 @@ fn trace_parse() {
     }
 }
 
+#[test]
+fn trace_serialize() {
+    let traces: SMTTrace = serde_json::from_str(SMT_TRACE_EXAMPLE).unwrap();
+
+    let re_ser_fst = serde_json::to_string(&traces).unwrap();
+
+    let traces: SMTTrace = serde_json::from_str(&re_ser_fst).unwrap();
+
+    let re_ser_snd = serde_json::to_string(&traces).unwrap();
+
+    assert_eq!(re_ser_fst, re_ser_snd);
+
+    println!("{}", re_ser_snd);
+}
+
 const SMT_TRACE_EXAMPLE: &str = r#"
 {
     "index": 122,

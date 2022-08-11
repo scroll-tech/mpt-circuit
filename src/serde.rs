@@ -4,7 +4,8 @@ use super::HashType;
 use num_bigint::BigUint;
 use serde::{
     de::{Deserializer, Error},
-    Deserialize,
+    ser::Serializer,
+    Deserialize, Serialize,
 };
 use std::fmt::{Debug, Display, Formatter};
 
@@ -27,7 +28,17 @@ impl<'de> Deserialize<'de> for HashType {
     }
 }
 
-impl<'de> Deserialize<'de> for Hash {
+impl<const LEN: usize> Serialize for HexBytes<LEN> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let ret = format!("0x{:0>1$}", self.hex(), LEN * 2);
+        serializer.serialize_str(&ret)
+    }
+}
+
+impl<'de, const LEN: usize> Deserialize<'de> for HexBytes<LEN> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -44,6 +55,22 @@ where
 {
     let de_str = <&'de str>::deserialize(deserializer)?;
     BigUint::parse_bytes(de_str.as_bytes(), 2).ok_or_else(|| D::Error::custom(RowDeError::BigInt))
+}
+
+fn se_uint_hex<S>(bi: &BigUint, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let ret = format!("0x{}", bi.to_str_radix(16));
+    serializer.serialize_str(&ret)
+}
+
+fn se_uint_hex_fixed32<S>(bi: &BigUint, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let ret = format!("0x{:0>64}", bi.to_str_radix(16));
+    serializer.serialize_str(&ret)
 }
 
 fn de_uint_hex<'de, D>(deserializer: D) -> Result<BigUint, D::Error>
@@ -136,12 +163,12 @@ impl Row {
     }
 }
 
-#[derive(Default, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-/// Hash expressed by 256bit integer for a Fp repr
-pub struct Hash([u8; 32]);
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+/// HexBytes struct encoding to "0x...."
+pub struct HexBytes<const LEN: usize>([u8; LEN]);
 
-impl Hash {
-    /// get hex representation of hash
+impl<const LEN: usize> HexBytes<LEN> {
+    /// get hex representation
     pub fn hex(&self) -> String {
         hex::encode(self.0)
     }
@@ -152,48 +179,60 @@ impl Hash {
     }
 }
 
-impl Debug for Hash {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "0x{:032}", self.hex())
+impl<const LEN: usize> Default for HexBytes<LEN> {
+    fn default() -> Self {
+        Self([0; LEN])
     }
 }
 
-impl Display for Hash {
+impl<const LEN: usize> Debug for HexBytes<LEN> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "0x{:032}", self.hex())
+        write!(f, "0x{:0>1$}", self.hex(), LEN * 2)
     }
 }
 
-impl AsRef<[u8; 32]> for Hash {
-    fn as_ref(&self) -> &[u8; 32] {
+impl<const LEN: usize> Display for HexBytes<LEN> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "0x{:0>1$}", self.hex(), LEN * 2)
+    }
+}
+
+impl<const LEN: usize> AsRef<[u8; LEN]> for HexBytes<LEN> {
+    fn as_ref(&self) -> &[u8; LEN] {
         &self.0
     }
 }
 
-impl AsMut<[u8; 32]> for Hash {
-    fn as_mut(&mut self) -> &mut [u8; 32] {
+impl<const LEN: usize> AsMut<[u8; LEN]> for HexBytes<LEN> {
+    fn as_mut(&mut self) -> &mut [u8; LEN] {
         &mut self.0
     }
 }
 
-impl TryFrom<&str> for Hash {
+impl<const LEN: usize> TryFrom<&str> for HexBytes<LEN> {
     type Error = hex::FromHexError;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        let mut hash = Self::default();
+        let mut bytes = Self::default();
         // handling "0x" prefix
         if value.starts_with("0x") {
-            hex::decode_to_slice(value.get(2..).unwrap(), &mut hash.0)?;
+            hex::decode_to_slice(value.get(2..).unwrap(), &mut bytes.0)?;
         } else {
-            hex::decode_to_slice(value, &mut hash.0)?;
+            hex::decode_to_slice(value, &mut bytes.0)?;
         }
 
-        Ok(hash)
+        Ok(bytes)
     }
 }
 
+/// Hash expressed by 256bit integer for a Fp repr
+pub type Hash = HexBytes<32>;
+
+/// Address expressed by 20bytes eth address
+pub type Address = HexBytes<20>;
+
 /// struct in SMTTrace
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct SMTNode {
     /// value
     pub value: Hash,
@@ -202,39 +241,55 @@ pub struct SMTNode {
 }
 
 /// struct in SMTTrace
-#[derive(Debug, Deserialize)]
-#[serde(rename_all(deserialize = "camelCase"))]
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all(deserialize = "camelCase", serialize = "camelCase"))]
 pub struct SMTPath {
     /// root
     pub root: Hash,
     /// leaf
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub leaf: Option<SMTNode>,
     /// path
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub path: Vec<SMTNode>,
     /// partitial key which is used for path
-    #[serde(deserialize_with = "de_uint_hex")]
+    #[serde(deserialize_with = "de_uint_hex", serialize_with = "se_uint_hex")]
     pub path_part: BigUint,
 }
 
 /// struct in SMTTrace
-#[derive(Debug, Deserialize)]
-#[serde(rename_all(deserialize = "camelCase"))]
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all(deserialize = "camelCase", serialize = "camelCase"))]
 pub struct AccountData {
     /// nonce
     pub nonce: u64,
     /// balance
-    #[serde(deserialize_with = "de_uint_hex")]
+    #[serde(deserialize_with = "de_uint_hex", serialize_with = "se_uint_hex")]
     pub balance: BigUint,
     /// codeHash
-    #[serde(default, deserialize_with = "de_uint_hex")]
+    #[serde(
+        default,
+        deserialize_with = "de_uint_hex",
+        serialize_with = "se_uint_hex_fixed32"
+    )]
     pub code_hash: BigUint,
 }
 
+/// struct in SMTTrace
+#[derive(Debug, Deserialize, Serialize)]
+pub struct StateData {
+    /// the key of storage
+    pub key: HexBytes<32>,
+    /// the value of storage
+    pub value: HexBytes<32>,
+}
+
 /// represent an updating on SMT, can convert into AccountOp
-#[derive(Debug, Deserialize)]
-#[serde(rename_all(deserialize = "camelCase"))]
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all(deserialize = "camelCase", serialize = "camelCase"))]
 pub struct SMTTrace {
+    /// Address for the trace
+    pub address: Address,
     /// key of account (hash of address)
     pub account_key: Hash,
     /// SMTPath for account
@@ -244,7 +299,12 @@ pub struct SMTTrace {
     /// SMTPath for storage,
     pub state_path: [Option<SMTPath>; 2],
     /// common State Root, if no change on storage part
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub common_state_root: Option<Hash>,
     /// key of address (hash of storage address)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub state_key: Option<Hash>,
+    /// update on storage
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state_update: Option<[Option<StateData>; 2]>,
 }
