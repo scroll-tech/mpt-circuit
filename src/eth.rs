@@ -143,7 +143,7 @@ impl AccountGadget {
             ]
         });*/
 
-        //additional row can only be actived under 2 circumstance: equal storage root or deleted node (new storage root is 0)
+        //additional row
         meta.create_gate("padding row", |meta| {
             let s_enable = meta.query_selector(sel) * meta.query_advice(s_enable, Rotation::cur());
             let row4 = AccountChip::<'_, Fp>::lagrange_polynomial_for_row::<4>(
@@ -152,7 +152,7 @@ impl AccountGadget {
             let old_root = meta.query_advice(exported_old, Rotation::cur());
             let new_root = meta.query_advice(exported_new, Rotation::cur());
 
-            vec![s_enable * row4 * new_root.clone() * (new_root - old_root)]
+            vec![s_enable * row4 * (new_root - old_root)]
         });
 
         Self {
