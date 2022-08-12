@@ -21,7 +21,7 @@ pub mod hash;
 pub mod poseidon;
 
 /// Indicate the operation type of a row in MPT circuit
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HashType {
     /// Marking the start of node
     Start = 0,

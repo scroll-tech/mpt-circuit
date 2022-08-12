@@ -521,7 +521,7 @@ impl<'d, Fp: Hashable> TryFrom<(&'d serde::SMTPath, &'d serde::SMTPath, serde::H
         let mut new = after_parsed.0;
 
         // sanity check
-        for (a, b) in (&after_parsed.1).iter().zip(&before_parsed.1) {
+        for (a, b) in after_parsed.1.iter().zip(&before_parsed.1) {
             if a != b {
                 println!("compare {:?} {:?}", a, b);
                 return Err(TraceError::DataErr("unmatch siblings".to_string()));
