@@ -3,7 +3,9 @@ use halo2_proofs::dev::MockProver;
 use halo2_proofs::pairing::bn256::{Bn256, Fr as Fp, G1Affine};
 use halo2_proofs::plonk::{create_proof, keygen_pk, keygen_vk, verify_proof, SingleVerifier};
 use halo2_proofs::poly::commitment::{Params, ParamsVerifier};
-use halo2_proofs::transcript::{Blake2bRead, Blake2bWrite, Challenge255};
+use halo2_proofs::transcript::{
+    Blake2bRead, Blake2bWrite, Challenge255, PoseidonRead, PoseidonWrite, TranscriptRead,
+};
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
@@ -134,4 +136,80 @@ fn proof_and_verify() {
     let vk = keygen_vk(&params, &circuit).unwrap();
 
     verify_proof(&verifier_params, &vk, strategy, &[&[]], &mut transcript).unwrap();
+}
+
+#[test]
+fn circuit_connection() {
+    let data: Vec<serde::SMTTrace> = serde_json::from_str(TEST_TRACE).unwrap();
+    let ops: Vec<AccountOp<Fp>> = data
+        .into_iter()
+        .map(|tr| (&tr).try_into().unwrap())
+        .collect();
+
+    let k = 13;
+
+    let params = Params::<G1Affine>::unsafe_setup::<Bn256>(k);
+    let os_rng = ChaCha8Rng::from_seed([101u8; 32]);
+
+    let mut data: EthTrie<Fp> = Default::default();
+    data.add_ops(ops);
+
+    let (mpt_rows, hash_rows) = data.use_rows();
+    println!("mpt {}, hash {}", mpt_rows, hash_rows);
+
+    let commit_indexs = halo2_mpt_circuits::CommitmentIndexs::new::<Fp>();
+    let (trie_index, hash_index) = commit_indexs.hash_pos();
+
+    let (trie_circuit, hash_circuit) = data.circuits(200);
+
+    let vk = keygen_vk(&params, &trie_circuit).unwrap();
+    let pk = keygen_pk(&params, vk, &trie_circuit).unwrap();
+
+    let mut transcript = PoseidonWrite::<_, _, Challenge255<_>>::init(vec![]);
+    create_proof(
+        &params,
+        &pk,
+        &[trie_circuit],
+        &[&[]],
+        os_rng.clone(),
+        &mut transcript,
+    )
+    .unwrap();
+    let proof_script = transcript.finalize();
+
+    let rw_commitment_state = {
+        let mut transcript = PoseidonRead::<_, _, Challenge255<G1Affine>>::init(&proof_script[..]);
+        (0..trie_index).for_each(|_| {
+            transcript.read_point().unwrap();
+        });
+        transcript.read_point().unwrap()
+    };
+    //log::info!("rw_commitment_state {:?}", rw_commitment_state);
+
+    let vk = keygen_vk(&params, &hash_circuit).unwrap();
+    let pk = keygen_pk(&params, vk, &hash_circuit).unwrap();
+
+    let mut transcript = PoseidonWrite::<_, _, Challenge255<_>>::init(vec![]);
+    create_proof(
+        &params,
+        &pk,
+        &[hash_circuit],
+        &[&[]],
+        os_rng,
+        &mut transcript,
+    )
+    .unwrap();
+    let proof_script = transcript.finalize();
+
+    let rw_commitment_evm = {
+        let mut transcript = PoseidonRead::<_, _, Challenge255<G1Affine>>::init(&proof_script[..]);
+        (0..hash_index).for_each(|_| {
+            transcript.read_point().unwrap();
+        });
+        transcript.read_point().unwrap()
+    };
+    //log::info!("rw_commitment_evm {:?}", rw_commitment_evm);
+
+    assert_eq!(rw_commitment_evm, rw_commitment_state);
+    //log::info!("Same commitment! Test passes!");
 }

@@ -34,3 +34,7 @@ path = "integration-tests/src/main.rs"
 [[bench]]
 name = "hash"
 harness = false
+
+[profile.test]
+opt-level = 3
+debug-assertions = true

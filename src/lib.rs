@@ -312,6 +312,41 @@ impl<Fp: Hashable> EthTrie<Fp> {
     }
 }
 
+/// index for hash table's commitments
+pub struct CommitmentIndexs([usize; 3], [usize; 3]);
+
+impl CommitmentIndexs {
+    /// the hash col's pos
+    pub fn hash_pos(&self) -> (usize, usize) {
+        (self.0[2], self.1[2])
+    }
+
+    /// the first input col's pos
+    pub fn left_pos(&self) -> (usize, usize) {
+        (self.0[0], self.1[0])
+    }
+
+    /// the second input col's pos
+    pub fn right_pos(&self) -> (usize, usize) {
+        (self.0[1], self.1[1])
+    }
+
+    /// get commitment
+    pub fn new<Fp: Hashable>() -> Self {
+        let mut cs: ConstraintSystem<Fp> = Default::default();
+        let config = EthTrieCircuit::configure(&mut cs);
+
+        let trie_circuit_indexs = config.hash_tbl.commitment_index();
+
+        let mut cs: ConstraintSystem<Fp> = Default::default();
+        let config = HashCircuit::configure(&mut cs);
+
+        let hash_circuit_indexs = config.commitment_index();
+
+        Self(trie_circuit_indexs, hash_circuit_indexs)
+    }
+}
+
 impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
     type Config = EthTrieConfig;
     type FloorPlanner = SimpleFloorPlanner;

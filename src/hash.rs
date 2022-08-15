@@ -43,6 +43,12 @@ pub struct HashConfig<Fp: FieldExt> {
     constants: [Column<Fixed>; 6],
 }
 
+impl<Fp: FieldExt> HashConfig<Fp> {
+    pub(crate) fn commitment_index(&self) -> [usize; 3] {
+        self.hash_table.map(|col| col.index())
+    }
+}
+
 /// Hash circuit
 #[derive(Clone, Default)]
 pub struct HashCircuit<Fp> {

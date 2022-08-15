@@ -165,6 +165,10 @@ impl HashTable {
         Self(cols[0], cols[1], cols[2])
     }
 
+    pub fn commitment_index(&self) -> [usize; 3] {
+        [self.0.index(), self.1.index(), self.2.index()]
+    }
+
     /// a helper entry to fill hash table with specified rows, use padding record
     /// when hashing_records is not enough
     pub fn fill_with_paddings<'d, Fp: FieldExt>(
