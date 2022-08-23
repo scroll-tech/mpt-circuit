@@ -15,12 +15,20 @@ async function main() {
     }
     const creater = Creater.attach(addr)
 
+    const CreaterDeep = await hre.ethers.getContractFactory("CreaterDeep");
+    const addrDeep = deploy.createrdeep
+    if (!addrDeep){
+      throw 'no addr for creater deep contract'
+    }
+    const createrDeep = CreaterDeep.attach(addrDeep)
+
     const createGreetingTx = await creater.disp_failing(0);
-    await createGreetingTx.wait()
+    const failTx1 = await createrDeep.deep_disp_failing(0);
+    const failTx2 = await createrDeep.deep_disp_failing_both(0);
 
-    const failAddr = await creater.disp_result()
+    await Promise.allSettled([createGreetingTx.wait(), failTx1.wait(), failTx2.wait()])
 
-    console.log('faiAddr result', failAddr)
+    console.log('faiAddr result', await creater.disp_result(), await createrDeep.status())
 
 }
 

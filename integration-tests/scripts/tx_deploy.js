@@ -12,9 +12,12 @@ async function erc20() {
 
   // We get the contract to deploy
   const Token = await hre.ethers.getContractFactory("ERC20Template");
-  const token = await Token.deploy(ownerAddr, ownerAddr, "USDT coin", "USDT", 18);
+  const FailDep = await hre.ethers.getContractFactory("FailCreate");
 
-  await token.deployed();
+  const token = await Token.deploy(ownerAddr, ownerAddr, "USDT coin", "USDT", 18);
+  const failTx = await FailDep.deploy(0, {gasLimit: 1000000});
+
+  await Promise.allSettled([token.deployed(), failTx.deployed()]);
 
   console.log("ERC20 token deployed to:", token.address);
 

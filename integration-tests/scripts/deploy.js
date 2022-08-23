@@ -48,6 +48,8 @@ async function erc20() {
   return ["token", token.address]
 }
 
+let createrDep = creater()
+
 async function creater() {
 
   // We get the contract to deploy
@@ -59,6 +61,21 @@ async function creater() {
   console.log("Creater deployed to:", creater.address);
 
   return ["creater", creater.address]
+}
+
+async function createrDeep() {
+
+  let [_, createrAddr] = await createrDep
+
+  // We get the contract to deploy
+  const CreaterDeep = await hre.ethers.getContractFactory("CreaterDeep");
+  const createrDeep = await CreaterDeep.deploy(createrAddr);
+
+  await createrDeep.deployed();
+
+  console.log("CreaterDeep deployed to:", createrDeep.address, await createrDeep.callAddress());
+
+  return ["createrdeep", createrDeep.address]
 }
 
 async function destructor() {
@@ -74,6 +91,7 @@ async function destructor() {
   return ["suicider", creater.address]
 }
 
+let callerDep = caller()
 
 async function caller() {
 
@@ -85,11 +103,25 @@ async function caller() {
 
   await caller.deployed();
 
-  console.log("Caller deployed to:", caller.address);
+  console.log("Caller deployed to:", caller.address, await caller.callAddress());
 
   return ["caller", caller.address]
 }
 
+async function callerDeep() {
+
+  let [_, callerAddr] = await callerDep
+
+  // We get the contract to deploy
+  const CallerDeep = await hre.ethers.getContractFactory("CallerDeep");
+  const callerDeep = await CallerDeep.deploy(callerAddr);
+
+  await callerDeep.deployed();
+
+  console.log("DeepCaller deployed to:", callerDeep.address, await callerDeep.callAddress());
+
+  return ["callerdeep", callerDeep.address]
+}
 
 async function sushi() {
 
@@ -173,7 +205,7 @@ async function dao() {
 
 // We recommend this pattern to be able to use async/await everywhere
 // and properly handle errors.
-Promise.all([greeterDep, erc20(), creater(), destructor(), caller(), nft(), sushiDep, chef(), voteDep, dao()])
+Promise.all([greeterDep, erc20(), createrDep, createrDeep(), destructor(), callerDep, callerDeep(), nft(), sushiDep, chef(), voteDep, dao()])
   .then(res => {
     let fd = fs.openSync(path.join(__dirname, 'deploy.json'), 'w')
     fs.writeFileSync(fd, JSON.stringify(Object.fromEntries(res)))

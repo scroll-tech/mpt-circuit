@@ -23,9 +23,24 @@ async function main() {
     }
     const caller = Caller.attach(callerAddr)
 
-    const setGreetingTx = await caller.set_value(new Date().getTime());
+    const CallerDeep = await hre.ethers.getContractFactory("CallerDeep")
+    const callerDeepAddr = deploy.callerdeep
+    if (!callerDeepAddr){
+      throw 'no addr for deep caller contract'
+    }
+    const callerDeep = CallerDeep.attach(callerDeepAddr)
+
+    const setGreetingTx = await callerDeep.set_value_failing_deep(100);
     await setGreetingTx.wait()
+    console.log('after failed deep', await callerDeep.status())
+
+    const st = new Date().getTime()
+    const setGreetingTx1 = await caller.set_value(st);
+    const setGreetingTx2 = await callerDeep.set_value_deep(st);
+    const setGreetingTx3 = await callerDeep.set_value_failing_deep(0); 
+    await Promise.all([setGreetingTx1.wait(), setGreetingTx2.wait(), setGreetingTx3.wait()])
     console.log('greet after', await greeter.retrieve())
+    console.log('greet after deep', await callerDeep.status())
 
 }
 

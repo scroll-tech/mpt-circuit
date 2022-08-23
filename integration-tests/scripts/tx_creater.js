@@ -15,8 +15,19 @@ async function main() {
     }
     const creater = Creater.attach(addr)
 
-    const createGreetingTx = await creater.disp(new Date().getTime());
-    await createGreetingTx.wait()
+    const CreaterDeep = await hre.ethers.getContractFactory("CreaterDeep");
+    const addrDeep = deploy.createrdeep
+    if (!addrDeep){
+      throw 'no addr for creater deep contract'
+    }
+    const createrDeep = CreaterDeep.attach(addrDeep)
+
+    const st = new Date().getTime()
+
+    const createGreetingTx = await creater.disp(st);
+    const deepCreateTx = await createrDeep.deep_disp(st);
+
+    await Promise.all([createGreetingTx.wait(), deepCreateTx.wait()])
 
     const gtAddr = await creater.disp_result()
 

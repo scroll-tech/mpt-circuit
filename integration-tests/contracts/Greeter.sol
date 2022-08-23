@@ -31,4 +31,13 @@ contract Greeter {
         number = num;
         require(false);
     }
+
+    function set_value_and_receive(uint256 num) public payable {
+        number = num;
+    }
+
+    function set_value_and_receive_failing(uint256 num) public payable {
+        number = num;
+        revert("deliberately");
+    }
 }
