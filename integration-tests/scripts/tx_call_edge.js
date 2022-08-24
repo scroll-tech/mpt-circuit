@@ -20,7 +20,11 @@ async function main() {
   }
   const caller = Caller.attach(callerAddr)
   const tx1 = await caller.pay_failing(10)
-  await Promise.all([tx1.wait(), s.deployed()])
+
+  const wrongCaller = Caller.attach("0xffffffff00000000000000000000000000000000")
+  const tx2 = await wrongCaller.pay_failing(10)
+
+  await Promise.all([tx1.wait(), tx2.wait(), s.deployed()])
   console.log("static Caller deployed:", s.address);
 }
 
