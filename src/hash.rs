@@ -1,7 +1,7 @@
 //! The hash circuit base on poseidon.
 
 use crate::poseidon::primitives::{ConstantLengthIden3, Hash, P128Pow5T3, Spec};
-use halo2_proofs::pairing::bn256::Fr;
+use halo2_proofs::halo2curves::bn256::Fr;
 use halo2_proofs::{arithmetic::FieldExt, circuit::Chip};
 
 trait PoseidonChip<Fp: FieldExt>: Chip<Fp> {
@@ -31,7 +31,7 @@ impl Hashable for Fr {
 
 use crate::poseidon::{PoseidonInstructions, Pow5Chip, Pow5Config, StateWord, Var};
 use halo2_proofs::{
-    circuit::{Layouter, SimpleFloorPlanner},
+    circuit::{Layouter, SimpleFloorPlanner, Value},
     plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Fixed},
 };
 
@@ -127,7 +127,7 @@ impl<Fp: Hashable> Circuit<Fp> for HashCircuit<Fp> {
                     || "constant zero",
                     config.constants[0],
                     0,
-                    || Ok(Fp::zero()),
+                    || Value::known(Fp::zero()),
                 )?;
 
                 Ok([StateWord::from(c0)])
@@ -159,7 +159,7 @@ impl<Fp: Hashable> Circuit<Fp> for HashCircuit<Fp> {
 
                 // notice our hash table has a (0, 0, 0) at the beginning
                 for col in config.hash_table {
-                    region.assign_advice(|| "dummy inputs", col, 0, || Ok(Fp::zero()))?;
+                    region.assign_advice(|| "dummy inputs", col, 0, || Value::known(Fp::zero()))?;
                 }
 
                 for (i, (inp, check)) in inputs_i.zip(checks_i).enumerate() {
@@ -172,14 +172,14 @@ impl<Fp: Hashable> Circuit<Fp> for HashCircuit<Fp> {
                         || format!("hash input first_{}", i),
                         config.hash_table[0],
                         offset,
-                        || Ok(inp[0]),
+                        || Value::known(inp[0]),
                     )?;
 
                     let c2 = region.assign_advice(
                         || format!("hash input second_{}", i),
                         config.hash_table[1],
                         offset,
-                        || Ok(inp[1]),
+                        || Value::known(inp[1]),
                     )?;
 
                     let c3 = region.assign_advice(
@@ -187,7 +187,7 @@ impl<Fp: Hashable> Circuit<Fp> for HashCircuit<Fp> {
                         config.hash_table[2],
                         offset,
                         || {
-                            Ok(if let Some(v) = check {
+                            Value::known(if let Some(v) = check {
                                 *v
                             } else {
                                 Hashable::hash(inp)

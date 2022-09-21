@@ -5,7 +5,11 @@ use rand::{random, SeedableRng};
 use rand_chacha::ChaCha8Rng; // why halo2-merkle tree use base field?
 
 lazy_static! {
-    static ref GAMMA: Fp = Fp::random(ChaCha8Rng::from_seed([101u8; 32]));
+    static ref GAMMA: Fp = Fp::random(rand_gen([101u8; 32]));
+}
+
+pub fn rand_gen(seed: [u8; 32]) -> ChaCha8Rng{
+    ChaCha8Rng::from_seed(seed)
 }
 
 pub fn mock_hash(a: &Fp, b: &Fp) -> Fp {

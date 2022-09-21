@@ -3,7 +3,7 @@ use std::iter;
 
 use halo2_proofs::{
     arithmetic::FieldExt,
-    circuit::{AssignedCell, Cell, Chip, Layouter, Region},
+    circuit::{AssignedCell, Cell, Chip, Layouter, Region, Value},
     plonk::{Advice, Any, Column, ConstraintSystem, Error, Expression, Fixed, Selector},
     poly::Rotation,
 };
@@ -19,7 +19,7 @@ pub trait Var<F: FieldExt>: Clone + std::fmt::Debug + From<AssignedCell<F, F>> {
     fn cell(&self) -> Cell;
 
     /// The value allocated to this variable.
-    fn value(&self) -> Option<F>;
+    fn value(&self) -> Value<F>;
 }
 
 impl<F: FieldExt> Var<F> for AssignedCell<F, F> {
@@ -27,7 +27,7 @@ impl<F: FieldExt> Var<F> for AssignedCell<F, F> {
         self.cell()
     }
 
-    fn value(&self) -> Option<F> {
+    fn value(&self) -> Value<F> {
         self.value().cloned()
     }
 }
@@ -401,7 +401,7 @@ impl<
                             || format!("load pad_{}", i),
                             config.rc_b[i],
                             1,
-                            || Ok(padding_value),
+                            || Value::known(padding_value),
                         )?,
                         _ => panic!("Input is not padded"),
                     };
@@ -419,22 +419,12 @@ impl<
 
                 // Constrain the output.
                 let constrain_output_word = |i: usize| {
-                    let value = initial_state[i].0.value().and_then(|initial_word| {
-                        input
-                            .get(i)
-                            .map(|word| word.0.value().cloned())
-                            // The capacity element is never altered by the input.
-                            .unwrap_or_else(|| Some(F::zero()))
-                            .map(|input_word| *initial_word + input_word)
-                    });
-                    region
-                        .assign_advice(
+                    region.assign_advice(
                             || format!("load output_{}", i),
                             config.state[i],
                             2,
-                            || value.ok_or(Error::Synthesis),
-                        )
-                        .map(StateWord)
+                            || initial_state[i].value() + input[i].value(),
+                        ).map(StateWord)
                 };
 
                 let output: Result<Vec<_>, Error> = (0..WIDTH).map(constrain_output_word).collect();
@@ -476,7 +466,7 @@ impl<F: FieldExt> Var<F> for StateWord<F> {
         self.0.cell()
     }
 
-    fn value(&self) -> Option<F> {
+    fn value(&self) -> Value<F> {
         self.0.value().cloned()
     }
 }
@@ -494,19 +484,11 @@ impl<F: FieldExt, const WIDTH: usize> Pow5State<F, WIDTH> {
     ) -> Result<Self, Error> {
         Self::round(region, config, round, offset, config.s_full, |_| {
             let q = self.0.iter().enumerate().map(|(idx, word)| {
-                word.0
-                    .value()
-                    .map(|v| *v + config.round_constants[round][idx])
+                word.value() + Value::known(config.round_constants[round][idx])
             });
-            let r: Option<Vec<F>> = q.map(|q| q.map(|q| q.pow(&config.alpha))).collect();
+            let r: Vec<Value<F>> = q.map(|q| q.map(|q| q.pow(&config.alpha))).collect();
             let m = &config.m_reg;
-            let state = m.iter().map(|m_i| {
-                r.as_ref().map(|r| {
-                    r.iter()
-                        .enumerate()
-                        .fold(F::zero(), |acc, (j, r_j)| acc + m_i[j] * r_j)
-                })
-            });
+            let state = m.iter().map(|m_i| r.iter().enumerate().fold(Value::known(F::zero()), |acc, (j, r_j)| acc + Value::known(m_i[j]) * r_j));
 
             Ok((round + 1, state.collect::<Vec<_>>().try_into().unwrap()))
         })
@@ -526,26 +508,19 @@ impl<F: FieldExt, const WIDTH: usize> Pow5State<F, WIDTH> {
             offset,
             config.s_partial_single,
             |_| {
-                let r: Option<Vec<F>> = self
+                let r: Vec<Value<F>> = self
                     .0
                     .iter()
                     .enumerate()
                     .map(|(idx, word)| {
-                        word.0
-                            .value()
-                            .map(|v| *v + config.round_constants[round][idx])
+                        word.value()
+                            .map(|v| v + config.round_constants[round][idx])
                             .map(|v| if idx == 0 { v.pow(&config.alpha) } else { v })
                     })
                     .collect();
 
                 let m = &config.m_reg;
-                let state = m.iter().map(|m_i| {
-                    r.as_ref().map(|r| {
-                        r.iter()
-                            .enumerate()
-                            .fold(F::zero(), |acc, (j, r_j)| acc + m_i[j] * r_j)
-                    })
-                });
+                let state = m.iter().map(|m_i| r.iter().enumerate().fold(Value::known(F::zero()), |acc, (j, r_j)| acc + Value::known(m_i[j]) * r_j));
 
                 Ok((round + 1, state.collect::<Vec<_>>().try_into().unwrap()))
             },
@@ -561,32 +536,26 @@ impl<F: FieldExt, const WIDTH: usize> Pow5State<F, WIDTH> {
     ) -> Result<Self, Error> {
         Self::round(region, config, round, offset, config.s_partial, |region| {
             let m = &config.m_reg;
-            let p: Option<Vec<_>> = self.0.iter().map(|word| word.0.value().cloned()).collect();
+            let p: Vec<_> = self.0.iter().map(|word| word.value()).collect();
 
-            let r: Option<Vec<_>> = p.map(|p| {
-                let r_0 = (p[0] + config.round_constants[round][0]).pow(&config.alpha);
-                let r_i = p[1..]
-                    .iter()
-                    .enumerate()
-                    .map(|(i, p_i)| *p_i + config.round_constants[round][i + 1]);
-                std::iter::empty().chain(Some(r_0)).chain(r_i).collect()
-            });
+            let r_0 = (p[0] + Value::known(config.round_constants[round][0])).map(|v|v.pow(&config.alpha));
+            let r_i = p[1..].iter().enumerate().map(|(i, p_i)| Value::known(config.round_constants[round][i + 1]) + p_i);
+            let r: Vec<_> = Some(r_0).into_iter().chain(r_i).collect();
 
             region.assign_advice(
                 || format!("round_{} partial_sbox", round),
                 config.partial_sbox,
                 offset,
-                || r.as_ref().map(|r| r[0]).ok_or(Error::Synthesis),
+                || r[0],
             )?;
 
-            let p_mid: Option<Vec<_>> = m
+            let p_mid: Vec<_> = m
                 .iter()
-                .map(|m_i| {
-                    r.as_ref().map(|r| {
-                        m_i.iter()
-                            .zip(r.iter())
-                            .fold(F::zero(), |acc, (m_ij, r_j)| acc + *m_ij * r_j)
-                    })
+                .map(|m_i| {                    
+                    m_i.iter()
+                        .zip(r.iter())
+                        .fold(Value::known(F::zero()), |acc, (m_ij, r_j)| acc + Value::known(*m_ij) * r_j)
+                    
                 })
                 .collect();
 
@@ -596,30 +565,23 @@ impl<F: FieldExt, const WIDTH: usize> Pow5State<F, WIDTH> {
                     || format!("round_{} rc_{}", round + 1, i),
                     config.rc_b[i],
                     offset,
-                    || Ok(config.round_constants[round + 1][i]),
+                    || Value::known(config.round_constants[round + 1][i]),
                 )
             };
             for i in 0..WIDTH {
                 load_round_constant(i)?;
             }
 
-            let r_mid: Option<Vec<_>> = p_mid.map(|p| {
-                let r_0 = (p[0] + config.round_constants[round + 1][0]).pow(&config.alpha);
-                let r_i = p[1..]
-                    .iter()
-                    .enumerate()
-                    .map(|(i, p_i)| *p_i + config.round_constants[round + 1][i + 1]);
-                std::iter::empty().chain(Some(r_0)).chain(r_i).collect()
-            });
+            let r_0 = (p_mid[0] + Value::known(config.round_constants[round + 1][0])).map(|v|v.pow(&config.alpha));
+            let r_i = p_mid[1..].iter().enumerate().map(|(i, p_i)| Value::known(config.round_constants[round + 1][i + 1]) + p_i);
+            let r_mid: Vec<_> = Some(r_0).into_iter().chain(r_i).collect();
 
-            let state: Vec<Option<_>> = m
+            let state: Vec<_> = m
                 .iter()
                 .map(|m_i| {
-                    r_mid.as_ref().map(|r| {
-                        m_i.iter()
-                            .zip(r.iter())
-                            .fold(F::zero(), |acc, (m_ij, r_j)| acc + *m_ij * r_j)
-                    })
+                    m_i.iter()
+                        .zip(r_mid.iter())
+                        .fold(Value::known(F::zero()), |acc, (m_ij, r_j)| acc + Value::known(*m_ij) * r_j)
                 })
                 .collect();
 
@@ -638,7 +600,7 @@ impl<F: FieldExt, const WIDTH: usize> Pow5State<F, WIDTH> {
                     || format!("unset state_{}", i),
                     config.state[i],
                     0,
-                    || Ok(F::zero()),
+                    || Value::known(F::zero()),
                 )?;
                 region.constrain_equal(dummy_word.cell(), initial_state[i].cell())?;
                 Ok(StateWord(dummy_word))
@@ -660,7 +622,7 @@ impl<F: FieldExt, const WIDTH: usize> Pow5State<F, WIDTH> {
         round: usize,
         offset: usize,
         round_gate: Selector,
-        round_fn: impl FnOnce(&mut Region<F>) -> Result<(usize, [Option<F>; WIDTH]), Error>,
+        round_fn: impl FnOnce(&mut Region<F>) -> Result<(usize, [Value<F>; WIDTH]), Error>,
     ) -> Result<Self, Error> {
         // Enable the required gate.
         round_gate.enable(region, offset)?;
@@ -671,7 +633,7 @@ impl<F: FieldExt, const WIDTH: usize> Pow5State<F, WIDTH> {
                 || format!("round_{} rc_{}", round, i),
                 config.rc_a[i],
                 offset,
-                || Ok(config.round_constants[round][i]),
+                || Value::known(config.round_constants[round][i]),
             )
         };
         for i in 0..WIDTH {
@@ -687,7 +649,7 @@ impl<F: FieldExt, const WIDTH: usize> Pow5State<F, WIDTH> {
                 || format!("round_{} state_{}", next_round, i),
                 config.state[i],
                 offset + 1,
-                || value.ok_or(Error::Synthesis),
+                || value,
             )?;
             Ok(StateWord(var))
         };

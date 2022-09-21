@@ -57,7 +57,7 @@ use mpt::MPTOpGadget;
 use operation::{AccountOp, HashTracesSrc, SingleOp};
 
 // building lagrange polynmials L for T so that L(n) = 1 when n = T else 0, n in [0, TO]
-fn lagrange_polynomial<Fp: ff::PrimeField, const T: usize, const TO: usize>(
+fn lagrange_polynomial<Fp: FieldExt, const T: usize, const TO: usize>(
     ref_n: Expression<Fp>,
 ) -> Expression<Fp> {
     let mut denominators: Vec<Fp> = (0..(TO + 1))
