@@ -662,9 +662,9 @@ impl<F: FieldExt, const WIDTH: usize> Pow5State<F, WIDTH> {
 #[cfg(test)]
 mod tests {
     use crate::poseidon::primitives::pasta::{test_vectors, Fp};
-    use ff::{Field, PrimeField};
+    use halo2_proofs::halo2curves::group::ff::{Field, PrimeField};
     use halo2_proofs::{
-        circuit::{Layouter, SimpleFloorPlanner},
+        circuit::{Layouter, SimpleFloorPlanner, Value},
         dev::MockProver,
         plonk::{Circuit, ConstraintSystem, Error},
     };
@@ -719,12 +719,11 @@ mod tests {
                 || "prepare initial state",
                 |mut region| {
                     let state_word = |i: usize| {
-                        let value = Some(Fp::from(i as u64));
                         let var = region.assign_advice(
                             || format!("load state_{}", i),
                             config.state[i],
                             0,
-                            || value.ok_or(Error::Synthesis),
+                            || Value::known(Fp::from(i as u64)),
                         )?;
                         Ok(StateWord(var))
                     };
@@ -763,7 +762,7 @@ mod tests {
                             || format!("load final_state_{}", i),
                             config.state[i],
                             0,
-                            || Ok(expected_final_state[i]),
+                            || Value::known(expected_final_state[i]),
                         )?;
                         region.constrain_equal(final_state[i].0.cell(), var.cell())
                     };
@@ -847,7 +846,7 @@ mod tests {
                             || format!("load message_{}", i),
                             config.state[i],
                             0,
-                            || value.ok_or(Error::Synthesis),
+                            || if let Some(v) = value {Value::known(v)} else {Value::unknown()},
                         )
                     };
 
@@ -869,7 +868,7 @@ mod tests {
                         || "load output",
                         config.state[0],
                         0,
-                        || self.output.ok_or(Error::Synthesis),
+                        || if let Some(v) = self.output {Value::known(v)} else {Value::unknown()}
                     )?;
                     region.constrain_equal(output.cell(), expected_var.cell())
                 },
