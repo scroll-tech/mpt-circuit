@@ -372,7 +372,12 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
 
         // row 0
         let offset = offset + 1;
-        region.assign_advice(|| "input 0", config.input, offset, || Value::known(self.data.nonce))?;
+        region.assign_advice(
+            || "input 0",
+            config.input,
+            offset,
+            || Value::known(self.data.nonce),
+        )?;
         region.assign_advice(
             || "exported 0",
             config.exported,
@@ -381,7 +386,12 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
         )?;
         // row 1
         let offset = offset + 1;
-        region.assign_advice(|| "input 1", config.input, offset, || Value::known(self.data.balance))?;
+        region.assign_advice(
+            || "input 1",
+            config.input,
+            offset,
+            || Value::known(self.data.balance),
+        )?;
         region.assign_advice(
             || "intermediate 1",
             config.intermediate,
@@ -528,7 +538,12 @@ mod test {
                         config.sel.enable(&mut region, offset)?;
                     }
                     for col in config.free_cols {
-                        region.assign_advice(|| "flush last row", col, till, || Value::known(Fp::zero()))?;
+                        region.assign_advice(
+                            || "flush last row",
+                            col,
+                            till,
+                            || Value::known(Fp::zero()),
+                        )?;
                     }
                     Ok(())
                 },

@@ -2,12 +2,15 @@ use halo2_mpt_circuits::{operation::AccountOp, serde, EthTrie};
 use halo2_proofs::dev::MockProver;
 use halo2_proofs::halo2curves::bn256::{Bn256, Fr as Fp, G1Affine};
 use halo2_proofs::plonk::{create_proof, keygen_pk, keygen_vk, verify_proof};
-use halo2_proofs::poly::kzg::commitment::{KZGCommitmentScheme, ParamsKZG as Params, ParamsVerifierKZG as ParamsVerifier};
-use halo2_proofs::poly::kzg::multiopen::{ProverSHPLONK, VerifierSHPLONK};
 use halo2_proofs::poly::commitment::ParamsProver;
+use halo2_proofs::poly::kzg::commitment::{
+    KZGCommitmentScheme, ParamsKZG as Params, ParamsVerifierKZG as ParamsVerifier,
+};
+use halo2_proofs::poly::kzg::multiopen::{ProverSHPLONK, VerifierSHPLONK};
 use halo2_proofs::poly::kzg::strategy::SingleStrategy;
 use halo2_proofs::transcript::{
-    Blake2bRead, Blake2bWrite, Challenge255, PoseidonRead, PoseidonWrite, TranscriptRead, TranscriptReadBuffer, TranscriptWriterBuffer,
+    Blake2bRead, Blake2bWrite, Challenge255, PoseidonRead, PoseidonWrite, TranscriptRead,
+    TranscriptReadBuffer, TranscriptWriterBuffer,
 };
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -127,7 +130,15 @@ fn proof_and_verify() {
     let vk = keygen_vk(&params, &circuit).unwrap();
     let pk = keygen_pk(&params, vk, &circuit).unwrap();
 
-    create_proof::<KZGCommitmentScheme<Bn256>, ProverSHPLONK<'_, Bn256>, _, _, _, _>(&params, &pk, &[circuit], &[&[]], os_rng, &mut transcript).unwrap();
+    create_proof::<KZGCommitmentScheme<Bn256>, ProverSHPLONK<'_, Bn256>, _, _, _, _>(
+        &params,
+        &pk,
+        &[circuit],
+        &[&[]],
+        os_rng,
+        &mut transcript,
+    )
+    .unwrap();
 
     let proof_script = transcript.finalize();
     let mut transcript = Blake2bRead::<_, _, Challenge255<_>>::init(&proof_script[..]);
@@ -138,7 +149,14 @@ fn proof_and_verify() {
     let (circuit, _) = data.circuits(200);
     let vk = keygen_vk(&params, &circuit).unwrap();
 
-    verify_proof::<KZGCommitmentScheme<Bn256>, VerifierSHPLONK<'_, Bn256>, _, _, _>(&verifier_params, &vk, strategy, &[&[]], &mut transcript).unwrap();
+    verify_proof::<KZGCommitmentScheme<Bn256>, VerifierSHPLONK<'_, Bn256>, _, _, _>(
+        &verifier_params,
+        &vk,
+        strategy,
+        &[&[]],
+        &mut transcript,
+    )
+    .unwrap();
 }
 
 #[test]

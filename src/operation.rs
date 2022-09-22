@@ -298,7 +298,10 @@ impl<Fp: FieldExt> SingleOp<Fp> {
 fn bytes_to_fp<Fp: FieldExt>(mut bt: Vec<u8>) -> std::io::Result<Fp> {
     // let expected_size = Fp::NUM_BITS as usize / 8 + if Fp::NUM_BITS % 8 == 0 { 0 } else { 1 };
     bt.resize(64, 0u8);
-    let arr : [u8; 64] = bt.as_slice().try_into().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    let arr: [u8; 64] = bt
+        .as_slice()
+        .try_into()
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
     Ok(Fp::from_bytes_wide(&arr))
 }
 
@@ -500,7 +503,7 @@ impl<'d, Fp: Hashable> TryFrom<(&'d serde::SMTPath, &'d serde::SMTPath, serde::H
     ) -> Result<Self, Self::Error> {
         let (before, after, ref_key) = traces;
 
-        let key = Fp::from_bytes_wide(&mut ref_key.cast());
+        let key = Fp::from_bytes_wide(&ref_key.cast());
         let before_parsed: SMTPathParse<Fp> = before.try_into()?;
         let after_parsed: SMTPathParse<Fp> = after.try_into()?;
         let mut old = before_parsed.0;
@@ -771,8 +774,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::{rand_gen, Fp};
     use halo2_proofs::halo2curves::group::ff::{Field, PrimeField};
-    use crate::test_utils::{Fp, rand_gen};
 
     impl<Fp: FieldExt> SingleOp<Fp> {
         /// create an fully random update operation with leafs customable
@@ -781,9 +784,16 @@ mod tests {
             leafs: Option<(Fp, Fp)>,
             hasher: impl FnMut(&Fp, &Fp) -> Fp + Clone,
         ) -> Self {
-            let siblings: Vec<Fp> = (0..layers).map(|_| Fp::random(rand_gen([101u8; 32]))).collect();
-            let key = Fp::random(rand_gen([99u8;32]));
-            let leafs = leafs.unwrap_or_else(|| (Fp::random(rand_gen([102u8; 32])), Fp::random(rand_gen([103u8; 32]))));
+            let siblings: Vec<Fp> = (0..layers)
+                .map(|_| Fp::random(rand_gen([101u8; 32])))
+                .collect();
+            let key = Fp::random(rand_gen([99u8; 32]));
+            let leafs = leafs.unwrap_or_else(|| {
+                (
+                    Fp::random(rand_gen([102u8; 32])),
+                    Fp::random(rand_gen([103u8; 32])),
+                )
+            });
             Self::create_update_op(layers, &siblings, key, leafs, hasher)
         }
     }

@@ -15,7 +15,6 @@ fn rand_fp() -> Fp {
     Fp::random(ChaCha8Rng::from_seed(arr))
 }
 
-
 lazy_static! {
     static ref GAMMA: Fp = rand_fp();
 }
@@ -33,7 +32,7 @@ fn malice_case_truncated_line() {
     let mut circuit = SimpleTrie::<Fp>::new(20);
 
     let layers = 3;
-    let siblings: Vec<Fp> = (0..layers).map(|_|rand_fp()).collect();
+    let siblings: Vec<Fp> = (0..layers).map(|_| rand_fp()).collect();
     /*
         in common case, 'path bit' gate would detect a non-bit path cell if the hash_types is not empty/leaf,
         but this constraint become vain when the key is small enough that the residents of key is 0 or 1

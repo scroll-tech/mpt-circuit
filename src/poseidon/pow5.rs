@@ -419,12 +419,20 @@ impl<
 
                 // Constrain the output.
                 let constrain_output_word = |i: usize| {
-                    region.assign_advice(
+                    region
+                        .assign_advice(
                             || format!("load output_{}", i),
                             config.state[i],
                             2,
-                            || if let Some(inp) = input.get(i) { initial_state[i].value() + inp.value()} else {initial_state[i].value()},
-                        ).map(StateWord)
+                            || {
+                                if let Some(inp) = input.get(i) {
+                                    initial_state[i].value() + inp.value()
+                                } else {
+                                    initial_state[i].value()
+                                }
+                            },
+                        )
+                        .map(StateWord)
                 };
 
                 let output: Result<Vec<_>, Error> = (0..WIDTH).map(constrain_output_word).collect();
@@ -483,12 +491,19 @@ impl<F: FieldExt, const WIDTH: usize> Pow5State<F, WIDTH> {
         offset: usize,
     ) -> Result<Self, Error> {
         Self::round(region, config, round, offset, config.s_full, |_| {
-            let q = self.0.iter().enumerate().map(|(idx, word)| {
-                word.value() + Value::known(config.round_constants[round][idx])
-            });
+            let q =
+                self.0.iter().enumerate().map(|(idx, word)| {
+                    word.value() + Value::known(config.round_constants[round][idx])
+                });
             let r: Vec<Value<F>> = q.map(|q| q.map(|q| q.pow(&config.alpha))).collect();
             let m = &config.m_reg;
-            let state = m.iter().map(|m_i| r.iter().enumerate().fold(Value::known(F::zero()), |acc, (j, r_j)| acc + Value::known(m_i[j]) * r_j));
+            let state = m.iter().map(|m_i| {
+                r.iter()
+                    .enumerate()
+                    .fold(Value::known(F::zero()), |acc, (j, r_j)| {
+                        acc + Value::known(m_i[j]) * r_j
+                    })
+            });
 
             Ok((round + 1, state.collect::<Vec<_>>().try_into().unwrap()))
         })
@@ -520,7 +535,13 @@ impl<F: FieldExt, const WIDTH: usize> Pow5State<F, WIDTH> {
                     .collect();
 
                 let m = &config.m_reg;
-                let state = m.iter().map(|m_i| r.iter().enumerate().fold(Value::known(F::zero()), |acc, (j, r_j)| acc + Value::known(m_i[j]) * r_j));
+                let state = m.iter().map(|m_i| {
+                    r.iter()
+                        .enumerate()
+                        .fold(Value::known(F::zero()), |acc, (j, r_j)| {
+                            acc + Value::known(m_i[j]) * r_j
+                        })
+                });
 
                 Ok((round + 1, state.collect::<Vec<_>>().try_into().unwrap()))
             },
@@ -538,8 +559,12 @@ impl<F: FieldExt, const WIDTH: usize> Pow5State<F, WIDTH> {
             let m = &config.m_reg;
             let p: Vec<_> = self.0.iter().map(|word| word.value()).collect();
 
-            let r_0 = (p[0] + Value::known(config.round_constants[round][0])).map(|v|v.pow(&config.alpha));
-            let r_i = p[1..].iter().enumerate().map(|(i, p_i)| Value::known(config.round_constants[round][i + 1]) + p_i);
+            let r_0 = (p[0] + Value::known(config.round_constants[round][0]))
+                .map(|v| v.pow(&config.alpha));
+            let r_i = p[1..]
+                .iter()
+                .enumerate()
+                .map(|(i, p_i)| Value::known(config.round_constants[round][i + 1]) + p_i);
             let r: Vec<_> = Some(r_0).into_iter().chain(r_i).collect();
 
             region.assign_advice(
@@ -551,11 +576,12 @@ impl<F: FieldExt, const WIDTH: usize> Pow5State<F, WIDTH> {
 
             let p_mid: Vec<_> = m
                 .iter()
-                .map(|m_i| {                    
+                .map(|m_i| {
                     m_i.iter()
                         .zip(r.iter())
-                        .fold(Value::known(F::zero()), |acc, (m_ij, r_j)| acc + Value::known(*m_ij) * r_j)
-                    
+                        .fold(Value::known(F::zero()), |acc, (m_ij, r_j)| {
+                            acc + Value::known(*m_ij) * r_j
+                        })
                 })
                 .collect();
 
@@ -572,8 +598,12 @@ impl<F: FieldExt, const WIDTH: usize> Pow5State<F, WIDTH> {
                 load_round_constant(i)?;
             }
 
-            let r_0 = (p_mid[0] + Value::known(config.round_constants[round + 1][0])).map(|v|v.pow(&config.alpha));
-            let r_i = p_mid[1..].iter().enumerate().map(|(i, p_i)| Value::known(config.round_constants[round + 1][i + 1]) + p_i);
+            let r_0 = (p_mid[0] + Value::known(config.round_constants[round + 1][0]))
+                .map(|v| v.pow(&config.alpha));
+            let r_i = p_mid[1..]
+                .iter()
+                .enumerate()
+                .map(|(i, p_i)| Value::known(config.round_constants[round + 1][i + 1]) + p_i);
             let r_mid: Vec<_> = Some(r_0).into_iter().chain(r_i).collect();
 
             let state: Vec<_> = m
@@ -581,7 +611,9 @@ impl<F: FieldExt, const WIDTH: usize> Pow5State<F, WIDTH> {
                 .map(|m_i| {
                     m_i.iter()
                         .zip(r_mid.iter())
-                        .fold(Value::known(F::zero()), |acc, (m_ij, r_j)| acc + Value::known(*m_ij) * r_j)
+                        .fold(Value::known(F::zero()), |acc, (m_ij, r_j)| {
+                            acc + Value::known(*m_ij) * r_j
+                        })
                 })
                 .collect();
 
@@ -846,7 +878,13 @@ mod tests {
                             || format!("load message_{}", i),
                             config.state[i],
                             0,
-                            || if let Some(v) = value {Value::known(v)} else {Value::unknown()},
+                            || {
+                                if let Some(v) = value {
+                                    Value::known(v)
+                                } else {
+                                    Value::unknown()
+                                }
+                            },
                         )
                     };
 
@@ -868,7 +906,13 @@ mod tests {
                         || "load output",
                         config.state[0],
                         0,
-                        || if let Some(v) = self.output {Value::known(v)} else {Value::unknown()}
+                        || {
+                            if let Some(v) = self.output {
+                                Value::known(v)
+                            } else {
+                                Value::unknown()
+                            }
+                        },
                     )?;
                     region.constrain_equal(output.cell(), expected_var.cell())
                 },

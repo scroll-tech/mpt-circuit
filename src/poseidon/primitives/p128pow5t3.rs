@@ -49,8 +49,8 @@ impl<Fp: P128Pow5T3Constants> Spec<Fp, 3, 2> for P128Pow5T3<Fp> {
 mod tests {
     use std::marker::PhantomData;
 
-    use halo2_proofs::halo2curves::group::ff::PrimeField;
     use halo2_proofs::arithmetic::FieldExt;
+    use halo2_proofs::halo2curves::group::ff::PrimeField;
 
     use super::super::pasta::{fp, test_vectors, Fp};
     use crate::poseidon::primitives::{permute, ConstantLength, Hash, Spec};

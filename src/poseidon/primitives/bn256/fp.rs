@@ -1,8 +1,5 @@
 use halo2_proofs::arithmetic::Field;
-use halo2_proofs::halo2curves::{
-    group::ff::PrimeField,
-    bn256::Fr as Fp,
-};
+use halo2_proofs::halo2curves::{bn256::Fr as Fp, group::ff::PrimeField};
 use lazy_static::lazy_static;
 
 lazy_static! {

@@ -135,11 +135,26 @@ impl MPTOpTables {
 
                 for (offset, item) in rules.clone().enumerate() {
                     let offset = offset + 1;
-                    table.assign_cell(|| "cur", self.0, offset, || Value::known(Fp::from(item.0 as u64)))?;
+                    table.assign_cell(
+                        || "cur",
+                        self.0,
+                        offset,
+                        || Value::known(Fp::from(item.0 as u64)),
+                    )?;
 
-                    table.assign_cell(|| "next", self.1, offset, || Value::known(Fp::from(item.1 as u64)))?;
+                    table.assign_cell(
+                        || "next",
+                        self.1,
+                        offset,
+                        || Value::known(Fp::from(item.1 as u64)),
+                    )?;
 
-                    table.assign_cell(|| "mark", self.2, offset, || Value::known(Fp::from(item.2 as u64)))?;
+                    table.assign_cell(
+                        || "mark",
+                        self.2,
+                        offset,
+                        || Value::known(Fp::from(item.2 as u64)),
+                    )?;
                 }
                 Ok(())
             },
@@ -586,12 +601,12 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
                 || "sel",
                 config.s_path,
                 offset,
-                || Value::known(
-                    match hash_type {
+                || {
+                    Value::known(match hash_type {
                         HashType::Start | HashType::Empty | HashType::Leaf => Fp::zero(),
                         _ => Fp::one(),
                     })
-                ,
+                },
             )?;
             offset += 1;
         }
@@ -766,7 +781,12 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
         let siblings = &self.data.siblings;
         assert_eq!(paths.len(), siblings.len());
         let mut offset = self.offset;
-        region.assign_advice(|| "path padding", config.path, offset, || Value::known(Fp::zero()))?;
+        region.assign_advice(
+            || "path padding",
+            config.path,
+            offset,
+            || Value::known(Fp::zero()),
+        )?;
         region.assign_advice(
             || "acckey padding",
             config.acc_key,
@@ -794,9 +814,19 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
             acc_key = *path * cur_depth + acc_key;
 
             region.assign_advice(|| "path", config.path, offset, || Value::known(*path))?;
-            region.assign_advice(|| "acckey", config.acc_key, offset, || Value::known(acc_key))?;
+            region.assign_advice(
+                || "acckey",
+                config.acc_key,
+                offset,
+                || Value::known(acc_key),
+            )?;
             region.assign_advice(|| "depth", config.depth, offset, || Value::known(cur_depth))?;
-            region.assign_advice(|| "sibling", config.sibling, offset, || Value::known(*sibling))?;
+            region.assign_advice(
+                || "sibling",
+                config.sibling,
+                offset,
+                || Value::known(*sibling),
+            )?;
 
             cur_depth = cur_depth.double();
             offset += 1;
@@ -816,7 +846,12 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
             || Value::known(self.data.key_immediate),
         )?;
         region.assign_advice(|| "depth", config.depth, offset, || Value::known(cur_depth))?;
-        region.assign_advice(|| "sibling", config.sibling, offset, || Value::known(Fp::zero()))?;
+        region.assign_advice(
+            || "sibling",
+            config.sibling,
+            offset,
+            || Value::known(Fp::zero()),
+        )?;
 
         Ok(offset + 1)
     }
@@ -859,16 +894,61 @@ mod test {
 
         /// simply flush a row with 0 value to avoid gate poisoned / cell error in debug prover,
         pub fn flush_row(&self, region: &mut Region<'_, Fp>, offset: usize) -> Result<(), Error> {
-            region.assign_advice(|| "flushing", self.s_enable, offset, || Value::known(Fp::zero()))?;
-            region.assign_advice(|| "flushing", self.s_path, offset, || Value::known(rand_fp()))?;
-            region.assign_advice(|| "flushing", self.depth, offset, || Value::known(rand_fp()))?;
-            region.assign_advice(|| "flushing", self.sibling, offset, || Value::known(rand_fp()))?;
-            region.assign_advice(|| "flushing", self.acc_key, offset, || Value::known(rand_fp()))?;
+            region.assign_advice(
+                || "flushing",
+                self.s_enable,
+                offset,
+                || Value::known(Fp::zero()),
+            )?;
+            region.assign_advice(
+                || "flushing",
+                self.s_path,
+                offset,
+                || Value::known(rand_fp()),
+            )?;
+            region.assign_advice(
+                || "flushing",
+                self.depth,
+                offset,
+                || Value::known(rand_fp()),
+            )?;
+            region.assign_advice(
+                || "flushing",
+                self.sibling,
+                offset,
+                || Value::known(rand_fp()),
+            )?;
+            region.assign_advice(
+                || "flushing",
+                self.acc_key,
+                offset,
+                || Value::known(rand_fp()),
+            )?;
             region.assign_advice(|| "flushing", self.path, offset, || Value::known(rand_fp()))?;
-            region.assign_advice(|| "flushing", self.old_hash_type, offset, || Value::known(rand_fp()))?;
-            region.assign_advice(|| "flushing", self.new_hash_type, offset, || Value::known(rand_fp()))?;
-            region.assign_advice(|| "flushing", self.old_val, offset, || Value::known(rand_fp()))?;
-            region.assign_advice(|| "flushing", self.new_val, offset, || Value::known(rand_fp()))?;
+            region.assign_advice(
+                || "flushing",
+                self.old_hash_type,
+                offset,
+                || Value::known(rand_fp()),
+            )?;
+            region.assign_advice(
+                || "flushing",
+                self.new_hash_type,
+                offset,
+                || Value::known(rand_fp()),
+            )?;
+            region.assign_advice(
+                || "flushing",
+                self.old_val,
+                offset,
+                || Value::known(rand_fp()),
+            )?;
+            region.assign_advice(
+                || "flushing",
+                self.new_val,
+                offset,
+                || Value::known(rand_fp()),
+            )?;
             Ok(())
         }
     }
