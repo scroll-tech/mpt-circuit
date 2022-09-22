@@ -423,7 +423,7 @@ impl<
                             || format!("load output_{}", i),
                             config.state[i],
                             2,
-                            || initial_state[i].value() + input[i].value(),
+                            || if let Some(inp) = input.get(i) { initial_state[i].value() + inp.value()} else {initial_state[i].value()},
                         ).map(StateWord)
                 };
 
