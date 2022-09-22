@@ -1,5 +1,5 @@
-use ff::Field;
-pub use halo2_proofs::{arithmetic::BaseExt, pairing::bn256::Fr as Fp};
+pub use halo2_proofs::arithmetic::Field;
+pub use halo2_proofs::halo2curves::bn256::Fr as Fp;
 use lazy_static::lazy_static;
 use rand::{random, SeedableRng};
 use rand_chacha::ChaCha8Rng; // why halo2-merkle tree use base field?
@@ -25,10 +25,8 @@ pub fn rand_bytes_array<const N: usize>() -> [u8; N] {
 }
 
 pub fn rand_fp() -> Fp {
-    let mut arr = rand_bytes_array::<32>();
-    //avoiding failure in unwrap
-    arr[31] &= 31;
-    Fp::read(&mut &arr[..]).unwrap()
+    let arr = rand_bytes_array::<32>();
+    Fp::random(rand_gen(arr))
 }
 
 macro_rules! print_layout {

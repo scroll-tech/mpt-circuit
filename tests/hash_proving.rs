@@ -1,10 +1,13 @@
-use ff::PrimeField;
+
 use halo2_mpt_circuits::hash;
+use halo2_proofs::halo2curves::{bn256::{Bn256, Fr as Fp, G1Affine}, group::ff::PrimeField};
 use halo2_proofs::dev::MockProver;
-use halo2_proofs::pairing::bn256::{Bn256, Fr as Fp, G1Affine};
-use halo2_proofs::plonk::{create_proof, keygen_pk, keygen_vk, verify_proof, SingleVerifier};
-use halo2_proofs::poly::commitment::{Params, ParamsVerifier};
-use halo2_proofs::transcript::{Blake2bRead, Blake2bWrite, Challenge255};
+use halo2_proofs::plonk::{create_proof, keygen_pk, keygen_vk, verify_proof};
+use halo2_proofs::poly::kzg::commitment::{KZGCommitmentScheme, ParamsKZG as Params, ParamsVerifierKZG as ParamsVerifier};
+use halo2_proofs::poly::kzg::multiopen::{ProverSHPLONK, VerifierSHPLONK};
+use halo2_proofs::poly::commitment::ParamsProver;
+use halo2_proofs::poly::kzg::strategy::SingleStrategy;
+use halo2_proofs::transcript::{Blake2bRead, Blake2bWrite, Challenge255, TranscriptReadBuffer, TranscriptWriterBuffer};
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
@@ -31,7 +34,7 @@ fn hash_circuit() {
 
 #[test]
 fn vk_validity() {
-    let params = Params::<G1Affine>::unsafe_setup::<Bn256>(8);
+    let params = Params::<Bn256>::unsafe_setup(8);
 
     let circuit = hash::HashCircuit::<Fp> {
         calcs: 3,
@@ -68,9 +71,9 @@ fn vk_validity() {
 fn proof_and_verify() {
     let k = 8;
 
-    let params = Params::<G1Affine>::unsafe_setup::<Bn256>(k);
+    let params = Params::<Bn256>::unsafe_setup(k);
     let os_rng = ChaCha8Rng::from_seed([101u8; 32]);
-    let mut transcript = Blake2bWrite::<_, _, Challenge255<_>>::init(vec![]);
+    let mut transcript = Blake2bWrite::<_, G1Affine, Challenge255<_>>::init(vec![]);
 
     let circuit = hash::HashCircuit::<Fp> {
         inputs: vec![
@@ -93,17 +96,17 @@ fn proof_and_verify() {
     let vk = keygen_vk(&params, &circuit).unwrap();
     let pk = keygen_pk(&params, vk, &circuit).unwrap();
 
-    create_proof(&params, &pk, &[circuit], &[&[]], os_rng, &mut transcript).unwrap();
+    create_proof::<KZGCommitmentScheme<Bn256>, ProverSHPLONK<'_, Bn256>, _, _, _, _>(&params, &pk, &[circuit], &[&[]], os_rng, &mut transcript).unwrap();
 
     let proof_script = transcript.finalize();
     let mut transcript = Blake2bRead::<_, _, Challenge255<_>>::init(&proof_script[..]);
-    let verifier_params: ParamsVerifier<Bn256> = params.verifier(0).unwrap();
-    let strategy = SingleVerifier::new(&verifier_params);
+    let verifier_params: ParamsVerifier<Bn256> = params.verifier_params().clone();
+    let strategy = SingleStrategy::new(&params);
     let circuit = hash::HashCircuit::<Fp> {
         calcs: 3,
         ..Default::default()
     };
     let vk = keygen_vk(&params, &circuit).unwrap();
 
-    assert!(verify_proof(&verifier_params, &vk, strategy, &[&[]], &mut transcript).is_ok());
+    assert!(verify_proof::<KZGCommitmentScheme<Bn256>, VerifierSHPLONK<'_, Bn256>, _, _, _>(&verifier_params, &vk, strategy, &[&[]], &mut transcript).is_ok());
 }

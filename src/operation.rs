@@ -771,8 +771,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use halo2_proofs::halo2curves::group::ff::{Field, PrimeField};
     use crate::test_utils::{Fp, rand_gen};
-    use halo2_proofs::arithmetic::BaseExt;
 
     impl<Fp: FieldExt> SingleOp<Fp> {
         /// create an fully random update operation with leafs customable
@@ -782,13 +782,13 @@ mod tests {
             hasher: impl FnMut(&Fp, &Fp) -> Fp + Clone,
         ) -> Self {
             let siblings: Vec<Fp> = (0..layers).map(|_| Fp::random(rand_gen([101u8; 32]))).collect();
-            let key = Fp::rand();
+            let key = Fp::random(rand_gen([99u8;32]));
             let leafs = leafs.unwrap_or_else(|| (Fp::random(rand_gen([102u8; 32])), Fp::random(rand_gen([103u8; 32]))));
             Self::create_update_op(layers, &siblings, key, leafs, hasher)
         }
     }
 
-    fn decompose<Fp: PrimeField>(inp: Fp, l: usize) -> (Vec<bool>, Fp) {
+    fn decompose<Fp: FieldExt>(inp: Fp, l: usize) -> (Vec<bool>, Fp) {
         let mut ret = Vec::new();
         let mut tested_key = inp;
         let invert_2 = Fp::one().double().invert().unwrap();
@@ -804,7 +804,7 @@ mod tests {
         (ret, tested_key)
     }
 
-    fn recover<Fp: PrimeField>(path: &[bool], res: Fp) -> Fp {
+    fn recover<Fp: FieldExt>(path: &[bool], res: Fp) -> Fp {
         let mut mask = Fp::one();
         let mut ret = Fp::zero();
 
@@ -828,7 +828,7 @@ mod tests {
         assert_eq!(recover(&ret2.0, ret2.1), test2);
 
         for _ in 0..1000 {
-            let test = Fp::rand();
+            let test = Fp::random(rand_gen([101u8; 32]));
             let ret = decompose(test, 22);
             assert_eq!(recover(&ret.0, ret.1), test);
         }

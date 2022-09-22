@@ -1,6 +1,6 @@
 use halo2_mpt_circuits::{operation::AccountOp, serde::SMTTrace, EthTrie};
 use halo2_proofs::dev::MockProver;
-use halo2_proofs::pairing::bn256::Fr as Fp;
+pub use halo2_proofs::halo2curves::bn256::Fr as Fp;
 use std::fs::File;
 use std::io::Read;
 

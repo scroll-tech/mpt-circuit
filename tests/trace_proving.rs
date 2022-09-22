@@ -1,10 +1,13 @@
 use halo2_mpt_circuits::{operation::AccountOp, serde, EthTrie};
 use halo2_proofs::dev::MockProver;
-use halo2_proofs::pairing::bn256::{Bn256, Fr as Fp, G1Affine};
-use halo2_proofs::plonk::{create_proof, keygen_pk, keygen_vk, verify_proof, SingleVerifier};
-use halo2_proofs::poly::commitment::{Params, ParamsVerifier};
+use halo2_proofs::halo2curves::bn256::{Bn256, Fr as Fp, G1Affine};
+use halo2_proofs::plonk::{create_proof, keygen_pk, keygen_vk, verify_proof};
+use halo2_proofs::poly::kzg::commitment::{KZGCommitmentScheme, ParamsKZG as Params, ParamsVerifierKZG as ParamsVerifier};
+use halo2_proofs::poly::kzg::multiopen::{ProverSHPLONK, VerifierSHPLONK};
+use halo2_proofs::poly::commitment::ParamsProver;
+use halo2_proofs::poly::kzg::strategy::SingleStrategy;
 use halo2_proofs::transcript::{
-    Blake2bRead, Blake2bWrite, Challenge255, PoseidonRead, PoseidonWrite, TranscriptRead,
+    Blake2bRead, Blake2bWrite, Challenge255, PoseidonRead, PoseidonWrite, TranscriptRead, TranscriptReadBuffer, TranscriptWriterBuffer,
 };
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -74,7 +77,7 @@ fn trace_to_eth_trie() {
 
 #[test]
 fn vk_validity() {
-    let params = Params::<G1Affine>::unsafe_setup::<Bn256>(8);
+    let params = Params::<Bn256>::unsafe_setup(8);
     let data: Vec<serde::SMTTrace> = serde_json::from_str(TEST_TRACE_SMALL).unwrap();
     let ops: Vec<AccountOp<Fp>> = data
         .into_iter()
@@ -110,9 +113,9 @@ fn proof_and_verify() {
 
     let k = 8;
 
-    let params = Params::<G1Affine>::unsafe_setup::<Bn256>(k);
+    let params = Params::<Bn256>::unsafe_setup(k);
     let os_rng = ChaCha8Rng::from_seed([101u8; 32]);
-    let mut transcript = Blake2bWrite::<_, _, Challenge255<_>>::init(vec![]);
+    let mut transcript = Blake2bWrite::<_, G1Affine, Challenge255<_>>::init(vec![]);
 
     let mut data: EthTrie<Fp> = Default::default();
     data.add_ops(ops);
@@ -124,18 +127,18 @@ fn proof_and_verify() {
     let vk = keygen_vk(&params, &circuit).unwrap();
     let pk = keygen_pk(&params, vk, &circuit).unwrap();
 
-    create_proof(&params, &pk, &[circuit], &[&[]], os_rng, &mut transcript).unwrap();
+    create_proof::<KZGCommitmentScheme<Bn256>, ProverSHPLONK<'_, Bn256>, _, _, _, _>(&params, &pk, &[circuit], &[&[]], os_rng, &mut transcript).unwrap();
 
     let proof_script = transcript.finalize();
     let mut transcript = Blake2bRead::<_, _, Challenge255<_>>::init(&proof_script[..]);
-    let verifier_params: ParamsVerifier<Bn256> = params.verifier(0).unwrap();
-    let strategy = SingleVerifier::new(&verifier_params);
+    let verifier_params: ParamsVerifier<Bn256> = params.verifier_params().clone();
+    let strategy = SingleStrategy::new(&params);
 
     let data: EthTrie<Fp> = Default::default();
     let (circuit, _) = data.circuits(200);
     let vk = keygen_vk(&params, &circuit).unwrap();
 
-    verify_proof(&verifier_params, &vk, strategy, &[&[]], &mut transcript).unwrap();
+    verify_proof::<KZGCommitmentScheme<Bn256>, VerifierSHPLONK<'_, Bn256>, _, _, _>(&verifier_params, &vk, strategy, &[&[]], &mut transcript).unwrap();
 }
 
 #[test]
@@ -148,7 +151,7 @@ fn circuit_connection() {
 
     let k = 13;
 
-    let params = Params::<G1Affine>::unsafe_setup::<Bn256>(k);
+    let params = Params::<Bn256>::unsafe_setup(k);
     let os_rng = ChaCha8Rng::from_seed([101u8; 32]);
 
     let mut data: EthTrie<Fp> = Default::default();
@@ -165,8 +168,8 @@ fn circuit_connection() {
     let vk = keygen_vk(&params, &trie_circuit).unwrap();
     let pk = keygen_pk(&params, vk, &trie_circuit).unwrap();
 
-    let mut transcript = PoseidonWrite::<_, _, Challenge255<_>>::init(vec![]);
-    create_proof(
+    let mut transcript = PoseidonWrite::<_, G1Affine, Challenge255<_>>::init(vec![]);
+    create_proof::<KZGCommitmentScheme<Bn256>, ProverSHPLONK<'_, Bn256>, _, _, _, _>(
         &params,
         &pk,
         &[trie_circuit],
@@ -190,7 +193,7 @@ fn circuit_connection() {
     let pk = keygen_pk(&params, vk, &hash_circuit).unwrap();
 
     let mut transcript = PoseidonWrite::<_, _, Challenge255<_>>::init(vec![]);
-    create_proof(
+    create_proof::<KZGCommitmentScheme<Bn256>, ProverSHPLONK<'_, Bn256>, _, _, _, _>(
         &params,
         &pk,
         &[hash_circuit],

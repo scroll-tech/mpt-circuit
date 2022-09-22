@@ -1,6 +1,6 @@
 use halo2_mpt_circuits::operation::AccountOp;
 use halo2_mpt_circuits::serde::*;
-use halo2_proofs::pairing::bn256::Fr as Fp;
+pub use halo2_proofs::halo2curves::bn256::Fr as Fp;
 
 #[test]
 fn trace_parse_object() {
