@@ -165,7 +165,7 @@ impl Row {
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 /// HexBytes struct encoding to "0x...."
-pub struct HexBytes<const LEN: usize>([u8; LEN]);
+pub struct HexBytes<const LEN: usize>(pub [u8; LEN]);
 
 impl<const LEN: usize> HexBytes<LEN> {
     /// get hex representation
