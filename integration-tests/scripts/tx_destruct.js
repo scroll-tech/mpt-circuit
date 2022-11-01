@@ -28,12 +28,10 @@ async function main() {
     const EdgeSuicider = await hre.ethers.getContractFactory("TestEdgeSelfDestruct");
     const edgeSuideTx = await EdgeSuicider.deploy({gasLimit: 1000000});
     const suideTx = await suider.my_suicide();
-    await suideTx.wait()
-    try {
-      await edgeSuideTx.deployed()
-    } catch (e) {
-      console.log("Expected error")
-    }
+
+    // both is expected to failed because SELFDESTRUCT has been disabled
+    await Promise.allSettled([suideTx.wait(), edgeSuideTx.deployed()])
+
 }
 
   // We recommend this pattern to be able to use async/await everywhere

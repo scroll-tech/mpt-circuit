@@ -22,7 +22,7 @@ async function main() {
       .map(addr => token.transfer(addr, 1000))
     
     let txs = await Promise.all(pre_txs)
-    await Promise.all(txs.map(tx => tx.wait()))
+    await Promise.allSettled(txs.map(tx => tx.wait()))
     console.log('transfer after', await token.balanceOf(owner.address))
 
 }

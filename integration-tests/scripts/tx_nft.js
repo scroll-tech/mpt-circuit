@@ -24,7 +24,7 @@ async function main() {
     let anotherAcc = new hre.ethers.Wallet("0x160276a92fce4c44039c24471f4c3ca7cacab358094ecd1b4863897eb2bcdba7", hre.ethers.provider)
     const tx = await owner.sendTransaction({
         to: anotherAcc.address,
-        value: BigInt("1000000000000000"), // ~ 3 times for burning
+        value: BigInt("60000000000000000"), // ~ 10 times for burning
     })
     await tx.wait()
     console.log('target balance now', await anotherAcc.getBalance())
@@ -41,7 +41,7 @@ async function main() {
 */
     // with 3 times of gasprice, we ensure the tx1/2 is executed before tx3
     const tx1 = await nft.mint(owner.address, tokenId, {gasPrice: gPrice * 3})
-    const tx2 = await nft.transferFrom(owner.address, anotherAcc.address, tokenId, {gasPrice: gPrice * 3})
+    const tx2 = await nft.transferFrom(owner.address, anotherAcc.address, tokenId, {gasPrice: gPrice * 2})
     const tx3 = await nft.connect(anotherAcc).burn(tokenId)
 
     await Promise.all([tx1.wait(), tx2.wait(), tx3.wait()])
