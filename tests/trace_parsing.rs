@@ -1,6 +1,6 @@
 use halo2_mpt_circuits::operation::AccountOp;
 use halo2_mpt_circuits::serde::*;
-use halo2_proofs::pairing::bn256::Fr as Fp;
+pub use halo2_proofs::halo2curves::bn256::Fr as Fp;
 
 #[test]
 fn trace_parse_object() {
@@ -18,8 +18,8 @@ fn trace_parse_object() {
     );
 }
 
-const TEST_TRACE1: &'static str = include_str!("./token_traces.json");
-const TEST_TRACE2: &'static str = include_str!("./deploy_traces.json");
+const TEST_TRACE1: &str = include_str!("./token_traces.json");
+const TEST_TRACE2: &str = include_str!("./deploy_traces.json");
 
 #[test]
 fn trace_parse() {

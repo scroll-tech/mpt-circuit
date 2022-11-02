@@ -177,6 +177,16 @@ impl<const LEN: usize> HexBytes<LEN> {
     pub fn start_read(&self) -> &[u8] {
         &self.0[..]
     }
+
+    /// cast bytes to another length, truncate or append 0 on the target
+    pub fn cast<const LNEW: usize>(&self) -> [u8; LNEW] {
+        let mut out = [0; LNEW];
+        self.0
+            .iter()
+            .zip(out.as_mut_slice())
+            .for_each(|(i, o): (&u8, &mut u8)| *o = *i);
+        out
+    }
 }
 
 impl<const LEN: usize> Default for HexBytes<LEN> {

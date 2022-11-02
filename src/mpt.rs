@@ -61,10 +61,9 @@
 
 use super::{CtrlTransitionKind, HashType};
 use crate::operation::{MPTPath, SingleOp};
-use ff::Field;
 use halo2_proofs::{
-    arithmetic::FieldExt,
-    circuit::{Chip, Layouter, Region},
+    arithmetic::{Field, FieldExt},
+    circuit::{Chip, Layouter, Region, Value},
     plonk::{
         Advice, Column, ConstraintSystem, Error, Expression, Selector, TableColumn, VirtualCells,
     },
@@ -130,17 +129,32 @@ impl MPTOpTables {
             || "trans table",
             |mut table| {
                 // default: 0, 0, 0
-                table.assign_cell(|| "default", self.0, 0, || Ok(Fp::zero()))?;
-                table.assign_cell(|| "default", self.1, 0, || Ok(Fp::zero()))?;
-                table.assign_cell(|| "default", self.2, 0, || Ok(Fp::zero()))?;
+                table.assign_cell(|| "default", self.0, 0, || Value::known(Fp::zero()))?;
+                table.assign_cell(|| "default", self.1, 0, || Value::known(Fp::zero()))?;
+                table.assign_cell(|| "default", self.2, 0, || Value::known(Fp::zero()))?;
 
                 for (offset, item) in rules.clone().enumerate() {
                     let offset = offset + 1;
-                    table.assign_cell(|| "cur", self.0, offset, || Ok(Fp::from(item.0 as u64)))?;
+                    table.assign_cell(
+                        || "cur",
+                        self.0,
+                        offset,
+                        || Value::known(Fp::from(item.0 as u64)),
+                    )?;
 
-                    table.assign_cell(|| "next", self.1, offset, || Ok(Fp::from(item.1 as u64)))?;
+                    table.assign_cell(
+                        || "next",
+                        self.1,
+                        offset,
+                        || Value::known(Fp::from(item.1 as u64)),
+                    )?;
 
-                    table.assign_cell(|| "mark", self.2, offset, || Ok(Fp::from(item.2 as u64)))?;
+                    table.assign_cell(
+                        || "mark",
+                        self.2,
+                        offset,
+                        || Value::known(Fp::from(item.2 as u64)),
+                    )?;
                 }
                 Ok(())
             },
@@ -199,9 +213,9 @@ impl HashTable {
             || "hash table",
             |mut table| {
                 // default: 0, 0, 0
-                table.assign_advice(|| "default", self.0, 0, || Ok(Fp::zero()))?;
-                table.assign_advice(|| "default", self.1, 0, || Ok(Fp::zero()))?;
-                table.assign_advice(|| "default", self.2, 0, || Ok(Fp::zero()))?;
+                table.assign_advice(|| "default", self.0, 0, || Value::known(Fp::zero()))?;
+                table.assign_advice(|| "default", self.1, 0, || Value::known(Fp::zero()))?;
+                table.assign_advice(|| "default", self.2, 0, || Value::known(Fp::zero()))?;
 
                 hashing_records
                     .clone()
@@ -210,11 +224,11 @@ impl HashTable {
                         let (lh, rh, h) = val;
                         let offset = offset + 1;
 
-                        table.assign_advice(|| "left", self.0, offset, || Ok(*lh))?;
+                        table.assign_advice(|| "left", self.0, offset, || Value::known(*lh))?;
 
-                        table.assign_advice(|| "right", self.1, offset, || Ok(*rh))?;
+                        table.assign_advice(|| "right", self.1, offset, || Value::known(*rh))?;
 
-                        table.assign_advice(|| "result", self.2, offset, || Ok(*h))?;
+                        table.assign_advice(|| "result", self.2, offset, || Value::known(*h))?;
 
                         Ok(())
                     })
@@ -359,7 +373,7 @@ impl MPTOpGadget {
                 || "enable MPT circuit",
                 self.s_enable,
                 offset,
-                || Ok(Fp::one()),
+                || Value::known(Fp::one()),
             )?;
         }
 
@@ -367,7 +381,7 @@ impl MPTOpGadget {
     }
 }
 
-fn lagrange_polynomial_for_hashtype<Fp: ff::PrimeField, const T: usize>(
+fn lagrange_polynomial_for_hashtype<Fp: FieldExt, const T: usize>(
     ref_n: Expression<Fp>,
 ) -> Expression<Fp> {
     super::lagrange_polynomial::<Fp, T, 5 /* last Type: Leaf */>(ref_n)
@@ -576,19 +590,19 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
         assert_eq!(hash_types.len(), vals.len());
 
         for (hash_type, val) in hash_types.iter().zip(vals.iter()) {
-            region.assign_advice(|| "val", config.val, offset, || Ok(*val))?;
+            region.assign_advice(|| "val", config.val, offset, || Value::known(*val))?;
             region.assign_advice(
                 || format!("hash_type {}", *hash_type as u32),
                 config.hash_type,
                 offset,
-                || Ok(Fp::from(*hash_type as u64)),
+                || Value::known(Fp::from(*hash_type as u64)),
             )?;
             region.assign_advice(
                 || "sel",
                 config.s_path,
                 offset,
                 || {
-                    Ok(match hash_type {
+                    Value::known(match hash_type {
                         HashType::Start | HashType::Empty | HashType::Leaf => Fp::zero(),
                         _ => Fp::one(),
                     })
@@ -767,24 +781,29 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
         let siblings = &self.data.siblings;
         assert_eq!(paths.len(), siblings.len());
         let mut offset = self.offset;
-        region.assign_advice(|| "path padding", config.path, offset, || Ok(Fp::zero()))?;
+        region.assign_advice(
+            || "path padding",
+            config.path,
+            offset,
+            || Value::known(Fp::zero()),
+        )?;
         region.assign_advice(
             || "acckey padding",
             config.acc_key,
             offset,
-            || Ok(Fp::zero()),
+            || Value::known(Fp::zero()),
         )?;
         region.assign_advice(
             || "depth padding",
             config.depth,
             offset,
-            || Ok(Fp::one().double().invert().unwrap()),
+            || Value::known(Fp::one().double().invert().unwrap()),
         )?;
         region.assign_advice(
             || "sibling padding",
             config.sibling,
             offset,
-            || Ok(Fp::zero()),
+            || Value::known(Fp::zero()),
         )?;
         offset += 1;
 
@@ -794,10 +813,20 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
         for (path, sibling) in paths.iter().zip(siblings.iter()) {
             acc_key = *path * cur_depth + acc_key;
 
-            region.assign_advice(|| "path", config.path, offset, || Ok(*path))?;
-            region.assign_advice(|| "acckey", config.acc_key, offset, || Ok(acc_key))?;
-            region.assign_advice(|| "depth", config.depth, offset, || Ok(cur_depth))?;
-            region.assign_advice(|| "sibling", config.sibling, offset, || Ok(*sibling))?;
+            region.assign_advice(|| "path", config.path, offset, || Value::known(*path))?;
+            region.assign_advice(
+                || "acckey",
+                config.acc_key,
+                offset,
+                || Value::known(acc_key),
+            )?;
+            region.assign_advice(|| "depth", config.depth, offset, || Value::known(cur_depth))?;
+            region.assign_advice(
+                || "sibling",
+                config.sibling,
+                offset,
+                || Value::known(*sibling),
+            )?;
 
             cur_depth = cur_depth.double();
             offset += 1;
@@ -808,16 +837,21 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
             || "path",
             config.path,
             offset,
-            || Ok(self.data.key_residual),
+            || Value::known(self.data.key_residual),
         )?;
         region.assign_advice(
             || "acckey",
             config.acc_key,
             offset,
-            || Ok(self.data.key_immediate),
+            || Value::known(self.data.key_immediate),
         )?;
-        region.assign_advice(|| "depth", config.depth, offset, || Ok(cur_depth))?;
-        region.assign_advice(|| "sibling", config.sibling, offset, || Ok(Fp::zero()))?;
+        region.assign_advice(|| "depth", config.depth, offset, || Value::known(cur_depth))?;
+        region.assign_advice(
+            || "sibling",
+            config.sibling,
+            offset,
+            || Value::known(Fp::zero()),
+        )?;
 
         Ok(offset + 1)
     }
@@ -836,7 +870,7 @@ mod test {
     };
 
     const MAX_PATH_DEPTH: usize = 16;
-    const MAX_KEY: usize = (2 as usize).pow(MAX_PATH_DEPTH as u32);
+    const MAX_KEY: usize = 2_usize.pow(MAX_PATH_DEPTH as u32);
 
     impl MPTOpConfig {
         /// assign all required cols directly
@@ -860,16 +894,61 @@ mod test {
 
         /// simply flush a row with 0 value to avoid gate poisoned / cell error in debug prover,
         pub fn flush_row(&self, region: &mut Region<'_, Fp>, offset: usize) -> Result<(), Error> {
-            region.assign_advice(|| "flushing", self.s_enable, offset, || Ok(Fp::zero()))?;
-            region.assign_advice(|| "flushing", self.s_path, offset, || Ok(rand_fp()))?;
-            region.assign_advice(|| "flushing", self.depth, offset, || Ok(rand_fp()))?;
-            region.assign_advice(|| "flushing", self.sibling, offset, || Ok(rand_fp()))?;
-            region.assign_advice(|| "flushing", self.acc_key, offset, || Ok(rand_fp()))?;
-            region.assign_advice(|| "flushing", self.path, offset, || Ok(rand_fp()))?;
-            region.assign_advice(|| "flushing", self.old_hash_type, offset, || Ok(rand_fp()))?;
-            region.assign_advice(|| "flushing", self.new_hash_type, offset, || Ok(rand_fp()))?;
-            region.assign_advice(|| "flushing", self.old_val, offset, || Ok(rand_fp()))?;
-            region.assign_advice(|| "flushing", self.new_val, offset, || Ok(rand_fp()))?;
+            region.assign_advice(
+                || "flushing",
+                self.s_enable,
+                offset,
+                || Value::known(Fp::zero()),
+            )?;
+            region.assign_advice(
+                || "flushing",
+                self.s_path,
+                offset,
+                || Value::known(rand_fp()),
+            )?;
+            region.assign_advice(
+                || "flushing",
+                self.depth,
+                offset,
+                || Value::known(rand_fp()),
+            )?;
+            region.assign_advice(
+                || "flushing",
+                self.sibling,
+                offset,
+                || Value::known(rand_fp()),
+            )?;
+            region.assign_advice(
+                || "flushing",
+                self.acc_key,
+                offset,
+                || Value::known(rand_fp()),
+            )?;
+            region.assign_advice(|| "flushing", self.path, offset, || Value::known(rand_fp()))?;
+            region.assign_advice(
+                || "flushing",
+                self.old_hash_type,
+                offset,
+                || Value::known(rand_fp()),
+            )?;
+            region.assign_advice(
+                || "flushing",
+                self.new_hash_type,
+                offset,
+                || Value::known(rand_fp()),
+            )?;
+            region.assign_advice(
+                || "flushing",
+                self.old_val,
+                offset,
+                || Value::known(rand_fp()),
+            )?;
+            region.assign_advice(
+                || "flushing",
+                self.new_val,
+                offset,
+                || Value::known(rand_fp()),
+            )?;
             Ok(())
         }
     }
@@ -915,7 +994,7 @@ mod test {
         ) -> Result<(), Error> {
             let offset: usize = 1;
             let chip_cfg = config.chip.clone();
-            let mpt_chip = PathChip::<Fp>::construct(chip_cfg.clone(), offset, &self.data);
+            let mpt_chip = PathChip::<Fp>::construct(chip_cfg, offset, &self.data);
             layouter.assign_region(
                 || "main",
                 |mut region| {
@@ -927,7 +1006,7 @@ mod test {
                         || "enable",
                         config.s_enable,
                         working_offset,
-                        || Ok(Fp::one()),
+                        || Value::known(Fp::one()),
                     )?;
                     config.s_row.enable(&mut region, working_offset)?;
                     working_offset += 1;
@@ -939,19 +1018,19 @@ mod test {
                             || "enable",
                             config.s_enable,
                             offset,
-                            || Ok(Fp::one()),
+                            || Value::known(Fp::one()),
                         )?;
                         region.assign_advice(
                             || "sibling",
                             config.sibling,
                             offset,
-                            || Ok(self.siblings[index]),
+                            || Value::known(self.siblings[index]),
                         )?;
                         region.assign_advice(
                             || "path",
                             config.path,
                             offset,
-                            || Ok(self.path[index]),
+                            || Value::known(self.path[index]),
                         )?;
                     }
 
@@ -959,14 +1038,14 @@ mod test {
                         || "path",
                         config.path,
                         next_offset,
-                        || Ok(self.key_residue),
+                        || Value::known(self.key_residue),
                     )?;
 
                     region.assign_advice(
                         || "key",
                         config.acc_key,
                         next_offset,
-                        || Ok(self.key_immediate),
+                        || Value::known(self.key_immediate),
                     )?;
 
                     let next_offset = next_offset + 1;
@@ -1105,7 +1184,7 @@ mod test {
         ) -> Result<(), Error> {
             let offset: usize = 1;
             let chip_cfg = config.chip.clone();
-            let op_chip = OpChip::<Fp>::construct(chip_cfg.clone(), offset, &self.data);
+            let op_chip = OpChip::<Fp>::construct(chip_cfg, offset, &self.data);
             layouter.assign_region(
                 || "main",
                 |mut region| {
@@ -1119,14 +1198,14 @@ mod test {
                             || "enable",
                             config.s_enable,
                             offset,
-                            || Ok(Fp::one()),
+                            || Value::known(Fp::one()),
                         )?;
                         region.assign_advice(
                             || "s_path",
                             config.s_path,
                             offset,
                             || {
-                                Ok(match self.old_hash_types[index] {
+                                Value::known(match self.old_hash_types[index] {
                                     HashType::Empty | HashType::Leaf | HashType::Start => {
                                         Fp::zero()
                                     }
@@ -1138,13 +1217,13 @@ mod test {
                             || "old hash_type",
                             config.old_hash_type,
                             offset,
-                            || Ok(Fp::from(self.old_hash_types[index] as u64)),
+                            || Value::known(Fp::from(self.old_hash_types[index] as u64)),
                         )?;
                         region.assign_advice(
                             || "new hash_type",
                             config.new_hash_type,
                             offset,
-                            || Ok(Fp::from(self.new_hash_types[index] as u64)),
+                            || Value::known(Fp::from(self.new_hash_types[index] as u64)),
                         )?;
                     }
 
@@ -1345,7 +1424,7 @@ mod test {
                     //flush first row, just avoid Cell error ...
                     config.free_cols.iter().try_for_each(|col| {
                         region
-                            .assign_advice(|| "flushing", *col, 0, || Ok(Fp::zero()))
+                            .assign_advice(|| "flushing", *col, 0, || Value::known(Fp::zero()))
                             .map(|_| ())
                     })?;
                     let end = config.gadget.assign(&mut region, 1, &self.data)?;

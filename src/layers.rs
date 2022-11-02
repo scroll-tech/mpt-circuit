@@ -20,7 +20,7 @@
 
 use halo2_proofs::{
     arithmetic::FieldExt,
-    circuit::{Layouter, Region},
+    circuit::{Layouter, Region, Value},
     plonk::{Advice, Column, ConstraintSystem, Error, Expression, Selector, TableColumn},
     poly::Rotation,
 };
@@ -246,12 +246,12 @@ impl LayerGadget {
         // current we flush the first row, and start other circuits's assignation from row 1
         self.free_cols.iter().try_for_each(|col| {
             region
-                .assign_advice(|| "flushing", *col, 0, || Ok(Fp::zero()))
+                .assign_advice(|| "flushing", *col, 0, || Value::known(Fp::zero()))
                 .map(|_| ())
         })?;
         self.s_stepflags.iter().try_for_each(|col| {
             region
-                .assign_advice(|| "flushing", *col, 0, || Ok(Fp::zero()))
+                .assign_advice(|| "flushing", *col, 0, || Value::known(Fp::zero()))
                 .map(|_| ())
         })?;
         region.assign_advice_from_constant(|| "init series", self.series, 0, Fp::zero())?;
@@ -263,9 +263,24 @@ impl LayerGadget {
             Fp::from(self.start_op_code() as u64),
         )?;
         region.assign_advice_from_constant(|| "init ctrl", self.ctrl_type, 0, Fp::zero())?;
-        region.assign_advice(|| "root padding", self.new_root, 0, || Ok(Fp::zero()))?;
-        region.assign_advice(|| "root padding", self.old_root, 0, || Ok(Fp::zero()))?;
-        region.assign_advice(|| "start root", self.root_aux, 0, || Ok(init_root))?;
+        region.assign_advice(
+            || "root padding",
+            self.new_root,
+            0,
+            || Value::known(Fp::zero()),
+        )?;
+        region.assign_advice(
+            || "root padding",
+            self.old_root,
+            0,
+            || Value::known(Fp::zero()),
+        )?;
+        region.assign_advice(
+            || "start root",
+            self.root_aux,
+            0,
+            || Value::known(init_root),
+        )?;
 
         for offset in 1..max_rows {
             self.sel.enable(region, offset)?;
@@ -274,26 +289,31 @@ impl LayerGadget {
         // flush one more row
         self.free_cols.iter().try_for_each(|col| {
             region
-                .assign_advice(|| "flushing last", *col, max_rows, || Ok(Fp::zero()))
+                .assign_advice(
+                    || "flushing last",
+                    *col,
+                    max_rows,
+                    || Value::known(Fp::zero()),
+                )
                 .map(|_| ())
         })?;
         region.assign_advice(
             || "root flushing",
             self.new_root,
             max_rows,
-            || Ok(Fp::zero()),
+            || Value::known(Fp::zero()),
         )?;
         region.assign_advice(
             || "root flushing",
             self.old_root,
             max_rows,
-            || Ok(Fp::zero()),
+            || Value::known(Fp::zero()),
         )?;
         region.assign_advice(
             || "terminalte series",
             self.series,
             max_rows,
-            || Ok(Fp::zero()),
+            || Value::known(Fp::zero()),
         )?;
 
         Ok(1)
@@ -318,21 +338,26 @@ impl LayerGadget {
                 || "series pacing",
                 self.series,
                 offset,
-                || Ok(Fp::from(op_series as u64)),
+                || Value::known(Fp::from(op_series as u64)),
             )?;
-            region.assign_advice(|| "root aux", self.root_aux, offset, || Ok(end_root))?;
+            region.assign_advice(
+                || "root aux",
+                self.root_aux,
+                offset,
+                || Value::known(end_root),
+            )?;
             region.assign_advice(
                 || "op type",
                 self.op_type,
                 offset,
-                || Ok(Fp::from(op_type.1 as u64)),
+                || Value::known(Fp::from(op_type.1 as u64)),
             )?;
             region.assign_advice(
                 || "op delta aux",
                 self.op_delta_aux,
                 offset,
                 || {
-                    Ok(if prev_op == op_type.1 {
+                    Value::known(if prev_op == op_type.1 {
                         Fp::zero()
                     } else {
                         op_delta.invert().unwrap()
@@ -342,12 +367,12 @@ impl LayerGadget {
             // flush all cols to avoid unassigned error (exported col do not need to be flushed for each gadget must fill them)
             self.free_cols.iter().try_for_each(|col| {
                 region
-                    .assign_advice(|| "flushing", *col, offset, || Ok(Fp::zero()))
+                    .assign_advice(|| "flushing", *col, offset, || Value::known(Fp::zero()))
                     .map(|_| ())
             })?;
             self.s_stepflags.iter().try_for_each(|col| {
                 region
-                    .assign_advice(|| "flushing", *col, offset, || Ok(Fp::zero()))
+                    .assign_advice(|| "flushing", *col, offset, || Value::known(Fp::zero()))
                     .map(|_| ())
             })?;
 
@@ -382,37 +407,67 @@ impl LayerGadget {
             || "op trans",
             |mut table| {
                 //default lookup (0, 0, 0, 0, 0) and (0, 0, 0, 0, 1)
-                table.assign_cell(|| "default", self.control_table[0], 0, || Ok(Fp::zero()))?;
-                table.assign_cell(|| "default", self.control_table[1], 0, || Ok(Fp::zero()))?;
-                table.assign_cell(|| "default", self.control_table[2], 0, || Ok(Fp::zero()))?;
-                table.assign_cell(|| "default", self.control_table[3], 0, || Ok(Fp::zero()))?;
-                table.assign_cell(|| "default", self.control_table[4], 0, || Ok(Fp::zero()))?;
+                table.assign_cell(
+                    || "default",
+                    self.control_table[0],
+                    0,
+                    || Value::known(Fp::zero()),
+                )?;
+                table.assign_cell(
+                    || "default",
+                    self.control_table[1],
+                    0,
+                    || Value::known(Fp::zero()),
+                )?;
+                table.assign_cell(
+                    || "default",
+                    self.control_table[2],
+                    0,
+                    || Value::known(Fp::zero()),
+                )?;
+                table.assign_cell(
+                    || "default",
+                    self.control_table[3],
+                    0,
+                    || Value::known(Fp::zero()),
+                )?;
+                table.assign_cell(
+                    || "default",
+                    self.control_table[4],
+                    0,
+                    || Value::known(Fp::zero()),
+                )?;
 
                 table.assign_cell(
                     || "default op cur",
                     self.control_table[0],
                     1,
-                    || Ok(Fp::zero()),
+                    || Value::known(Fp::zero()),
                 )?;
                 table.assign_cell(
                     || "default ctrl cur",
                     self.control_table[1],
                     1,
-                    || Ok(Fp::zero()),
+                    || Value::known(Fp::zero()),
                 )?;
                 table.assign_cell(
                     || "default op prev",
                     self.control_table[2],
                     1,
-                    || Ok(Fp::zero()),
+                    || Value::known(Fp::zero()),
                 )?;
                 table.assign_cell(
                     || "default ctrl prev",
                     self.control_table[3],
                     1,
-                    || Ok(Fp::zero()),
+                    || Value::known(Fp::zero()),
                 )?;
-                table.assign_cell(|| "mark", self.control_table[4], 1, || Ok(Fp::one()))?;
+                table.assign_cell(
+                    || "mark",
+                    self.control_table[4],
+                    1,
+                    || Value::known(Fp::one()),
+                )?;
 
                 let mut offset = 2;
 
@@ -422,31 +477,31 @@ impl LayerGadget {
                         || "start op",
                         self.control_table[0],
                         offset,
-                        || Ok(Fp::from(start_case.0 as u64)),
+                        || Value::known(Fp::from(start_case.0 as u64)),
                     )?;
                     table.assign_cell(
                         || "start ctrl",
                         self.control_table[1],
                         offset,
-                        || Ok(Fp::from(start_case.1 as u64)),
+                        || Value::known(Fp::from(start_case.1 as u64)),
                     )?;
                     table.assign_cell(
                         || "marking op",
                         self.control_table[2],
                         offset,
-                        || Ok(Fp::from(self.start_op_code() as u64)),
+                        || Value::known(Fp::from(self.start_op_code() as u64)),
                     )?;
                     table.assign_cell(
                         || "marking ctrl",
                         self.control_table[3],
                         offset,
-                        || Ok(Fp::zero()),
+                        || Value::known(Fp::zero()),
                     )?;
                     table.assign_cell(
                         || "mark",
                         self.control_table[4],
                         offset,
-                        || Ok(Fp::one()),
+                        || Value::known(Fp::one()),
                     )?;
                     offset += 1;
                 }
@@ -456,31 +511,31 @@ impl LayerGadget {
                         || "op cur",
                         self.control_table[0],
                         offset,
-                        || Ok(Fp::from(*op_cur as u64)),
+                        || Value::known(Fp::from(*op_cur as u64)),
                     )?;
                     table.assign_cell(
                         || "ctrl cur",
                         self.control_table[1],
                         offset,
-                        || Ok(Fp::from(*ctrl_cur as u64)),
+                        || Value::known(Fp::from(*ctrl_cur as u64)),
                     )?;
                     table.assign_cell(
                         || "op prev",
                         self.control_table[2],
                         offset,
-                        || Ok(Fp::from(*op_prev as u64)),
+                        || Value::known(Fp::from(*op_prev as u64)),
                     )?;
                     table.assign_cell(
                         || "ctrl prev",
                         self.control_table[3],
                         offset,
-                        || Ok(Fp::from(*ctrl_prev as u64)),
+                        || Value::known(Fp::from(*ctrl_prev as u64)),
                     )?;
                     table.assign_cell(
                         || "mark",
                         self.control_table[4],
                         offset,
-                        || Ok(Fp::one()),
+                        || Value::known(Fp::one()),
                     )?;
                     offset += 1;
                 }
@@ -490,31 +545,31 @@ impl LayerGadget {
                         || "op cur",
                         self.control_table[0],
                         offset,
-                        || Ok(Fp::from(*op_cur as u64)),
+                        || Value::known(Fp::from(*op_cur as u64)),
                     )?;
                     table.assign_cell(
                         || "ctrl cur",
                         self.control_table[1],
                         offset,
-                        || Ok(Fp::from(*ctrl_cur as u64)),
+                        || Value::known(Fp::from(*ctrl_cur as u64)),
                     )?;
                     table.assign_cell(
                         || "op prev",
                         self.control_table[2],
                         offset,
-                        || Ok(Fp::from(*op_prev as u64)),
+                        || Value::known(Fp::from(*op_prev as u64)),
                     )?;
                     table.assign_cell(
                         || "ctrl prev",
                         self.control_table[3],
                         offset,
-                        || Ok(Fp::from(*ctrl_prev as u64)),
+                        || Value::known(Fp::from(*ctrl_prev as u64)),
                     )?;
                     table.assign_cell(
                         || "mark",
                         self.control_table[4],
                         offset,
-                        || Ok(Fp::zero()),
+                        || Value::known(Fp::zero()),
                     )?;
                     offset += 1;
                 }
@@ -568,10 +623,20 @@ impl PaddingGadget {
         root: Fp,
     ) -> Result<(), Error> {
         for offset in offset..(offset + rows) {
-            region.assign_advice(|| "ctrl type", self.ctrl_type, offset, || Ok(Fp::zero()))?;
-            region.assign_advice(|| "enable padding", self.s_enable, offset, || Ok(Fp::one()))?;
-            region.assign_advice(|| "root", self.old_root, offset, || Ok(root))?;
-            region.assign_advice(|| "root", self.new_root, offset, || Ok(root))?;
+            region.assign_advice(
+                || "ctrl type",
+                self.ctrl_type,
+                offset,
+                || Value::known(Fp::zero()),
+            )?;
+            region.assign_advice(
+                || "enable padding",
+                self.s_enable,
+                offset,
+                || Value::known(Fp::one()),
+            )?;
+            region.assign_advice(|| "root", self.old_root, offset, || Value::known(root))?;
+            region.assign_advice(|| "root", self.new_root, offset, || Value::known(root))?;
         }
         Ok(())
     }
@@ -627,7 +692,7 @@ mod test {
                 || "main",
                 |mut region| {
                     let r = self.root;
-                    let rows = self.blocks.iter().fold(0, |acc, x| acc + x);
+                    let rows = self.blocks.iter().sum();
                     let mut start = config.layer.assign(&mut region, rows, r)?;
                     let mut last_op = config.layer.start_op_code();
 

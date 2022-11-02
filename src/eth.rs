@@ -37,7 +37,7 @@ use super::CtrlTransitionKind;
 use crate::operation::Account;
 use halo2_proofs::{
     arithmetic::FieldExt,
-    circuit::{Chip, Region},
+    circuit::{Chip, Region, Value},
     plonk::{Advice, Column, ConstraintSystem, Error, Expression, Selector},
     poly::Rotation,
 };
@@ -208,26 +208,26 @@ impl AccountGadget {
                 || "enable account circuit",
                 self.s_enable,
                 offset,
-                || Ok(Fp::one()),
+                || Value::known(Fp::one()),
             )?;
             region.assign_advice(
                 || "account circuit rows",
                 self.ctrl_type,
                 offset,
-                || Ok(Fp::from(index as u64)),
+                || Value::known(Fp::from(index as u64)),
             )?;
             if index == LAST_ROW {
                 region.assign_advice(
                     || "padding last row",
                     self.old_state.input,
                     offset,
-                    || Ok(Fp::zero()),
+                    || Value::known(Fp::zero()),
                 )?;
                 region.assign_advice(
                     || "padding last row",
                     self.new_state.input,
                     offset,
-                    || Ok(Fp::zero()),
+                    || Value::known(Fp::zero()),
                 )?;
             }
         }
@@ -367,32 +367,42 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
             || "account hash",
             config.exported,
             offset,
-            || Ok(self.data.account_hash()),
+            || Value::known(self.data.account_hash()),
         )?;
 
         // row 0
         let offset = offset + 1;
-        region.assign_advice(|| "input 0", config.input, offset, || Ok(self.data.nonce))?;
+        region.assign_advice(
+            || "input 0",
+            config.input,
+            offset,
+            || Value::known(self.data.nonce),
+        )?;
         region.assign_advice(
             || "exported 0",
             config.exported,
             offset,
-            || Ok(self.data.account_hash()),
+            || Value::known(self.data.account_hash()),
         )?;
         // row 1
         let offset = offset + 1;
-        region.assign_advice(|| "input 1", config.input, offset, || Ok(self.data.balance))?;
+        region.assign_advice(
+            || "input 1",
+            config.input,
+            offset,
+            || Value::known(self.data.balance),
+        )?;
         region.assign_advice(
             || "intermediate 1",
             config.intermediate,
             offset,
-            || Ok(self.data.hash_traces(2)),
+            || Value::known(self.data.hash_traces(2)),
         )?;
         region.assign_advice(
             || "exported 1",
             config.exported,
             offset,
-            || Ok(self.data.hash_traces(1)),
+            || Value::known(self.data.hash_traces(1)),
         )?;
         // row 2
         let offset = offset + 1;
@@ -400,13 +410,13 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
             || "input 2",
             config.input,
             offset,
-            || Ok(self.data.codehash.0),
+            || Value::known(self.data.codehash.0),
         )?;
         region.assign_advice(
             || "exported 2",
             config.exported,
             offset,
-            || Ok(self.data.hash_traces(1)),
+            || Value::known(self.data.hash_traces(1)),
         )?;
         // row 3
         let offset = offset + 1;
@@ -414,26 +424,26 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
             || "input 3",
             config.input,
             offset,
-            || Ok(self.data.codehash.1),
+            || Value::known(self.data.codehash.1),
         )?;
         region.assign_advice(
             || "intermediate 3",
             config.intermediate,
             offset,
-            || Ok(self.data.hash_traces(0)),
+            || Value::known(self.data.hash_traces(0)),
         )?;
         region.assign_advice(
             || "exported 3",
             config.exported,
             offset,
-            || Ok(self.data.state_root),
+            || Value::known(self.data.state_root),
         )?;
         // row 4: notice this is not belong to account chip in general
         region.assign_advice(
             || "state root",
             config.exported,
             offset + 1,
-            || Ok(self.data.state_root),
+            || Value::known(self.data.state_root),
         )?;
 
         Ok(offset)
@@ -528,7 +538,12 @@ mod test {
                         config.sel.enable(&mut region, offset)?;
                     }
                     for col in config.free_cols {
-                        region.assign_advice(|| "flush last row", col, till, || Ok(Fp::zero()))?;
+                        region.assign_advice(
+                            || "flush last row",
+                            col,
+                            till,
+                            || Value::known(Fp::zero()),
+                        )?;
                     }
                     Ok(())
                 },

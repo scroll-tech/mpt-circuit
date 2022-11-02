@@ -4,7 +4,6 @@
 
 use super::{eth, serde, HashType};
 use crate::hash::Hashable;
-use ff::PrimeField;
 use halo2_proofs::arithmetic::FieldExt;
 use num_bigint::BigUint;
 use std::cmp::Ordering;
@@ -12,7 +11,7 @@ use std::convert::TryFrom;
 
 /// Indicate the current status of an MPTPath
 #[derive(Clone, Copy, Debug)]
-pub enum MPTPathStatus<Fp: PrimeField> {
+pub enum MPTPathStatus<Fp: FieldExt> {
     /// Path has empty leaf node
     Empty,
     /// Path has leaf node and the (key, keyImmediate) is tracked
@@ -26,7 +25,7 @@ pub enum MPTPathStatus<Fp: PrimeField> {
 /// according to the hash_type. It would be used for the layout of MPT
 /// circuit
 #[derive(Clone, Debug)]
-pub struct MPTPath<Fp: PrimeField> {
+pub struct MPTPath<Fp: FieldExt> {
     /// hash types from beginning of a path, start with HashType::Start
     pub hash_types: Vec<HashType>,
     /// hashes from beginning of path, from the root of MPT to leaf node
@@ -39,7 +38,7 @@ pub struct MPTPath<Fp: PrimeField> {
     pub status: MPTPathStatus<Fp>,
 }
 
-impl<Fp: PrimeField> Default for MPTPath<Fp> {
+impl<Fp: FieldExt> Default for MPTPath<Fp> {
     fn default() -> Self {
         Self {
             hash_types: vec![HashType::Start, HashType::Empty],
@@ -50,7 +49,7 @@ impl<Fp: PrimeField> Default for MPTPath<Fp> {
     }
 }
 
-impl<Fp: PrimeField> MPTPath<Fp> {
+impl<Fp: FieldExt> MPTPath<Fp> {
     /// the root of MPT
     pub fn root(&self) -> Fp {
         self.hashes[0]
@@ -189,7 +188,7 @@ impl<Fp: PrimeField> MPTPath<Fp> {
 
 /// Represent for a single operation
 #[derive(Clone, Debug, Default)]
-pub struct SingleOp<Fp: PrimeField> {
+pub struct SingleOp<Fp: FieldExt> {
     /// the key of operation
     pub key: Fp,
     /// the immediate in key hashing
@@ -206,7 +205,7 @@ pub struct SingleOp<Fp: PrimeField> {
     pub new: MPTPath<Fp>,
 }
 
-impl<Fp: PrimeField> SingleOp<Fp> {
+impl<Fp: FieldExt> SingleOp<Fp> {
     /// indicate rows would take in circuit layout
     pub fn use_rows(&self) -> usize {
         self.siblings.len() + 2
@@ -296,24 +295,14 @@ impl<Fp: PrimeField> SingleOp<Fp> {
     }
 }
 
-impl<Fp: FieldExt> SingleOp<Fp> {
-    /// create an fully random update operation with leafs customable
-    pub fn create_rand_op(
-        layers: usize,
-        leafs: Option<(Fp, Fp)>,
-        hasher: impl FnMut(&Fp, &Fp) -> Fp + Clone,
-    ) -> Self {
-        let siblings: Vec<Fp> = (0..layers).map(|_| Fp::rand()).collect();
-        let key = Fp::rand();
-        let leafs = leafs.unwrap_or_else(|| (Fp::rand(), Fp::rand()));
-        Self::create_update_op(layers, &siblings, key, leafs, hasher)
-    }
-}
-
 fn bytes_to_fp<Fp: FieldExt>(mut bt: Vec<u8>) -> std::io::Result<Fp> {
-    let expected_size = Fp::NUM_BITS as usize / 8 + if Fp::NUM_BITS % 8 == 0 { 0 } else { 1 };
-    bt.resize(expected_size, 0u8);
-    Fp::read(&mut bt.as_slice())
+    // let expected_size = Fp::NUM_BITS as usize / 8 + if Fp::NUM_BITS % 8 == 0 { 0 } else { 1 };
+    bt.resize(64, 0u8);
+    let arr: [u8; 64] = bt
+        .as_slice()
+        .try_into()
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    Ok(Fp::from_bytes_wide(&arr))
 }
 
 /// Represent for a eth account
@@ -331,7 +320,7 @@ pub struct Account<Fp> {
     pub hash_traces: Vec<(Fp, Fp, Fp)>,
 }
 
-impl<Fp: PrimeField> Account<Fp> {
+impl<Fp: FieldExt> Account<Fp> {
     /// calculating all traces ad-hoc with hasher function
     pub fn trace(mut self, mut hasher: impl FnMut(&Fp, &Fp) -> Fp) -> Self {
         let h1 = hasher(&self.codehash.0, &self.codehash.1);
@@ -381,7 +370,7 @@ impl<Fp: PrimeField> Account<Fp> {
 
 /// Represent an operation in eth MPT, which update 2 layer of tries (state and account)
 #[derive(Clone, Debug, Default)]
-pub struct AccountOp<Fp: PrimeField> {
+pub struct AccountOp<Fp: FieldExt> {
     /// the operation on the account trie (first layer)
     pub acc_trie: SingleOp<Fp>,
     /// the operation on the state trie (second layer)
@@ -392,7 +381,7 @@ pub struct AccountOp<Fp: PrimeField> {
     pub account_after: Account<Fp>,
 }
 
-impl<Fp: PrimeField> AccountOp<Fp> {
+impl<Fp: FieldExt> AccountOp<Fp> {
     /// indicate rows would take for whole operation
     pub fn use_rows(&self) -> usize {
         self.use_rows_account() + self.use_rows_trie_state() + self.use_rows_trie_account()
@@ -466,14 +455,14 @@ pub enum TraceError {
 }
 
 // parse Trace data into MPTPath and additional data (siblings and path)
-struct SMTPathParse<Fp: PrimeField>(MPTPath<Fp>, Vec<Fp>, Vec<Fp>);
+struct SMTPathParse<Fp: FieldExt>(MPTPath<Fp>, Vec<Fp>, Vec<Fp>);
 
 impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTPath> for SMTPathParse<Fp> {
     type Error = TraceError;
     fn try_from(path_trace: &'d serde::SMTPath) -> Result<Self, Self::Error> {
         let mut siblings: Vec<Fp> = Vec::new();
         for n in &path_trace.path {
-            let s = Fp::read(&mut n.sibling.start_read()).map_err(TraceError::DeErr)?;
+            let s = Fp::from_bytes_wide(&n.sibling.cast());
             siblings.push(s);
         }
 
@@ -490,15 +479,15 @@ impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTPath> for SMTPathParse<Fp> {
         let mut leaf = None;
         // notice when there is no leaf node, providing 0 key
         if let Some(leaf_node) = &path_trace.leaf {
-            key = Fp::read(&mut leaf_node.sibling.start_read()).map_err(TraceError::DeErr)?;
-            leaf = Some(Fp::read(&mut leaf_node.value.start_read()).map_err(TraceError::DeErr)?);
+            key = Fp::from_bytes_wide(&leaf_node.sibling.cast());
+            leaf = Some(Fp::from_bytes_wide(&leaf_node.value.cast()));
         }
 
         let mpt_path = MPTPath::create(&path_bits, &siblings, key, leaf, |a, b| {
             <Fp as Hashable>::hash([*a, *b])
         });
         // sanity check
-        let root = Fp::read(&mut path_trace.root.start_read()).map_err(TraceError::DeErr)?;
+        let root = Fp::from_bytes_wide(&path_trace.root.cast());
         assert_eq!(root, mpt_path.root());
 
         Ok(SMTPathParse(mpt_path, siblings, path))
@@ -514,7 +503,7 @@ impl<'d, Fp: Hashable> TryFrom<(&'d serde::SMTPath, &'d serde::SMTPath, serde::H
     ) -> Result<Self, Self::Error> {
         let (before, after, ref_key) = traces;
 
-        let key = Fp::read(&mut ref_key.start_read()).map_err(TraceError::DeErr)?;
+        let key = Fp::from_bytes_wide(&ref_key.cast());
         let before_parsed: SMTPathParse<Fp> = before.try_into()?;
         let after_parsed: SMTPathParse<Fp> = after.try_into()?;
         let mut old = before_parsed.0;
@@ -680,7 +669,7 @@ impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTTrace> for AccountOp<Fp> {
             };
 
         let comm_state_root = match trace.common_state_root {
-            Some(h) => Fp::read(&mut h.start_read()).map_err(TraceError::DeErr)?,
+            Some(h) => Fp::from_bytes_wide(&h.cast()),
             None => Fp::zero(),
         };
 
@@ -785,10 +774,31 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::Fp;
-    use halo2_proofs::arithmetic::BaseExt;
+    use crate::test_utils::{rand_gen, Fp};
+    use halo2_proofs::halo2curves::group::ff::{Field, PrimeField};
 
-    fn decompose<Fp: PrimeField>(inp: Fp, l: usize) -> (Vec<bool>, Fp) {
+    impl<Fp: FieldExt> SingleOp<Fp> {
+        /// create an fully random update operation with leafs customable
+        pub fn create_rand_op(
+            layers: usize,
+            leafs: Option<(Fp, Fp)>,
+            hasher: impl FnMut(&Fp, &Fp) -> Fp + Clone,
+        ) -> Self {
+            let siblings: Vec<Fp> = (0..layers)
+                .map(|_| Fp::random(rand_gen([101u8; 32])))
+                .collect();
+            let key = Fp::random(rand_gen([99u8; 32]));
+            let leafs = leafs.unwrap_or_else(|| {
+                (
+                    Fp::random(rand_gen([102u8; 32])),
+                    Fp::random(rand_gen([103u8; 32])),
+                )
+            });
+            Self::create_update_op(layers, &siblings, key, leafs, hasher)
+        }
+    }
+
+    fn decompose<Fp: FieldExt>(inp: Fp, l: usize) -> (Vec<bool>, Fp) {
         let mut ret = Vec::new();
         let mut tested_key = inp;
         let invert_2 = Fp::one().double().invert().unwrap();
@@ -797,14 +807,14 @@ mod tests {
                 tested_key = tested_key * invert_2 - invert_2;
                 ret.push(true);
             } else {
-                tested_key = tested_key * invert_2;
+                tested_key *= invert_2;
                 ret.push(false);
             }
         }
         (ret, tested_key)
     }
 
-    fn recover<Fp: PrimeField>(path: &[bool], res: Fp) -> Fp {
+    fn recover<Fp: FieldExt>(path: &[bool], res: Fp) -> Fp {
         let mut mask = Fp::one();
         let mut ret = Fp::zero();
 
@@ -828,7 +838,7 @@ mod tests {
         assert_eq!(recover(&ret2.0, ret2.1), test2);
 
         for _ in 0..1000 {
-            let test = Fp::rand();
+            let test = Fp::random(rand_gen([101u8; 32]));
             let ret = decompose(test, 22);
             assert_eq!(recover(&ret.0, ret.1), test);
         }

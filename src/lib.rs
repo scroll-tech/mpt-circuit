@@ -17,8 +17,8 @@ mod test_utils;
 pub mod operation;
 pub mod serde;
 
-pub mod hash;
-pub mod poseidon;
+pub use hash_circuit::hash;
+pub use hash_circuit::poseidon;
 
 /// Indicate the operation type of a row in MPT circuit
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -57,7 +57,7 @@ use mpt::MPTOpGadget;
 use operation::{AccountOp, HashTracesSrc, SingleOp};
 
 // building lagrange polynmials L for T so that L(n) = 1 when n = T else 0, n in [0, TO]
-fn lagrange_polynomial<Fp: ff::PrimeField, const T: usize, const TO: usize>(
+fn lagrange_polynomial<Fp: FieldExt, const T: usize, const TO: usize>(
     ref_n: Expression<Fp>,
 ) -> Expression<Fp> {
     let mut denominators: Vec<Fp> = (0..(TO + 1))
@@ -287,7 +287,36 @@ impl<Fp: FieldExt> EthTrie<Fp> {
 /// the mpt circuit type
 #[derive(Clone, Default)]
 pub struct EthTrieCircuit<F: FieldExt>(pub Vec<AccountOp<F>>, pub usize);
-pub use hash::HashCircuit;
+
+use hash::HashCircuit as PoseidonHashCircuit;
+/// the reform hash circuit
+pub struct HashCircuit<F: Hashable>(PoseidonHashCircuit<F, 32>);
+
+impl<Fp: Hashable> HashCircuit<Fp> {
+    /// re-warped, all-in-one creation
+    pub fn new(calcs: usize, input_with_check: &[&(Fp, Fp, Fp)]) -> Self {
+        let mut cr = PoseidonHashCircuit::<Fp, 32>::new(calcs);
+        cr.constant_inputs_with_check(input_with_check.iter().copied());
+        Self(cr)
+    }
+}
+
+impl<Fp: Hashable> Circuit<Fp> for HashCircuit<Fp> {
+    type Config = <PoseidonHashCircuit<Fp, 32> as Circuit<Fp>>::Config;
+    type FloorPlanner = <PoseidonHashCircuit<Fp, 32> as Circuit<Fp>>::FloorPlanner;
+
+    fn without_witnesses(&self) -> Self {
+        Self(self.0.without_witnesses())
+    }
+
+    fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
+        <PoseidonHashCircuit<Fp, 32> as Circuit<Fp>>::configure(meta)
+    }
+
+    fn synthesize(&self, config: Self::Config, layouter: impl Layouter<Fp>) -> Result<(), Error> {
+        self.0.synthesize(config, layouter)
+    }
+}
 
 impl<Fp: Hashable> EthTrie<Fp> {
     /// Obtain the total required rows for mpt and hash circuits (include the top and bottom padding)
@@ -318,17 +347,17 @@ pub struct CommitmentIndexs([usize; 3], [usize; 3]);
 impl CommitmentIndexs {
     /// the hash col's pos
     pub fn hash_pos(&self) -> (usize, usize) {
-        (self.0[2], self.1[2])
+        (self.0[2], self.1[0])
     }
 
     /// the first input col's pos
     pub fn left_pos(&self) -> (usize, usize) {
-        (self.0[0], self.1[0])
+        (self.0[0], self.1[1])
     }
 
     /// the second input col's pos
     pub fn right_pos(&self) -> (usize, usize) {
-        (self.0[1], self.1[1])
+        (self.0[1], self.1[2])
     }
 
     /// get commitment
@@ -343,7 +372,10 @@ impl CommitmentIndexs {
 
         let hash_circuit_indexs = config.commitment_index();
 
-        Self(trie_circuit_indexs, hash_circuit_indexs)
+        Self(
+            trie_circuit_indexs,
+            hash_circuit_indexs[0..3].try_into().unwrap(),
+        )
     }
 }
 
@@ -551,7 +583,7 @@ mod test {
     #![allow(unused_imports)]
     use super::*;
     use crate::{serde::Row, test_utils::*};
-    use ff::Field;
+    use halo2_proofs::arithmetic::FieldExt;
     use halo2_proofs::dev::{MockProver, VerifyFailure};
     use operation::*;
 
