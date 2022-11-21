@@ -379,12 +379,22 @@ pub struct AccountOp<Fp: FieldExt> {
     pub account_before: Option<Account<Fp>>,
     /// the state after updating in account
     pub account_after: Account<Fp>,
+    /// the stored value before being updated
+    pub store_before: Option<(Fp, Fp)>,
+    /// the stored value after being updated
+    pub store_after: Option<(Fp, Fp)>,
+    /// address (the preimage of acc_trie's key, splitted by 2 fields)
+    pub address: (Fp, Fp),
+    /// the key being store (preimage of state_trie's key)
+    pub store_key: Option<(Fp, Fp)>,
+    /// hashes calculated for address and store kv
+    pub hash_trace_complement : Vec<(Fp, Fp, Fp)>,
 }
 
 impl<Fp: FieldExt> AccountOp<Fp> {
     /// indicate rows would take for whole operation
     pub fn use_rows(&self) -> usize {
-        self.use_rows_account() + self.use_rows_trie_state() + self.use_rows_trie_account()
+        self.use_rows_account() + self.use_rows_trie_state() + self.use_rows_trie_account() + self.use_rows_trie_kv()
     }
 
     /// indicate rows would take in the account trie part
@@ -410,6 +420,16 @@ impl<Fp: FieldExt> AccountOp<Fp> {
         }
     }
 
+    /// indicate rows would take in the state kv part
+    pub fn use_rows_trie_kv(&self) -> usize {
+        if let Some(op) = &self.state_trie {
+            1
+        } else {
+            0
+        }
+    }
+
+
     /// the root of account trie, which is global state
     pub fn account_root(&self) -> Fp {
         self.acc_trie.new_root()
@@ -422,6 +442,7 @@ impl<Fp: FieldExt> AccountOp<Fp> {
 
     /// iter all the hash traces inside an operation (may contain duplications)
     pub fn hash_traces(&self) -> impl Iterator<Item = &(Fp, Fp, Fp)> + Clone {
+
         self.acc_trie
             .hash_traces()
             .chain(self.state_trie.iter().flat_map(|i| i.hash_traces()))
@@ -431,6 +452,7 @@ impl<Fp: FieldExt> AccountOp<Fp> {
                     .flat_map(|i| i.hash_traces.iter()),
             )
             .chain(self.account_after.hash_traces.iter())
+            .chain(self.hash_trace_complement.iter())
     }
 }
 
@@ -647,6 +669,9 @@ impl<'d, Fp: Hashable> TryFrom<(&'d serde::AccountData, Fp)> for Account<Fp> {
 impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTTrace> for AccountOp<Fp> {
     type Error = TraceError;
     fn try_from(trace: &'d serde::SMTTrace) -> Result<Self, Self::Error> {
+
+        use super::serde::HexBytes;
+
         let acc_trie: SingleOp<Fp> = (
             &trace.account_path[0],
             &trace.account_path[1],
@@ -710,11 +735,70 @@ impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTTrace> for AccountOp<Fp> {
             Default::default()
         };
 
+        // notice address, store kv in smttrace is big-endian presented (32 bytes)
+        let address = {
+            let addr_bytes = &trace.address.0;
+            let first_16bytes: [u8; 16] = addr_bytes[..16].try_into().expect("expect first 16 bytes");
+            let last_4bytes: [u8; 4] = addr_bytes[16..].try_into().expect("expect first 4 bytes");
+            (
+                Fp::from_u128(u128::from_be_bytes(first_16bytes)),
+                Fp::from_u128(u32::from_be_bytes(last_4bytes) as u128),
+            )
+        };
+
+        let bytes32_to_fp_pair = |byte32: &HexBytes<32>| {
+            let bytes = byte32.0;
+            let first_16bytes: [u8; 16] = bytes[..16].try_into().expect("expect first 16 bytes");
+            let last_16bytes: [u8; 16] = bytes[16..].try_into().expect("expect first 16 bytes");
+            (
+                Fp::from_u128(u128::from_be_bytes(first_16bytes)),
+                Fp::from_u128(u128::from_be_bytes(last_16bytes)),
+            )
+        };
+
+        let address = {
+            let addr_bytes = &trace.address.0;
+            let first_16bytes: [u8; 16] = addr_bytes[..16].try_into().expect("expect first 16 bytes");
+            let last_4bytes: [u8; 4] = addr_bytes[16..].try_into().expect("expect first 4 bytes");
+            (
+                Fp::from_u128(u128::from_be_bytes(first_16bytes)),
+                Fp::from_u128(u32::from_be_bytes(last_4bytes) as u128),
+            )
+        };
+
+        let (store_key, store_before, store_after) = if let Some(update_pair) = trace.state_update.as_ref() {
+            (
+                Some(bytes32_to_fp_pair(&update_pair[0].or(update_pair[1]).expect("one of state update should not NONE").key)),
+                update_pair[0].map(|st|bytes32_to_fp_pair(&st.value)),
+                update_pair[1].map(|st|bytes32_to_fp_pair(&st.value)),
+            )
+        } else {
+            (None, None, None)
+        };
+
+        // calculate hash_traces for parsed fields
+        let hash_trace_complement : Vec<_> = 
+            [&address].into_iter()
+            .chain(store_key.as_ref())
+            .chain(store_before.as_ref())
+            .chain(store_after.as_ref())
+            .map(|hash_pair: &(Fp, Fp)|{(
+                hash_pair.0, 
+                hash_pair.1, 
+                <Fp as Hashable>::hash([hash_pair.0, hash_pair.1])
+            )}).collect();
+
+
         Ok(Self {
             acc_trie,
             state_trie,
             account_before,
             account_after,
+            address,
+            store_key,
+            store_before,
+            store_after,
+            hash_trace_complement,
         })
     }
 }
