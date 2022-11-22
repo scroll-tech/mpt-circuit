@@ -34,7 +34,7 @@
 
 use super::mpt;
 use super::CtrlTransitionKind;
-use crate::operation::Account;
+use crate::operation::{Account, AccountOp};
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Chip, Region, Value},
@@ -243,8 +243,7 @@ struct AccountChipConfig {
     exported: Column<Advice>,
 }
 
-/// chip for verify mutiple merkle path in MPT
-/// it do not need any auxiliary cols
+/// chip for verify account data's hash in zkktrie
 struct AccountChip<'d, F> {
     offset: usize,
     config: AccountChipConfig,
@@ -448,6 +447,187 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
 
         Ok(offset)
     }
+}
+
+#[derive(Clone, Debug)]
+struct StorageChipConfig {
+    value: Column<Advice>,
+    v_limbs: [Column<Advice>;2],
+}
+
+/// a single row chip for mapping the storage kv (both with 2 limbs) to its 2-field rlc and 
+/// hash value in the prev row, this chip can be used by both key and value
+struct StorageChip<'d, F> {
+    config: StorageChipConfig,
+    value: &'d Option<(F, F)>,
+    randomness: F,
+}
+
+impl<'d, Fp: FieldExt> StorageChip<'d, Fp> {
+
+    fn configure(
+        meta: &mut ConstraintSystem<Fp>,
+        sel: Selector,
+        s_enable: Column<Advice>,
+        value: Column<Advice>,
+        v_limbs: [Column<Advice>;2],
+        hash_table: &mpt::HashTable,
+        randomness: Expression<Fp>,
+    ) -> StorageChipConfig {
+
+        meta.create_gate("value rlc", |meta|{
+            let s_enable = meta.query_selector(sel) * meta.query_advice(s_enable, Rotation::cur());
+            let value = meta.query_advice(value, Rotation::cur());
+            let limb_0 = meta.query_advice(v_limbs[0], Rotation::cur());
+            let limb_1 = meta.query_advice(v_limbs[1], Rotation::cur());
+            vec![s_enable * (limb_0 + randomness * limb_1 - value)]
+        });
+
+        meta.lookup_any("value hash", |meta| {
+            let enable = meta.query_advice(s_enable, Rotation::cur());
+            vec![
+                (
+                    enable.clone() * meta.query_advice(v_limbs[0], Rotation::cur()),
+                    meta.query_advice(hash_table.0, Rotation::cur()),
+                ),
+                (
+                    enable.clone() * meta.query_advice(v_limbs[1], Rotation::cur()),
+                    meta.query_advice(hash_table.1, Rotation::cur()),
+                ),
+                (
+                    enable * meta.query_advice(value, Rotation::prev()),
+                    meta.query_advice(hash_table.2, Rotation::cur()),
+                ),
+            ]
+        });  
+        
+        StorageChipConfig {
+            value,
+            v_limbs,
+        }
+
+    }
+
+    fn assign(&self, region: &mut Region<'_, Fp>, offset: usize) -> Result<usize, Error> {
+
+        let config = &self.config;
+
+        region.assign_advice(
+            || "val limb 0",
+            config.v_limbs[0],
+            offset,
+            || Value::known(self.value.map_or_else(Fp::zero, |v|v.0)),
+        )?;        
+
+        region.assign_advice(
+            || "val limb 1",
+            config.v_limbs[1],
+            offset,
+            || Value::known(self.value.map_or_else(Fp::zero, |v|v.1)),
+        )?; 
+
+        region.assign_advice(
+            || "val rlc",
+            config.value,
+            offset,
+            || Value::known(self.value.map_or_else(Fp::zero, |v|{v.0 + self.randomness * v.1})),
+        )?; 
+
+        Ok(offset+1)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct StorageGadget {
+    s_value: StorageChipConfig,
+    e_value: StorageChipConfig,
+    key: StorageChipConfig,
+    s_enable: Column<Advice>,
+    ctrl_type: Column<Advice>,
+}
+
+
+impl StorageGadget {
+    pub fn min_free_cols() -> usize {
+        6
+    }
+ 
+    /// create gadget from assigned cols, we need:
+    /// + circuit selector * 1
+    /// + exported col * 5 (MUST by following sequence: layout_flag, s_enable, old_val, new_val, key_val)
+    /// + free col * 4
+    pub fn configure<Fp: FieldExt>(
+        meta: &mut ConstraintSystem<Fp>,
+        sel: Selector,
+        exported: [Column<Advice>; 5],
+        free: &[Column<Advice>],
+        hash_tbl: mpt::HashTable,
+        randomness: Expression<Fp>,
+    ) -> Self {
+
+        let s_enable = exported[1];
+        let ctrl_type = exported[0];
+
+        let s_value = StorageChip::<_>::configure(meta, sel, s_enable, exported[2], 
+            free[..2].try_into().expect("length specified"), &hash_tbl, randomness.clone());
+
+        let e_value = StorageChip::<_>::configure(meta, sel, s_enable, exported[3], 
+            free[2..4].try_into().expect("length specified"), &hash_tbl, randomness.clone());
+
+        let key = StorageChip::<_>::configure(meta, sel, s_enable, exported[4], 
+            free[4..6].try_into().expect("length specified"), &hash_tbl, randomness);
+        
+        Self {
+            s_enable,
+            ctrl_type,
+            key,
+            s_value,
+            e_value,
+        }
+    }
+    
+    /// single row gadget has no transition rule
+    pub fn transition_rules() -> impl Iterator<Item = (u32, u32, u32)> + Clone {[].into_iter()}
+    
+    pub fn assign<'d, Fp: FieldExt>(
+        &self,
+        region: &mut Region<'_, Fp>,
+        offset: usize,
+        full_op: &'d AccountOp<Fp>,
+        randomness: Fp,
+    ) -> Result<usize, Error> {
+
+        region.assign_advice(
+            || "enable storage leaf circuit",
+            self.s_enable,
+            offset,
+            || Value::known(Fp::one()),
+        )?;
+        
+        region.assign_advice(
+            || "storage leaf circuit row",
+            self.ctrl_type,
+            offset,
+            || Value::known(Fp::zero()),
+        )?;
+        
+        for (config, value) in [
+            (self.s_value.clone(), &full_op.store_before), 
+            (self.e_value.clone(), &full_op.store_after), 
+            (self.key.clone(), &full_op.store_key)] {
+            let chip = StorageChip {
+                config: config.clone(),
+                randomness,
+                value,
+            };
+
+            chip.assign(region, offset)?;
+        }
+
+        Ok(offset+1)
+
+    }
+
 }
 
 #[cfg(test)]

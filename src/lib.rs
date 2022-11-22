@@ -629,6 +629,7 @@ mod test {
             state_trie: Some(state_trie),
             account_after,
             account_before: Some(account_before),
+            ..Default::default()
         };
 
         let start_root = op1.account_root_before();

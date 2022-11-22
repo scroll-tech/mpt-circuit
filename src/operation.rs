@@ -422,7 +422,7 @@ impl<Fp: FieldExt> AccountOp<Fp> {
 
     /// indicate rows would take in the state kv part
     pub fn use_rows_trie_kv(&self) -> usize {
-        if let Some(op) = &self.state_trie {
+        if self.state_trie.is_some() {
             1
         } else {
             0
@@ -736,7 +736,7 @@ impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTTrace> for AccountOp<Fp> {
         };
 
         // notice address, store kv in smttrace is big-endian presented (32 bytes)
-        let address = {
+        let _address = {
             let addr_bytes = &trace.address.0;
             let first_16bytes: [u8; 16] = addr_bytes[..16].try_into().expect("expect first 16 bytes");
             let last_4bytes: [u8; 4] = addr_bytes[16..].try_into().expect("expect first 4 bytes");
@@ -767,11 +767,16 @@ impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTTrace> for AccountOp<Fp> {
         };
 
         let (store_key, store_before, store_after) = if let Some(update_pair) = trace.state_update.as_ref() {
-            (
-                Some(bytes32_to_fp_pair(&update_pair[0].or(update_pair[1]).expect("one of state update should not NONE").key)),
-                update_pair[0].map(|st|bytes32_to_fp_pair(&st.value)),
-                update_pair[1].map(|st|bytes32_to_fp_pair(&st.value)),
-            )
+
+            if update_pair[0].is_none() && update_pair[1].is_none() {
+                (None, None, None)
+            } else {
+                (
+                    Some(bytes32_to_fp_pair(&update_pair[0].as_ref().or(update_pair[1].as_ref()).expect("one of state update should not NONE").key)),
+                    update_pair[0].as_ref().map(|st|bytes32_to_fp_pair(&st.value)),
+                    update_pair[1].as_ref().map(|st|bytes32_to_fp_pair(&st.value)),
+                )    
+            }
         } else {
             (None, None, None)
         };
