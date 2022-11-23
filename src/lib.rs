@@ -60,7 +60,7 @@ use operation::{AccountOp, HashTracesSrc, SingleOp};
 fn lagrange_polynomial<Fp: FieldExt, const T: usize, const TO: usize>(
     ref_n: Expression<Fp>,
 ) -> Expression<Fp> {
-    let mut denominators: Vec<Fp> = (0..(TO + 1))
+    let mut denominators: Vec<Fp> = (0..=TO)
         .map(|v| Fp::from(T as u64) - Fp::from(v as u64))
         .collect();
     denominators.swap_remove(T);
@@ -454,6 +454,9 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
             .unwrap_or_else(Fp::zero);
         let rows = self.1;
 
+        //TODO: need to import randomness
+        let randonmess = Fp::one();
+
         layouter.assign_region(
             || "main",
             |mut region| {
@@ -491,6 +494,7 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
                             &op.account_after,
                         ),
                         Some(op.state_trie.is_none()),
+                        randonmess,
                     )?;
                     if let Some(trie) = &op.state_trie {
                         config.layer.pace_op(

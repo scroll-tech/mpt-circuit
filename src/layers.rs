@@ -4,15 +4,15 @@
 //
 // ### Any gadgets dedicated to specified op on MPT can be wrapped like:
 //
-// | ---- | --------- | --------- | --------- | --------- | --------- | --- | ------- | -------- |-------- |
-// | Rows |   series  |  op_type  | ctrl_type |  1_enable |  2_enable | ... | old_root| new_root |root_aux |
-// | ---- | --------- | --------- | --------- | --------- | --------- | --- | ------- | -------- |-------- |
-// |  1   |     1     |     1     |   start   |     1     |     0     |     |   old1  |   root1  |  root1  |
-// |  2   |     1     |     1     |   leaf    |     1     |     0     |     |         |          |  root1  |
-// |  3   |     1     |     2     |    ...    |     0     |     1     |     |         |          |  root1  |
-// |  4   |     1     |     3     |   leaf    |     0     |     0     |     |         |          |  root1  |
-// |  5   |     2     |     1     |   start   |     1     |     0     |     |  root1  |   root2  |  root2  |
-// | ---- | --------- | --------- | --------- | --------- | --------- | --- | ------- | -------- |-------- |
+// | ---- | --------- | --------- | --------- | --------- | --------- | --- | ------- | --------|--------|-------- |
+// | Rows |   series  |  op_type  | ctrl_type |  1_enable |  2_enable | ... | data_0  | data_1  | data_2 |root_aux |
+// | ---- | --------- | --------- | --------- | --------- | --------- | --- | ------- | --------|--------|-------- |
+// |  1   |     1     |     1     |   start   |     1     |     0     |     |   old1  |   root1 |        |  root1  |
+// |  2   |     1     |     1     |   leaf    |     1     |     0     |     |         |         |        |  root1  |
+// |  3   |     1     |     2     |    ...    |     0     |     1     |     |         |         |        |  root1  |
+// |  4   |     1     |     3     |   leaf    |     0     |     0     |     |         |         |        |  root1  |
+// |  5   |     2     |     1     |   start   |     1     |     0     |     |  root1  |   root2 |        |  root2  |
+// | ---- | --------- | --------- | --------- | --------- | --------- | --- | ------- | --------|--------|-------- |
 //
 // The series indicate an op and op_type indicate specified operation step, each step has its own layout
 // on the circuit and enabled by a flag, sequence of operations would be laid on continuous rows in the
@@ -37,8 +37,9 @@ pub(crate) struct LayerGadget {
     // its flag when assigned
     s_stepflags: Vec<Column<Advice>>,
     ctrl_type: Column<Advice>,
-    old_root: Column<Advice>,
-    new_root: Column<Advice>,
+    data_0: Column<Advice>,
+    data_1: Column<Advice>,
+    data_2: Column<Advice>,
 
     free_cols: Vec<Column<Advice>>,
     root_aux: Column<Advice>,
@@ -50,12 +51,13 @@ pub(crate) struct LayerGadget {
 pub(crate) type OpBorder = ((u32, u32), (u32, u32));
 
 impl LayerGadget {
-    pub fn exported_cols(&self, step: u32) -> [Column<Advice>; 4] {
+    pub fn exported_cols(&self, step: u32) -> [Column<Advice>; 5] {
         [
             self.ctrl_type,
             self.s_stepflags[step as usize],
-            self.old_root,
-            self.new_root,
+            self.data_0,
+            self.data_1,
+            self.data_2,
         ]
     }
 
@@ -83,8 +85,9 @@ impl LayerGadget {
         let series = meta.advice_column();
         let op_type = meta.advice_column();
         let ctrl_type = meta.advice_column();
-        let old_root = meta.advice_column();
-        let new_root = meta.advice_column();
+        let data_0 = meta.advice_column();
+        let data_1 = meta.advice_column();
+        let data_2 = meta.advice_column();
         let root_aux = meta.advice_column();
         let op_delta_aux = meta.advice_column();
         let control_table = [(); 5].map(|_| meta.lookup_table_column());
@@ -121,19 +124,19 @@ impl LayerGadget {
             let series_delta = meta.query_advice(series, Rotation::cur())
                 - meta.query_advice(series, Rotation::prev());
             let root_aux_start = meta.query_advice(root_aux, Rotation::cur())
-                - meta.query_advice(new_root, Rotation::cur());
+                - meta.query_advice(data_1, Rotation::cur());
             let root_aux_common = meta.query_advice(root_aux, Rotation::cur())
                 - meta.query_advice(root_aux, Rotation::prev());
 
-            // root continue: if series change then root_aux == new_root else root_aux = root_aux.prev ("root and depth" gate in the old code)
-            // root inherit: if series change then old_root == root_aux.prev ("op continue" gate in the old code)
+            // root continue: if series change then root_aux == data_1 else root_aux = root_aux.prev ("root and depth" gate in the old code)
+            // root inherit: if series change then data_0 == root_aux.prev ("op continue" gate in the old code)
             vec![
                 sel.clone()
                     * (series_delta.clone() * root_aux_start
                         + (Expression::Constant(Fp::one()) - series_delta.clone())
                             * root_aux_common),
                 sel * series_delta
-                    * (meta.query_advice(old_root, Rotation::cur())
+                    * (meta.query_advice(data_0, Rotation::cur())
                         - meta.query_advice(root_aux, Rotation::prev())),
             ]
         });
@@ -221,8 +224,7 @@ impl LayerGadget {
             s_stepflags,
             op_type,
             ctrl_type,
-            old_root,
-            new_root,
+            data_0, data_1, data_2,
             free_cols,
             root_aux,
             op_delta_aux,
@@ -262,19 +264,7 @@ impl LayerGadget {
             0,
             Fp::from(self.start_op_code() as u64),
         )?;
-        region.assign_advice_from_constant(|| "init ctrl", self.ctrl_type, 0, Fp::zero())?;
-        region.assign_advice(
-            || "root padding",
-            self.new_root,
-            0,
-            || Value::known(Fp::zero()),
-        )?;
-        region.assign_advice(
-            || "root padding",
-            self.old_root,
-            0,
-            || Value::known(Fp::zero()),
-        )?;
+        region.assign_advice_from_constant(|| "init ctrl", self.ctrl_type, 0, Fp::zero())?;      
         region.assign_advice(
             || "start root",
             self.root_aux,
@@ -297,18 +287,22 @@ impl LayerGadget {
                 )
                 .map(|_| ())
         })?;
-        region.assign_advice(
-            || "root flushing",
-            self.new_root,
-            max_rows,
-            || Value::known(Fp::zero()),
-        )?;
-        region.assign_advice(
-            || "root flushing",
-            self.old_root,
-            max_rows,
-            || Value::known(Fp::zero()),
-        )?;
+        // begin padding and final flush for data_rows
+        for col in [self.data_0, self.data_1, self.data_2] {
+            region.assign_advice(
+                || "begin padding",
+                col,
+                0,
+                || Value::known(Fp::zero()),
+            )?;
+
+            region.assign_advice(
+                || "last row flushing",
+                col,
+                max_rows,
+                || Value::known(Fp::zero()),
+            )?;            
+        }
         region.assign_advice(
             || "terminalte series",
             self.series,
@@ -596,7 +590,7 @@ impl PaddingGadget {
     pub fn configure<Fp: FieldExt>(
         meta: &mut ConstraintSystem<Fp>,
         sel: Selector,
-        exported: [Column<Advice>; 4],
+        exported: [Column<Advice>; 5],
     ) -> Self {
         meta.create_gate("padding root", |meta| {
             let enable = meta.query_selector(sel) * meta.query_advice(exported[1], Rotation::cur());
