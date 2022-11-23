@@ -1,4 +1,4 @@
-pub use halo2_proofs::arithmetic::Field;
+pub use halo2_proofs::arithmetic::{Field, FieldExt};
 pub use halo2_proofs::halo2curves::bn256::Fr as Fp;
 use lazy_static::lazy_static;
 use rand::{random, SeedableRng};
@@ -6,6 +6,7 @@ use rand_chacha::ChaCha8Rng; // why halo2-merkle tree use base field?
 
 lazy_static! {
     static ref GAMMA: Fp = Fp::random(rand_gen([101u8; 32]));
+    pub static ref TEST_RANDOMNESS: Fp = Fp::from_u128(0x10000000000000000u128).square();
 }
 
 pub fn rand_gen(seed: [u8; 32]) -> ChaCha8Rng {

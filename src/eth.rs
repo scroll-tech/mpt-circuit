@@ -43,7 +43,7 @@ use halo2_proofs::{
 };
 use lazy_static::lazy_static;
 
-pub const CIRCUIT_ROW: usize = 5;
+pub const CIRCUIT_ROW: usize = 4;
 const LAST_ROW: usize = CIRCUIT_ROW - 1;
 
 lazy_static! {
@@ -64,17 +64,17 @@ pub(crate) struct AccountGadget {
 
 impl AccountGadget {
     pub fn min_free_cols() -> usize {
-        4
+        6
     }
 
     /// create gadget from assigned cols, we need:
     /// + circuit selector * 1
-    /// + exported col * 4 (MUST by following sequence: layout_flag, s_enable, old_val, new_val)
+    /// + exported col * 5 (MUST by following sequence: layout_flag, s_enable, old_val, new_val, key_val)
     /// + free col * 4
     pub fn configure<Fp: FieldExt>(
         meta: &mut ConstraintSystem<Fp>,
         sel: Selector,
-        exported: [Column<Advice>; 4],
+        exported: [Column<Advice>; 5],
         free: &[Column<Advice>],
         tables: mpt::MPTOpTables,
         hash_tbl: mpt::HashTable,
@@ -82,16 +82,16 @@ impl AccountGadget {
         assert!(free.len() >= 6, "require at least 6 free cols");
         let s_enable = exported[1];
         let ctrl_type = exported[0];
-        let exported_old = exported[2];
-        let exported_new = exported[3];
+        let data_old = exported[2];
+        let data_new = exported[3];
 
         let old_state = AccountChip::configure(
             meta,
             sel,
             s_enable,
             ctrl_type,
-            exported_old,
-            &free[0..2],
+            data_old,
+            &free[0..3],
             hash_tbl.clone(),
         );
         let new_state = AccountChip::configure(
@@ -99,8 +99,8 @@ impl AccountGadget {
             sel,
             s_enable,
             ctrl_type,
-            exported_new,
-            &free[2..4],
+            data_new,
+            &free[3..6],
             hash_tbl,
         );
 
@@ -149,8 +149,8 @@ impl AccountGadget {
             let row4 = AccountChip::<'_, Fp>::lagrange_polynomial_for_row::<4>(
                 meta.query_advice(ctrl_type, Rotation::cur()),
             );
-            let old_root = meta.query_advice(exported_old, Rotation::cur());
-            let new_root = meta.query_advice(exported_new, Rotation::cur());
+            let old_root = meta.query_advice(data_old, Rotation::cur());
+            let new_root = meta.query_advice(data_new, Rotation::cur());
 
             vec![s_enable * row4 * (new_root - old_root)]
         });
@@ -176,16 +176,19 @@ impl AccountGadget {
         offset: usize,
         data: (&'d Account<Fp>, &'d Account<Fp>),
         apply_last_row: Option<bool>,
+        randomness: Fp,
     ) -> Result<usize, Error> {
         let old_acc_chip = AccountChip::<Fp> {
             offset,
-            config: self.old_state.clone(),
+            config: &self.old_state,
             data: data.0,
+            randomness,
         };
         let new_acc_chip = AccountChip::<Fp> {
             offset,
-            config: self.new_state.clone(),
+            config: &self.new_state,
             data: data.1,
+            randomness,
         };
 
         let apply_last_row = if let Some(apply) = apply_last_row {
@@ -219,13 +222,13 @@ impl AccountGadget {
             if index == LAST_ROW {
                 region.assign_advice(
                     || "padding last row",
-                    self.old_state.input,
+                    self.old_state.intermediate_2,
                     offset,
                     || Value::known(Fp::zero()),
                 )?;
                 region.assign_advice(
                     || "padding last row",
-                    self.new_state.input,
+                    self.new_state.intermediate_2,
                     offset,
                     || Value::known(Fp::zero()),
                 )?;
@@ -238,16 +241,18 @@ impl AccountGadget {
 
 #[derive(Clone, Debug)]
 struct AccountChipConfig {
-    input: Column<Advice>,
-    intermediate: Column<Advice>,
-    exported: Column<Advice>,
+    intermediate_1: Column<Advice>,
+    intermediate_2: Column<Advice>,
+    data_limbs: Column<Advice>, //in its 3 rows we pub address_limb, codehash_first and codehash_sec
+    acc_data_fields: Column<Advice>,
 }
 
 /// chip for verify account data's hash in zkktrie
 struct AccountChip<'d, F> {
     offset: usize,
-    config: AccountChipConfig,
+    config: &'d AccountChipConfig,
     data: &'d Account<F>,
+    randomness: F,
 }
 
 impl<Fp: FieldExt> Chip<Fp> for AccountChip<'_, Fp> {
@@ -255,7 +260,7 @@ impl<Fp: FieldExt> Chip<Fp> for AccountChip<'_, Fp> {
     type Loaded = Account<Fp>;
 
     fn config(&self) -> &Self::Config {
-        &self.config
+        self.config
     }
 
     fn loaded(&self) -> &Self::Loaded {
@@ -273,179 +278,153 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
         sel: Selector,
         s_enable: Column<Advice>,
         ctrl_type: Column<Advice>,
-        exported: Column<Advice>,
+        acc_data_fields: Column<Advice>,
         free_cols: &[Column<Advice>],
         hash_table: mpt::HashTable,
     ) -> <Self as Chip<Fp>>::Config {
-        let input = free_cols[0];
-        let intermediate = free_cols[1];
+        let data_limbs = free_cols[0];
+        let intermediate_1 = free_cols[1];
+        let intermediate_2 = free_cols[2];
 
-        // first hash lookup
-        meta.lookup_any("account hash calc1", |meta| {
-            // only enable on row 1, 3
+        // first hash lookup (Poseidon(Codehash_first, Codehash_Second) = hash1)
+        meta.lookup_any("account hash1 calc", |meta| {
+            // only enable on row 2
             let s_enable = meta.query_advice(s_enable, Rotation::cur());
             let ctrl_type = meta.query_advice(ctrl_type, Rotation::cur());
-            let enable_rows = Self::lagrange_polynomial_for_row::<1>(ctrl_type.clone())
-                + Self::lagrange_polynomial_for_row::<3>(ctrl_type);
+            let enable_rows = Self::lagrange_polynomial_for_row::<2>(ctrl_type);
             let enable = enable_rows * s_enable;
 
             vec![
                 (
-                    enable.clone() * meta.query_advice(input, Rotation::prev()),
+                    enable.clone() * meta.query_advice(data_limbs, Rotation::prev()),
                     meta.query_advice(hash_table.0, Rotation::cur()),
                 ),
                 (
-                    enable.clone() * meta.query_advice(input, Rotation::cur()),
+                    enable.clone() * meta.query_advice(data_limbs, Rotation::cur()),
                     meta.query_advice(hash_table.1, Rotation::cur()),
                 ),
                 (
-                    enable * meta.query_advice(intermediate, Rotation::cur()),
+                    enable * meta.query_advice(intermediate_1, Rotation::cur()),
                     meta.query_advice(hash_table.2, Rotation::cur()),
                 ),
             ]
         });
 
-        // second hash lookup
-        meta.lookup_any("account hash calc2", |meta| {
-            // only enable on row 1, 3
+        // second hash lookup (Poseidon(hash1, Root) = hash2, Poseidon(hash3, hash2) = hash_final)
+        meta.lookup_any("account hash2 and hash_final calc", |meta| {
+            // only enable on row 1 and 2
             let s_enable = meta.query_advice(s_enable, Rotation::cur());
             let ctrl_type = meta.query_advice(ctrl_type, Rotation::cur());
-            let enable_rows = Self::lagrange_polynomial_for_row::<1>(ctrl_type.clone())
-                + Self::lagrange_polynomial_for_row::<3>(ctrl_type);
+            let enable_rows = Self::lagrange_polynomial_for_row::<1>(ctrl_type.clone()) +
+                Self::lagrange_polynomial_for_row::<2>(ctrl_type);
             let enable = enable_rows * s_enable;
 
             vec![
                 (
-                    enable.clone() * meta.query_advice(intermediate, Rotation::cur()),
+                    enable.clone() * meta.query_advice(intermediate_1, Rotation::cur()),
                     meta.query_advice(hash_table.0, Rotation::cur()),
                 ),
                 (
-                    enable.clone() * meta.query_advice(exported, Rotation::cur()),
+                    enable.clone() * meta.query_advice(intermediate_2, Rotation::cur()),
                     meta.query_advice(hash_table.1, Rotation::cur()),
                 ),
                 (
-                    enable * meta.query_advice(exported, Rotation::prev()),
+                    enable * meta.query_advice(intermediate_2, Rotation::prev()),
                     meta.query_advice(hash_table.2, Rotation::cur()),
                 ),
             ]
         });
 
-        meta.create_gate("account calc", |meta| {
+        // third hash lookup (Poseidon(nonce, balance) = hash3)
+        meta.lookup_any("account hash3 calc", |meta| {
+            // only enable on row 1
+            let s_enable = meta.query_advice(s_enable, Rotation::cur());
+            let ctrl_type = meta.query_advice(ctrl_type, Rotation::cur());
+            let enable_rows = Self::lagrange_polynomial_for_row::<1>(ctrl_type);
+            let enable = enable_rows * s_enable;
+
+            vec![
+                (
+                    enable.clone() * meta.query_advice(acc_data_fields, Rotation::prev()),
+                    meta.query_advice(hash_table.0, Rotation::cur()),
+                ),
+                (
+                    enable.clone() * meta.query_advice(acc_data_fields, Rotation::cur()),
+                    meta.query_advice(hash_table.1, Rotation::cur()),
+                ),
+                (
+                    enable * meta.query_advice(intermediate_2, Rotation::prev()),
+                    meta.query_advice(hash_table.2, Rotation::cur()),
+                ),
+            ]
+        });
+
+        // equality constraint: hash_final and Root
+        meta.create_gate("account calc equalities", |meta| {
             let s_enable = meta.query_selector(sel) * meta.query_advice(s_enable, Rotation::cur());
             let ctrl_type = meta.query_advice(ctrl_type, Rotation::cur());
-            let exported_equal1 = meta.query_advice(exported, Rotation::cur())
-                - meta.query_advice(exported, Rotation::prev());
-            let exported_equal2 = meta.query_advice(exported, Rotation::cur())
-                - meta.query_advice(exported, Rotation::next());
+            let exported_equal1 = meta.query_advice(intermediate_2, Rotation::cur())
+                - meta.query_advice(acc_data_fields, Rotation::prev());
+            let exported_equal2 = meta.query_advice(intermediate_2, Rotation::cur())
+                - meta.query_advice(acc_data_fields, Rotation::next());
 
             // equalities in the circuit
-            // (notice the value for leafExtendedFinal can be omitted)
             vec![
                 s_enable.clone()
-                    * Self::lagrange_polynomial_for_row::<2>(ctrl_type.clone())
-                    * exported_equal1.clone(), // equality of hash2
-                s_enable.clone()
-                    * Self::lagrange_polynomial_for_row::<0>(ctrl_type.clone())
-                    * exported_equal1, // equality of account trie leaf
-                s_enable * Self::lagrange_polynomial_for_row::<3>(ctrl_type) * exported_equal2, // equality of state trie root
+                    * Self::lagrange_polynomial_for_row::<1>(ctrl_type.clone())
+                    * exported_equal1, // equality of hash_final
+                s_enable 
+                    * Self::lagrange_polynomial_for_row::<2>(ctrl_type) 
+                    * exported_equal2, // equality of state trie root
             ]
         });
 
         AccountChipConfig {
-            input,
-            intermediate,
-            exported,
+            acc_data_fields,
+            intermediate_1,
+            intermediate_2,
+            data_limbs,
         }
     }
 
     fn assign(&self, region: &mut Region<'_, Fp>) -> Result<usize, Error> {
-        let config = &self.config;
+        let config = self.config();
+        let data = self.loaded();
         // fill the connected circuit
         let offset = self.offset - 1;
         region.assign_advice(
-            || "account hash",
-            config.exported,
+            || "account hash final",
+            config.acc_data_fields,
             offset,
-            || Value::known(self.data.account_hash()),
+            || Value::known(data.account_hash()),
         )?;
+        
+        // fill the main block of chip
+        for (col, vals, desc) in [
+            (config.acc_data_fields, [data.nonce, data.balance, data.codehash.0 + self.randomness * data.codehash.1], "data field"),
+            (config.intermediate_2, [data.account_hash(), data.hash_traces(1), data.state_root], "intermedia 2"),
+            (config.intermediate_1, [Fp::zero(), data.hash_traces(2), data.hash_traces(0)], "intermedia 1"),
+            (config.data_limbs, [Fp::zero(), data.codehash.0, data.codehash.1], "data limbs"),
+        ] {
 
-        // row 0
-        let offset = offset + 1;
-        region.assign_advice(
-            || "input 0",
-            config.input,
-            offset,
-            || Value::known(self.data.nonce),
-        )?;
-        region.assign_advice(
-            || "exported 0",
-            config.exported,
-            offset,
-            || Value::known(self.data.account_hash()),
-        )?;
-        // row 1
-        let offset = offset + 1;
-        region.assign_advice(
-            || "input 1",
-            config.input,
-            offset,
-            || Value::known(self.data.balance),
-        )?;
-        region.assign_advice(
-            || "intermediate 1",
-            config.intermediate,
-            offset,
-            || Value::known(self.data.hash_traces(2)),
-        )?;
-        region.assign_advice(
-            || "exported 1",
-            config.exported,
-            offset,
-            || Value::known(self.data.hash_traces(1)),
-        )?;
-        // row 2
-        let offset = offset + 1;
-        region.assign_advice(
-            || "input 2",
-            config.input,
-            offset,
-            || Value::known(self.data.codehash.0),
-        )?;
-        region.assign_advice(
-            || "exported 2",
-            config.exported,
-            offset,
-            || Value::known(self.data.hash_traces(1)),
-        )?;
-        // row 3
-        let offset = offset + 1;
-        region.assign_advice(
-            || "input 3",
-            config.input,
-            offset,
-            || Value::known(self.data.codehash.1),
-        )?;
-        region.assign_advice(
-            || "intermediate 3",
-            config.intermediate,
-            offset,
-            || Value::known(self.data.hash_traces(0)),
-        )?;
-        region.assign_advice(
-            || "exported 3",
-            config.exported,
-            offset,
-            || Value::known(self.data.state_root),
-        )?;
+            for (i, val) in vals.iter().enumerate() {
+                region.assign_advice(
+                    || format!("{} row {} (offset {})", desc, i, self.offset),
+                    col,
+                    self.offset + i,
+                    || Value::known(*val),
+                )?;
+            }
+        }
         // row 4: notice this is not belong to account chip in general
         region.assign_advice(
             || "state root",
-            config.exported,
-            offset + 1,
+            config.acc_data_fields,
+            self.offset + LAST_ROW,
             || Value::known(self.data.state_root),
         )?;
 
-        Ok(offset)
+        Ok(self.offset + LAST_ROW)
     }
 }
 
@@ -646,7 +625,7 @@ mod test {
     struct AccountTestConfig {
         gadget: AccountGadget,
         sel: Selector,
-        free_cols: [Column<Advice>; 10],
+        free_cols: [Column<Advice>; 11],
         op_tabl: mpt::MPTOpTables,
         hash_tabl: mpt::HashTable,
     }
@@ -667,8 +646,8 @@ mod test {
 
         fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
             let sel = meta.selector();
-            let free_cols = [(); 10].map(|_| meta.advice_column());
-            let exported_cols = [free_cols[0], free_cols[1], free_cols[2], free_cols[3]];
+            let free_cols = [(); 11].map(|_| meta.advice_column());
+            let exported_cols = [free_cols[0], free_cols[1], free_cols[2], free_cols[3], free_cols[4]];
             let op_tabl = mpt::MPTOpTables::configure_create(meta);
             let hash_tabl = mpt::HashTable::configure_create(meta);
 
@@ -676,7 +655,7 @@ mod test {
                 meta,
                 sel,
                 exported_cols,
-                &free_cols[4..],
+                &free_cols[5..],
                 op_tabl.clone(),
                 hash_tabl.clone(),
             );
@@ -713,7 +692,7 @@ mod test {
                     let till =
                         config
                             .gadget
-                            .assign(&mut region, 1, (&self.data.0, &self.data.1), None)?;
+                            .assign(&mut region, 1, (&self.data.0, &self.data.1), None, *TEST_RANDOMNESS)?;
                     for offset in 1..till {
                         config.sel.enable(&mut region, offset)?;
                     }

@@ -167,13 +167,13 @@ There are a pair of proofs which provide for the account data before and after u
 
 The layout for account proof looks like following:
 
-|op_type|ctrl_type|    datalimb_0   |   datalimb_1    | Intermediate_1  | Intermediate_2  |    data_0/1    |
-|-------|---------|-----------------|-----------------|-----------------|-----------------|----------------|
-|   1   |         |                 |                 |                 |                 |   *hash_final* |
-|   2   |    0    |                 |                 |                 |   hash_final    |    nonce       |
-|   2   |    1    |                 |                 |      hash3      |      hash2      |    balance     |
-|   2   |    2    | Codehash_first  |Codehash_Second  |      hash1      |      Root       |    code_hash   |
-|   3   |         |                 |                 |                 |                 |      *Root*    |
+|op_type|ctrl_type|   datalimb_s    | Intermediate_1  | Intermediate_2  |    data_0/1    |
+|-------|---------|-----------------|-----------------|-----------------|----------------|
+|   1   |         |                 |                 |                 |   *hash_final* |
+|   2   |    0    |                 |                 |   hash_final    |    nonce       |
+|   2   |    1    |Codehash_first   |      hash3      |      hash2      |    balance     |
+|   2   |    2    |Codehash_Second  |      hash1      |      Root       |    code_hash   |
+|   3   |         |                 |                 |                 |      *Root*    |
 
 value of `1`, `2`, `3` in`op_type` col indicate the row dedicating to proof of state trie (proof 4), account data (proof 3) and storage trie (proof 2) respectively. we can see in account data proof  the top and bottom cell in data columns can be easily constrained to be equal to the cell above / below them. So the proofs are being "connected".
 
