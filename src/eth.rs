@@ -146,13 +146,13 @@ impl AccountGadget {
         //additional row
         meta.create_gate("padding row", |meta| {
             let s_enable = meta.query_selector(sel) * meta.query_advice(s_enable, Rotation::cur());
-            let row4 = AccountChip::<'_, Fp>::lagrange_polynomial_for_row::<4>(
+            let row3 = AccountChip::<'_, Fp>::lagrange_polynomial_for_row::<3>(
                 meta.query_advice(ctrl_type, Rotation::cur()),
             );
             let old_root = meta.query_advice(data_old, Rotation::cur());
             let new_root = meta.query_advice(data_new, Rotation::cur());
 
-            vec![s_enable * row4 * (new_root - old_root)]
+            vec![s_enable * row3 * (new_root - old_root)]
         });
 
         Self {
@@ -353,7 +353,7 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
                     meta.query_advice(hash_table.1, Rotation::cur()),
                 ),
                 (
-                    enable * meta.query_advice(intermediate_2, Rotation::prev()),
+                    enable * meta.query_advice(intermediate_1, Rotation::cur()),
                     meta.query_advice(hash_table.2, Rotation::cur()),
                 ),
             ]
@@ -371,7 +371,7 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
             // equalities in the circuit
             vec![
                 s_enable.clone()
-                    * Self::lagrange_polynomial_for_row::<1>(ctrl_type.clone())
+                    * Self::lagrange_polynomial_for_row::<0>(ctrl_type.clone())
                     * exported_equal1, // equality of hash_final
                 s_enable 
                     * Self::lagrange_polynomial_for_row::<2>(ctrl_type) 

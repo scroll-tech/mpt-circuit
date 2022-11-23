@@ -555,7 +555,7 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
         let possible_end_block = [
             (OP_TRIE_STATE, HashType::Empty as u32),
             (OP_TRIE_STATE, HashType::Leaf as u32),
-            (OP_ACCOUNT, 4),
+            (OP_ACCOUNT, 3),
         ];
         let possible_start_block = [(OP_TRIE_ACCOUNT, HashType::Start as u32), (OP_PADDING, 0)];
         let border_list: Vec<layers::OpBorder> = possible_start_block
@@ -567,7 +567,7 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
         let op_border_list = [
             ((OP_ACCOUNT, 0), (OP_TRIE_ACCOUNT, HashType::Empty as u32)),
             ((OP_ACCOUNT, 0), (OP_TRIE_ACCOUNT, HashType::Leaf as u32)),
-            ((OP_TRIE_STATE, HashType::Start as u32), (OP_ACCOUNT, 3)),
+            ((OP_TRIE_STATE, HashType::Start as u32), (OP_ACCOUNT, 2)),
         ];
 
         config.layer.set_op_border_ex(
