@@ -437,7 +437,8 @@ struct StorageChipConfig {
 /// a single row chip for mapping the storage kv (both with 2 limbs) to its 2-field rlc and 
 /// hash value in the prev row, this chip can be used by both key and value
 struct StorageChip<'d, F> {
-    config: StorageChipConfig,
+    offset: usize,
+    config: &'d StorageChipConfig,
     value: &'d Option<(F, F)>,
     randomness: F,
 }
@@ -454,7 +455,7 @@ impl<'d, Fp: FieldExt> StorageChip<'d, Fp> {
         randomness: Expression<Fp>,
     ) -> StorageChipConfig {
 
-        meta.create_gate("value rlc", |meta|{
+         meta.create_gate("value rlc", |meta|{
             let s_enable = meta.query_selector(sel) * meta.query_advice(s_enable, Rotation::cur());
             let value = meta.query_advice(value, Rotation::cur());
             let limb_0 = meta.query_advice(v_limbs[0], Rotation::cur());
@@ -487,32 +488,32 @@ impl<'d, Fp: FieldExt> StorageChip<'d, Fp> {
 
     }
 
-    fn assign(&self, region: &mut Region<'_, Fp>, offset: usize) -> Result<usize, Error> {
+    fn assign(&self, region: &mut Region<'_, Fp>) -> Result<usize, Error> {
 
         let config = &self.config;
 
         region.assign_advice(
             || "val limb 0",
             config.v_limbs[0],
-            offset,
+            self.offset,
             || Value::known(self.value.map_or_else(Fp::zero, |v|v.0)),
         )?;        
 
         region.assign_advice(
             || "val limb 1",
             config.v_limbs[1],
-            offset,
+            self.offset,
             || Value::known(self.value.map_or_else(Fp::zero, |v|v.1)),
         )?; 
 
         region.assign_advice(
             || "val rlc",
             config.value,
-            offset,
+            self.offset,
             || Value::known(self.value.map_or_else(Fp::zero, |v|{v.0 + self.randomness * v.1})),
         )?; 
 
-        Ok(offset+1)
+        Ok(self.offset+1)
     }
 }
 
@@ -595,12 +596,13 @@ impl StorageGadget {
             (self.e_value.clone(), &full_op.store_after), 
             (self.key.clone(), &full_op.store_key)] {
             let chip = StorageChip {
-                config: config.clone(),
+                offset,
+                config: &config,
                 randomness,
                 value,
             };
 
-            chip.assign(region, offset)?;
+            chip.assign(region)?;
         }
 
         Ok(offset+1)

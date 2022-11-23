@@ -17,6 +17,7 @@ mod test_utils;
 pub mod operation;
 pub mod serde;
 
+use eth::StorageGadget;
 pub use hash_circuit::hash;
 pub use hash_circuit::poseidon;
 
@@ -240,6 +241,7 @@ impl<Fp: FieldExt> Circuit<Fp> for SimpleTrie<Fp> {
 pub struct EthTrieConfig {
     layer: LayerGadget,
     account: AccountGadget,
+    storage: StorageGadget,
     account_trie: MPTOpGadget,
     state_trie: MPTOpGadget,
     padding: PaddingGadget,
@@ -258,6 +260,7 @@ pub struct EthTrie<F: FieldExt> {
 const OP_TRIE_ACCOUNT: u32 = 1;
 const OP_TRIE_STATE: u32 = 2;
 const OP_ACCOUNT: u32 = 3;
+const OP_STORAGE: u32 = 4;
 
 impl<Fp: FieldExt> EthTrie<Fp> {
     /// Add an op into the circuit data
@@ -319,6 +322,7 @@ impl<Fp: Hashable> Circuit<Fp> for HashCircuit<Fp> {
 }
 
 impl<Fp: Hashable> EthTrie<Fp> {
+
     /// Obtain the total required rows for mpt and hash circuits (include the top and bottom padding)
     pub fn use_rows(&self) -> (usize, usize) {
         // calc rows for mpt circuit, we need to compare the rows used by adviced region and table region
@@ -379,6 +383,8 @@ impl CommitmentIndexs {
     }
 }
 
+const TEMP_RANDOMNESS : u64 = 1;
+
 impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
     type Config = EthTrieConfig;
     type FloorPlanner = SimpleFloorPlanner;
@@ -390,11 +396,19 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
     fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
         let tables = mpt::MPTOpTables::configure_create(meta);
         let hash_tbl = mpt::HashTable::configure_create(meta);
+        //TODO: need to induce randomness
+        let randomness = Expression::Constant(Fp::from(TEMP_RANDOMNESS));
 
         let layer = LayerGadget::configure(
             meta,
-            4,
-            std::cmp::max(MPTOpGadget::min_free_cols(), AccountGadget::min_free_cols()),
+            5,
+            std::cmp::max(
+                MPTOpGadget::min_free_cols(), 
+                std::cmp::max(
+                    AccountGadget::min_free_cols(),
+                    StorageGadget::min_free_cols(),
+                )                
+            ),
         );
         let padding =
             PaddingGadget::configure(meta, layer.public_sel(), layer.exported_cols(OP_PADDING));
@@ -422,6 +436,14 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
             tables.clone(),
             hash_tbl.clone(),
         );
+        let storage = StorageGadget::configure(
+            meta,
+            layer.public_sel(),
+            layer.exported_cols(OP_STORAGE),
+            layer.get_free_cols(),
+            hash_tbl.clone(), 
+            randomness,
+        );
 
         let cst = meta.fixed_column();
         meta.enable_constant(cst);
@@ -431,6 +453,7 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
             account_trie,
             state_trie,
             account,
+            storage,
             padding,
             tables,
             hash_tbl,
@@ -506,7 +529,17 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
                             op.use_rows_trie_state(),
                         )?;
                         start = config.state_trie.assign(&mut region, start, trie)?;
-                        last_op_code = OP_TRIE_STATE;
+                        config.layer.pace_op(
+                            &mut region,
+                            start,
+                            series,
+                            (OP_TRIE_STATE, OP_STORAGE),
+                            op_root,
+                            1,
+                        )?;
+                        start = config.storage.assign(&mut region, start, &op, Fp::from(TEMP_RANDOMNESS))?;
+
+                        last_op_code = OP_STORAGE;
                     } else {
                         last_op_code = OP_ACCOUNT;
                     }
@@ -553,9 +586,10 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
         )?;
 
         let possible_end_block = [
-            (OP_TRIE_STATE, HashType::Empty as u32),
-            (OP_TRIE_STATE, HashType::Leaf as u32),
+//            (OP_TRIE_STATE, HashType::Empty as u32),
+//            (OP_TRIE_STATE, HashType::Leaf as u32),
             (OP_ACCOUNT, 3),
+            (OP_STORAGE, 0),
         ];
         let possible_start_block = [(OP_TRIE_ACCOUNT, HashType::Start as u32), (OP_PADDING, 0)];
         let border_list: Vec<layers::OpBorder> = possible_start_block
@@ -568,6 +602,8 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
             ((OP_ACCOUNT, 0), (OP_TRIE_ACCOUNT, HashType::Empty as u32)),
             ((OP_ACCOUNT, 0), (OP_TRIE_ACCOUNT, HashType::Leaf as u32)),
             ((OP_TRIE_STATE, HashType::Start as u32), (OP_ACCOUNT, 2)),
+            ((OP_STORAGE, 0), (OP_TRIE_STATE, HashType::Empty as u32)),
+            ((OP_STORAGE, 0), (OP_TRIE_STATE, HashType::Leaf as u32)),            
         ];
 
         config.layer.set_op_border_ex(

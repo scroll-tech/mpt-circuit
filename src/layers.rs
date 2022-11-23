@@ -358,12 +358,17 @@ impl LayerGadget {
                     })
                 },
             )?;
-            // flush all cols to avoid unassigned error (exported col do not need to be flushed for each gadget must fill them)
+            // flush all cols to avoid unassigned error
             self.free_cols.iter().try_for_each(|col| {
                 region
-                    .assign_advice(|| "flushing", *col, offset, || Value::known(Fp::zero()))
+                    .assign_advice(|| "flushing free", *col, offset, || Value::known(Fp::zero()))
                     .map(|_| ())
             })?;
+            [self.data_0, self.data_1, self.data_2].iter().try_for_each(|col| {
+                region
+                    .assign_advice(|| "flushing exported", *col, offset, || Value::known(Fp::zero()))
+                    .map(|_| ())
+            })?;            
             self.s_stepflags.iter().try_for_each(|col| {
                 region
                     .assign_advice(|| "flushing", *col, offset, || Value::known(Fp::zero()))
