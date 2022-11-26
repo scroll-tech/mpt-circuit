@@ -620,11 +620,9 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
 
 #[cfg(test)]
 mod test {
-    #![allow(unused_imports)]
     use super::*;
-    use crate::{serde::Row, test_utils::*};
-    use halo2_proofs::arithmetic::FieldExt;
-    use halo2_proofs::dev::{MockProver, VerifyFailure};
+    use crate::test_utils::*;
+    use halo2_proofs::dev::MockProver;
     use operation::*;
 
     #[test]
@@ -639,7 +637,16 @@ mod test {
 
     #[test]
     fn rand_eth_trie() {
-        let state_trie = SingleOp::<Fp>::create_rand_op(3, None, mock_hash);
+
+        let store_key = KeyValue::create_rand(mock_hash);
+        let store_before = KeyValue::create_rand(mock_hash);
+        let store_after = KeyValue::create_rand(mock_hash);
+
+        let state_trie = SingleOp::<Fp>::create_rand_op(
+            3, 
+            Some((store_before.hash(), store_after.hash())), 
+            Some(store_key.hash()), 
+            mock_hash);
 
         let account_before = Account::<Fp> {
             balance: Fp::from(1000000u64),
@@ -661,6 +668,7 @@ mod test {
         let acc_trie = SingleOp::<Fp>::create_rand_op(
             4,
             Some((account_before.account_hash(), account_after.account_hash())),
+            None,
             mock_hash,
         );
 
@@ -669,6 +677,9 @@ mod test {
             state_trie: Some(state_trie),
             account_after,
             account_before: Some(account_before),
+            store_key: Some(store_key),
+            store_before: Some(store_before),
+            store_after: Some(store_after),
             ..Default::default()
         };
 

@@ -128,10 +128,7 @@ impl<Fp: FieldExt> MPTPath<Fp> {
         }
     }
 
-    /// create a common path data layout (only contains middle and leaf type)
-    /// with the help of siblings and path bits (false indicate zero)
-    /// to calculate path ad-hoc by hasher function
-    pub fn create(
+    pub(crate) fn create_with_hasher(
         path: &[bool],
         siblings: &[Fp],
         key: Fp,
@@ -186,6 +183,23 @@ impl<Fp: FieldExt> MPTPath<Fp> {
     }
 }
 
+impl<Fp: Hashable> MPTPath<Fp> {
+    /// create a common path data layout (only contains middle and leaf type)
+    /// with the help of siblings and path bits (false indicate zero)
+    /// to calculate path ad-hoc by hasher function
+    pub fn create(
+        path: &[bool],
+        siblings: &[Fp],
+        key: Fp,
+        leaf: Option<Fp>,
+    ) -> Self {
+
+        Self::create_with_hasher(path, siblings, key, leaf, 
+            |a, b| {<Fp as Hashable>::hash([*a, *b])})
+    }
+      
+}
+
 /// Represent for a single operation
 #[derive(Clone, Debug, Default)]
 pub struct SingleOp<Fp: FieldExt> {
@@ -222,7 +236,7 @@ impl<Fp: FieldExt> SingleOp<Fp> {
     }
     /// data represent an update operation (only contains middle and leaf type)
     /// with the help of siblings and calculating path ad-hoc by hasher function
-    pub fn create_update_op(
+    pub(crate) fn create_update_op_with_hasher(
         layers: usize,
         siblings: &[Fp],
         key: Fp,
@@ -253,8 +267,8 @@ impl<Fp: FieldExt> SingleOp<Fp> {
         };
         let (old_leaf, new_leaf) = leafs;
 
-        let old = MPTPath::<Fp>::create(&path, &siblings, key, Some(old_leaf), hasher.clone());
-        let new = MPTPath::<Fp>::create(&path, &siblings, key, Some(new_leaf), hasher);
+        let old = MPTPath::<Fp>::create_with_hasher(&path, &siblings, key, Some(old_leaf), hasher.clone());
+        let new = MPTPath::<Fp>::create_with_hasher(&path, &siblings, key, Some(new_leaf), hasher);
         let key_immediate = old
             .key_immediate()
             .expect("must have immediate value for leaf node");
@@ -275,10 +289,10 @@ impl<Fp: FieldExt> SingleOp<Fp> {
     }
 
     /// create another updating op base on a previous action
-    pub fn update_next(self, new_leaf: Fp, hasher: impl FnMut(&Fp, &Fp) -> Fp + Clone) -> Self {
+    pub(crate) fn update_next_with_hasher(self, new_leaf: Fp, hasher: impl FnMut(&Fp, &Fp) -> Fp + Clone) -> Self {
         let path_bool: Vec<bool> = self.path.iter().map(|v| *v != Fp::zero()).collect();
         let new =
-            MPTPath::<Fp>::create(&path_bool, &self.siblings, self.key, Some(new_leaf), hasher);
+            MPTPath::<Fp>::create_with_hasher(&path_bool, &self.siblings, self.key, Some(new_leaf), hasher);
         Self {
             old: self.new,
             new,
@@ -287,12 +301,30 @@ impl<Fp: FieldExt> SingleOp<Fp> {
     }
 
     /// iterate all hash traces inside the op
-    pub fn hash_traces(&self) -> impl Iterator<Item = &(Fp, Fp, Fp)> + Clone {
+     pub fn hash_traces(&self) -> impl Iterator<Item = &(Fp, Fp, Fp)> + Clone {
         self.old
             .hash_traces
             .iter()
             .chain(self.new.hash_traces.iter())
     }
+}
+
+impl<Fp: Hashable> SingleOp<Fp>{
+    /// data represent an update operation (only contains middle and leaf type)
+    /// with the help of siblings and calculating path ad-hoc by hasher function
+    pub fn create_update_op(
+        layers: usize,
+        siblings: &[Fp],
+        key: Fp,
+        leafs: (Fp, Fp),
+    ) -> Self {
+        Self::create_update_op_with_hasher(layers, siblings, key, leafs, |a, b| {<Fp as Hashable>::hash([*a, *b])})
+    }
+
+    /// create another updating op base on a previous action
+    pub fn update_next(self, new_leaf: Fp) -> Self {
+        self.update_next_with_hasher(new_leaf, |a, b| {<Fp as Hashable>::hash([*a, *b])})
+    }    
 }
 
 fn bytes_to_fp<Fp: FieldExt>(mut bt: Vec<u8>) -> std::io::Result<Fp> {
@@ -322,7 +354,7 @@ pub struct Account<Fp> {
 
 impl<Fp: FieldExt> Account<Fp> {
     /// calculating all traces ad-hoc with hasher function
-    pub fn trace(mut self, mut hasher: impl FnMut(&Fp, &Fp) -> Fp) -> Self {
+    pub(crate) fn trace(mut self, mut hasher: impl FnMut(&Fp, &Fp) -> Fp) -> Self {
         let h1 = hasher(&self.codehash.0, &self.codehash.1);
         let h3 = hasher(&self.nonce, &self.balance);
         let h2 = hasher(&h1, &self.state_root);
@@ -338,6 +370,14 @@ impl<Fp: FieldExt> Account<Fp> {
         self
     }
 
+    pub(crate) fn complete(self, hasher: impl FnMut(&Fp, &Fp) -> Fp) -> Self {
+        if self.hash_traces.is_empty() {
+            self.trace(hasher)
+        } else {
+            self
+        }
+    }
+
     /// access the cached traces for calculated all hashes required in obtain the account hash
     /// there is totally 4 of them and the last one calculate the final hash
     pub fn hash_traces(&self, i: usize) -> Fp {
@@ -345,15 +385,6 @@ impl<Fp: FieldExt> Account<Fp> {
             Fp::zero()
         } else {
             self.hash_traces[i].2
-        }
-    }
-
-    /// complete the account by calculating all traces ad-hoc with hasher function
-    pub fn complete(self, hasher: impl FnMut(&Fp, &Fp) -> Fp) -> Self {
-        if self.hash_traces.is_empty() {
-            self.trace(hasher)
-        } else {
-            self
         }
     }
 
@@ -368,6 +399,48 @@ impl<Fp: FieldExt> Account<Fp> {
     }
 }
 
+
+impl<Fp: Hashable> Account<Fp> {
+
+    /// create object and complete the fields by calculating all traces
+    pub fn create(balance: Fp, nonce: Fp, codehash: (Fp, Fp), state_root: Fp) -> Self {
+        let init = Self {balance, nonce, codehash, state_root, ..Default::default()};
+        init.trace(|a, b| {<Fp as Hashable>::hash([*a, *b])})
+    }    
+}
+
+/// 2 fields for representing 32 byte, used for storage key or value, the hash is also saved
+#[derive(Clone, Debug, Default)]
+pub struct KeyValue<Fp: FieldExt> (pub (
+    Fp, // the first 16 bytes
+    Fp, // the second 16 bytes
+    Fp, // hash value
+));
+    
+impl<Fp: FieldExt> KeyValue<Fp> {
+
+    /// obtain the value pair
+    pub fn val(&self) -> (Fp, Fp) { (self.0.0, self.0.1)}
+    /// obtain the hash
+    pub fn hash(&self) -> Fp { self.0.2 }
+}
+
+impl<Fp: Hashable> KeyValue<Fp> {
+
+    /// create object and also calc the hash
+    pub fn create(bytes32: (Fp, Fp)) -> Self {
+        let (fst, snd) = bytes32;
+        let hash = <Fp as Hashable>::hash([fst, snd]);
+
+        Self ((fst, snd, hash))
+    }    
+
+    /// return the triple group of hash
+    pub fn hash_traces(&self) -> &(Fp, Fp, Fp){
+        &self.0
+    }    
+}
+
 /// Represent an operation in eth MPT, which update 2 layer of tries (state and account)
 #[derive(Clone, Debug, Default)]
 pub struct AccountOp<Fp: FieldExt> {
@@ -380,15 +453,13 @@ pub struct AccountOp<Fp: FieldExt> {
     /// the state after updating in account
     pub account_after: Account<Fp>,
     /// the stored value before being updated
-    pub store_before: Option<(Fp, Fp)>,
+    pub store_before: Option<KeyValue<Fp>>,
     /// the stored value after being updated
-    pub store_after: Option<(Fp, Fp)>,
+    pub store_after: Option<KeyValue<Fp>>,
     /// address (the preimage of acc_trie's key, splitted by 2 fields)
-    pub address: (Fp, Fp),
+    pub address: KeyValue<Fp>,
     /// the key being store (preimage of state_trie's key)
-    pub store_key: Option<(Fp, Fp)>,
-    /// hashes calculated for address and store kv
-    pub hash_trace_complement : Vec<(Fp, Fp, Fp)>,
+    pub store_key: Option<KeyValue<Fp>>,
 }
 
 impl<Fp: FieldExt> AccountOp<Fp> {
@@ -427,8 +498,7 @@ impl<Fp: FieldExt> AccountOp<Fp> {
         } else {
             0
         }
-    }
-
+    } 
 
     /// the root of account trie, which is global state
     pub fn account_root(&self) -> Fp {
@@ -438,6 +508,18 @@ impl<Fp: FieldExt> AccountOp<Fp> {
     /// the root of account trie before operation
     pub fn account_root_before(&self) -> Fp {
         self.acc_trie.start_root()
+    }
+
+}
+
+impl<Fp: Hashable> AccountOp<Fp> {
+    /// providing the padding record for hash table
+    pub fn padding_hash() -> (Fp, Fp, Fp) {
+        (
+            Fp::zero(),
+            Fp::zero(),
+            Hashable::hash([Fp::zero(), Fp::zero()]),
+        )
     }
 
     /// iter all the hash traces inside an operation (may contain duplications)
@@ -452,19 +534,11 @@ impl<Fp: FieldExt> AccountOp<Fp> {
                     .flat_map(|i| i.hash_traces.iter()),
             )
             .chain(self.account_after.hash_traces.iter())
-            .chain(self.hash_trace_complement.iter())
-    }
-}
-
-impl<Fp: Hashable> AccountOp<Fp> {
-    /// providing the padding record for hash table
-    pub fn padding_hash() -> (Fp, Fp, Fp) {
-        (
-            Fp::zero(),
-            Fp::zero(),
-            Hashable::hash([Fp::zero(), Fp::zero()]),
-        )
-    }
+            .chain(Some(self.address.hash_traces()))
+            .chain(self.store_key.as_ref().map(|v|v.hash_traces()))
+            .chain(self.store_before.as_ref().map(|v|v.hash_traces()))
+            .chain(self.store_after.as_ref().map(|v|v.hash_traces()))
+    }    
 }
 
 /// include error raised in deserialize or data verification
@@ -505,9 +579,7 @@ impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTPath> for SMTPathParse<Fp> {
             leaf = Some(Fp::from_bytes_wide(&leaf_node.value.cast()));
         }
 
-        let mpt_path = MPTPath::create(&path_bits, &siblings, key, leaf, |a, b| {
-            <Fp as Hashable>::hash([*a, *b])
-        });
+        let mpt_path = MPTPath::create(&path_bits, &siblings, key, leaf);
         // sanity check
         let root = Fp::from_bytes_wide(&path_trace.root.cast());
         assert_eq!(root, mpt_path.root());
@@ -666,11 +738,34 @@ impl<'d, Fp: Hashable> TryFrom<(&'d serde::AccountData, Fp)> for Account<Fp> {
     }
 }
 
+// decode address, store kv in smttrace with big-endian presented (32 bytes)
+impl<'d, Fp: Hashable> From<&'d serde::HexBytes<32>> for KeyValue<Fp> {
+    fn from(byte32: &'d serde::HexBytes<32>) -> Self {
+        let bytes = byte32.0;
+        let first_16bytes: [u8; 16] = bytes[..16].try_into().expect("expect first 16 bytes");
+        let last_16bytes: [u8; 16] = bytes[16..].try_into().expect("expect second 16 bytes");
+        Self::create((
+            Fp::from_u128(u128::from_be_bytes(first_16bytes)),
+            Fp::from_u128(u128::from_be_bytes(last_16bytes)),
+        ))
+    }
+}
+
+impl<'d, Fp: Hashable> From<&'d serde::HexBytes<20>> for KeyValue<Fp> {
+    fn from(byte32: &'d serde::HexBytes<20>) -> Self {
+        let bytes = byte32.0;
+        let first_16bytes: [u8; 16] = bytes[..16].try_into().expect("expect first 16 bytes");
+        let last_4bytes: [u8; 4] = bytes[16..].try_into().expect("expect second 4 bytes");
+        Self::create((
+            Fp::from_u128(u128::from_be_bytes(first_16bytes)),
+            Fp::from_u128(u32::from_be_bytes(last_4bytes) as u128),
+        ))
+    }
+}
+
 impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTTrace> for AccountOp<Fp> {
     type Error = TraceError;
     fn try_from(trace: &'d serde::SMTTrace) -> Result<Self, Self::Error> {
-
-        use super::serde::HexBytes;
 
         let acc_trie: SingleOp<Fp> = (
             &trace.account_path[0],
@@ -735,63 +830,19 @@ impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTTrace> for AccountOp<Fp> {
             Default::default()
         };
 
-        // notice address, store kv in smttrace is big-endian presented (32 bytes)
-        let _address = {
-            let addr_bytes = &trace.address.0;
-            let first_16bytes: [u8; 16] = addr_bytes[..16].try_into().expect("expect first 16 bytes");
-            let last_4bytes: [u8; 4] = addr_bytes[16..].try_into().expect("expect first 4 bytes");
+        let address = KeyValue::from(&trace.address);
+
+        let (store_key, store_before, store_after) = if state_trie.is_some() {
+
+            let update_pair = trace.state_update.as_ref().expect("state trie has existed");
             (
-                Fp::from_u128(u128::from_be_bytes(first_16bytes)),
-                Fp::from_u128(u32::from_be_bytes(last_4bytes) as u128),
+                Some(KeyValue::from(&update_pair[0].as_ref().or(update_pair[1].as_ref()).expect("one of state update should not NONE").key)),
+                update_pair[0].as_ref().map(|st|KeyValue::from(&st.value)),
+                update_pair[1].as_ref().map(|st|KeyValue::from(&st.value)),
             )
-        };
-
-        let bytes32_to_fp_pair = |byte32: &HexBytes<32>| {
-            let bytes = byte32.0;
-            let first_16bytes: [u8; 16] = bytes[..16].try_into().expect("expect first 16 bytes");
-            let last_16bytes: [u8; 16] = bytes[16..].try_into().expect("expect first 16 bytes");
-            (
-                Fp::from_u128(u128::from_be_bytes(first_16bytes)),
-                Fp::from_u128(u128::from_be_bytes(last_16bytes)),
-            )
-        };
-
-        let address = {
-            let addr_bytes = &trace.address.0;
-            let first_16bytes: [u8; 16] = addr_bytes[..16].try_into().expect("expect first 16 bytes");
-            let last_4bytes: [u8; 4] = addr_bytes[16..].try_into().expect("expect first 4 bytes");
-            (
-                Fp::from_u128(u128::from_be_bytes(first_16bytes)),
-                Fp::from_u128(u32::from_be_bytes(last_4bytes) as u128),
-            )
-        };
-
-        let (store_key, store_before, store_after) = if let Some(update_pair) = trace.state_update.as_ref() {
-
-            if update_pair[0].is_none() && update_pair[1].is_none() {
-                (None, None, None)
-            } else {
-                (
-                    Some(bytes32_to_fp_pair(&update_pair[0].as_ref().or(update_pair[1].as_ref()).expect("one of state update should not NONE").key)),
-                    update_pair[0].as_ref().map(|st|bytes32_to_fp_pair(&st.value)),
-                    update_pair[1].as_ref().map(|st|bytes32_to_fp_pair(&st.value)),
-                )    
-            }
         } else {
             (None, None, None)
         };
-
-        // calculate hash_traces for parsed fields
-        let hash_trace_complement : Vec<_> = 
-            [&address].into_iter()
-            .chain(store_key.as_ref())
-            .chain(store_before.as_ref())
-            .chain(store_after.as_ref())
-            .map(|hash_pair: &(Fp, Fp)|{(
-                hash_pair.0, 
-                hash_pair.1, 
-                <Fp as Hashable>::hash([hash_pair.0, hash_pair.1])
-            )}).collect();
 
 
         Ok(Self {
@@ -803,7 +854,6 @@ impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTTrace> for AccountOp<Fp> {
             store_key,
             store_before,
             store_after,
-            hash_trace_complement,
         })
     }
 }
@@ -871,19 +921,31 @@ mod tests {
         pub fn create_rand_op(
             layers: usize,
             leafs: Option<(Fp, Fp)>,
+            key: Option<Fp>,
             hasher: impl FnMut(&Fp, &Fp) -> Fp + Clone,
         ) -> Self {
             let siblings: Vec<Fp> = (0..layers)
                 .map(|_| Fp::random(rand_gen([101u8; 32])))
                 .collect();
-            let key = Fp::random(rand_gen([99u8; 32]));
+            let key = key.unwrap_or_else(||Fp::random(rand_gen([99u8; 32])));
             let leafs = leafs.unwrap_or_else(|| {
                 (
                     Fp::random(rand_gen([102u8; 32])),
                     Fp::random(rand_gen([103u8; 32])),
                 )
             });
-            Self::create_update_op(layers, &siblings, key, leafs, hasher)
+            Self::create_update_op_with_hasher(layers, &siblings, key, leafs, hasher)
+        }
+    }
+
+    impl<Fp: FieldExt> KeyValue<Fp> {
+        /// create an fully random k/v
+        pub fn create_rand(mut hasher: impl FnMut(&Fp, &Fp) -> Fp + Clone) -> Self {
+            let a = Fp::random(rand_gen([104u8; 32]));
+            let b = Fp::random(rand_gen([105u8; 32]));
+            let h = hasher(&a, &b);
+
+            Self((a, b, h))
         }
     }
 

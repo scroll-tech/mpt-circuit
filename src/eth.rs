@@ -439,7 +439,7 @@ struct StorageChipConfig {
 struct StorageChip<'d, F> {
     offset: usize,
     config: &'d StorageChipConfig,
-    value: &'d Option<(F, F)>,
+    value: Option<(F, F)>,
     randomness: F,
 }
 
@@ -455,7 +455,7 @@ impl<'d, Fp: FieldExt> StorageChip<'d, Fp> {
         randomness: Expression<Fp>,
     ) -> StorageChipConfig {
 
-         meta.create_gate("value rlc", |meta|{
+        meta.create_gate("value rlc", |meta|{
             let s_enable = meta.query_selector(sel) * meta.query_advice(s_enable, Rotation::cur());
             let value = meta.query_advice(value, Rotation::cur());
             let limb_0 = meta.query_advice(v_limbs[0], Rotation::cur());
@@ -592,14 +592,14 @@ impl StorageGadget {
         )?;
         
         for (config, value) in [
-            (self.s_value.clone(), &full_op.store_before), 
-            (self.e_value.clone(), &full_op.store_after), 
-            (self.key.clone(), &full_op.store_key)] {
+            (&self.s_value, &full_op.store_before), 
+            (&self.e_value, &full_op.store_after), 
+            (&self.key, &full_op.store_key)] {
             let chip = StorageChip {
                 offset,
-                config: &config,
+                config: config,
                 randomness,
-                value,
+                value: value.as_ref().map(|v|v.val()),
             };
 
             chip.assign(region)?;

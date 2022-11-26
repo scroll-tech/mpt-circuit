@@ -308,12 +308,12 @@ impl MPTOpGadget {
             depth: free[1],
             new_hash_type: free[2],
             sibling: free[3],
-            acc_key: free[4],
-            path: free[5],
+            path: free[4],
             old_hash_type: exported[0],
             s_enable: exported[1],
             old_val: exported[2],
             new_val: exported[3],
+            acc_key: exported[4],
             hash_table: hash_tbl,
         };
 
@@ -494,7 +494,7 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
             ]
         });
 
-        meta.lookup_any("mpt leaf hash", |meta| {
+/*         meta.lookup_any("mpt leaf hash", |meta| {
             let hash_type = meta.query_advice(hash_type, Rotation::cur());
             let s_leaf = meta.query_advice(s_enable, Rotation::cur())
                 * lagrange_polynomial_for_hashtype::<_, 5>(hash_type); //Leaf
@@ -508,7 +508,7 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
                 (val_leaf_col, right(meta)),
                 (hash_lookup, hash(meta)),
             ]
-        });
+        });*/
 
         //transition, notice the start status is ensured outside of the gadget
         meta.lookup("mpt type trans", |meta| {
@@ -736,7 +736,7 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
             ]
         });
 
-        meta.lookup_any("mpt key pre calc", |meta| {
+/*         meta.lookup_any("mpt key pre calc", |meta| {
             let hash_type = meta.query_advice(old_hash_type, Rotation::cur());
             let s_leaf = meta.query_advice(s_enable, Rotation::cur())
                 * lagrange_polynomial_for_hashtype::<_, 5>(hash_type); //Leaf
@@ -753,7 +753,7 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
                 (key_calc, right(meta)),
                 (hash_lookup, hash(meta)),
             ]
-        });
+        });*/
 
         OpChipConfig {
             path,
@@ -843,7 +843,7 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
             || "acckey",
             config.acc_key,
             offset,
-            || Value::known(self.data.key_immediate),
+            || Value::known(self.data.key),
         )?;
         region.assign_advice(|| "depth", config.depth, offset, || Value::known(cur_depth))?;
         region.assign_advice(
@@ -1104,7 +1104,7 @@ mod test {
             }
             let key = u32::from_be_bytes(rand_bytes_array()) % MAX_KEY as u32;
             let (path_bits, rev_path) = Self::decompose_path(key, layers);
-            let data = MPTPath::<Fp>::create(
+            let data = MPTPath::<Fp>::create_with_hasher(
                 &path_bits,
                 &siblings,
                 Fp::from(key as u64),
@@ -1359,7 +1359,7 @@ mod test {
 
     #[test]
     fn rand_case_op() {
-        let op = SingleOp::<Fp>::create_rand_op(3, None, mock_hash);
+        let op = SingleOp::<Fp>::create_rand_op(3, None, None, mock_hash);
 
         let k = 5;
         let circuit = TestOpCircuit {
@@ -1448,7 +1448,7 @@ mod test {
 
     #[test]
     fn rand_case_gadget() {
-        let op = SingleOp::<Fp>::create_rand_op(5, None, mock_hash);
+        let op = SingleOp::<Fp>::create_rand_op(5, None, None, mock_hash);
 
         let k = 6;
         let circuit = MPTTestCircuit::from(op);

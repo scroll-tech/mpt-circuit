@@ -2,7 +2,6 @@ use halo2_mpt_circuits::{operation::*, SimpleTrie};
 use halo2_proofs::arithmetic::Field;
 use halo2_proofs::dev::MockProver;
 use halo2_proofs::halo2curves::bn256::Fr as Fp;
-use lazy_static::lazy_static;
 use rand::{random, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
@@ -13,14 +12,6 @@ fn rand_bytes_array<const N: usize>() -> [u8; N] {
 fn rand_fp() -> Fp {
     let arr = rand_bytes_array::<32>();
     Fp::random(ChaCha8Rng::from_seed(arr))
-}
-
-lazy_static! {
-    static ref GAMMA: Fp = rand_fp();
-}
-
-pub fn mock_hash(a: &Fp, b: &Fp) -> Fp {
-    (a + *GAMMA) * (b + *GAMMA)
 }
 
 /*
@@ -40,8 +31,8 @@ fn malice_case_truncated_line() {
     */
     let key = Fp::from(6u64);
     let leafs = (rand_fp(), rand_fp());
-    let fst = SingleOp::<Fp>::create_update_op(layers, &siblings, key, leafs, mock_hash);
-    let sec = fst.clone().update_next(rand_fp(), mock_hash);
+    let fst = SingleOp::<Fp>::create_update_op(layers, &siblings, key, leafs);
+    let sec = fst.clone().update_next(rand_fp());
     circuit.add_op(fst.clone());
     circuit.add_op(sec.clone());
 
