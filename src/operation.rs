@@ -16,8 +16,9 @@ pub enum MPTPathStatus<Fp: FieldExt> {
     Empty,
     /// Path has leaf node and the (key, keyImmediate) is tracked
     Leaf((Fp, Fp)),
-    /// Path is under extended status, the "pushed down" sibling's (key, keyImmediate) is tracked
-    Extended((Fp, Fp)),
+    /// Path is under extended status, 
+    /// the "pushed down" sibling's proof (key, keyImmediate, value) is tracked
+    Extended(((Fp, Fp), (Fp, Fp, Fp))),
 }
 
 /// Represent a sequence of hashes in a path inside MPT, it can be full
@@ -68,7 +69,7 @@ impl<Fp: FieldExt> MPTPath<Fp> {
         match self.status {
             MPTPathStatus::Empty => None,
             MPTPathStatus::Leaf((fp, _)) => Some(fp),
-            MPTPathStatus::Extended((fp, _)) => Some(fp),
+            MPTPathStatus::Extended(((_, fp), _)) => Some(fp),
         }
     }
 
@@ -77,7 +78,7 @@ impl<Fp: FieldExt> MPTPath<Fp> {
         match self.status {
             MPTPathStatus::Empty => None,
             MPTPathStatus::Leaf((_, fp)) => Some(fp),
-            MPTPathStatus::Extended((_, fp)) => Some(fp),
+            MPTPathStatus::Extended(((_, fp), _)) => Some(fp),
         }
     }
 
@@ -86,13 +87,25 @@ impl<Fp: FieldExt> MPTPath<Fp> {
         matches!(self.status, MPTPathStatus::Extended(_))
     }
 
+    /// the proof (key, key_immediate, value) in extended, for the last sibling is a leaf 
+    pub fn extended_proof(&self) -> Option<(Fp, Fp, Fp)> {
+        match self.status {
+            MPTPathStatus::Extended((_, proof)) => Some(proof),
+            _ => None,
+        }
+    }
+
     /// the depth of path, means how many bits would be attributed to path type
     pub fn depth(&self) -> usize {
         self.hashes.len() - 2
     }
 
-    /// extend a common path (contain only midle and leaf/empty) to under extended status
-    pub fn extend(self, l: usize) -> Self {
+    pub(crate) fn extend_with_hasher(
+        self, 
+        l: usize,
+        new_key: Fp,
+        mut hasher: impl FnMut(&Fp, &Fp) -> Fp,        
+    ) -> Self {
         if l == 0 {
             return self;
         }
@@ -100,8 +113,10 @@ impl<Fp: FieldExt> MPTPath<Fp> {
         assert!(self.hash_types.len() > 1, "can not extend empty path");
         let ins_pos = self.hash_types.len() - 1;
         // can only extend a path with leaf
+        let new_key_immediate = hasher(&Fp::one(), &self.key().expect("can only extend leaf"));
         let status = match self.status {
-            MPTPathStatus::Leaf((fp, fp_immediate)) => MPTPathStatus::Extended((fp, fp_immediate)),
+            MPTPathStatus::Leaf((fp, fp_immediate)) => 
+                MPTPathStatus::Extended(((new_key, new_key_immediate), (fp, fp_immediate, self.hashes[ins_pos]))),
             _ => panic!("can only extend leaf path"),
         };
 
@@ -197,7 +212,17 @@ impl<Fp: Hashable> MPTPath<Fp> {
         Self::create_with_hasher(path, siblings, key, leaf, 
             |a, b| {<Fp as Hashable>::hash([*a, *b])})
     }
-      
+    
+    /// extend a common path (contain only midle and leaf/empty) to under extended status,
+    /// it require caller to calc how many level should be extended and what the new key is
+    pub fn extend(
+        self, 
+        l: usize,
+        new_key: Fp, 
+    ) -> Self {
+
+        self.extend_with_hasher(l, new_key, |a, b| {<Fp as Hashable>::hash([*a, *b])})
+    }    
 }
 
 /// Represent for a single operation
@@ -301,12 +326,19 @@ impl<Fp: FieldExt> SingleOp<Fp> {
     }
 
     /// iterate all hash traces inside the op
-     pub fn hash_traces(&self) -> impl Iterator<Item = &(Fp, Fp, Fp)> + Clone {
+    pub fn hash_traces(&self) -> impl Iterator<Item = &(Fp, Fp, Fp)> + Clone {
         self.old
             .hash_traces
             .iter()
             .chain(self.new.hash_traces.iter())
     }
+
+    /// when op has extention, return the proof for last silbling
+    /// (notice if both old/new has proof, they should be identical)
+    pub fn extended_proof(&self) -> Option<(Fp, Fp, Fp)>{
+        self.old.extended_proof().or(self.new.extended_proof())
+    }
+
 }
 
 impl<Fp: Hashable> SingleOp<Fp>{
@@ -616,7 +648,7 @@ impl<'d, Fp: Hashable> TryFrom<(&'d serde::SMTPath, &'d serde::SMTPath, serde::H
             Ordering::Less => {
                 assert_eq!(new.key(), Some(key));
                 let ext_dist = new.depth() - old.depth();
-                old = old.extend(ext_dist);
+                old = old.extend(ext_dist, key);
                 (
                     after_parsed.1,
                     after_parsed.2,
@@ -626,7 +658,7 @@ impl<'d, Fp: Hashable> TryFrom<(&'d serde::SMTPath, &'d serde::SMTPath, serde::H
             Ordering::Greater => {
                 assert_eq!(old.key(), Some(key));
                 let ext_dist = old.depth() - new.depth();
-                new = new.extend(ext_dist);
+                new = new.extend(ext_dist, key);
                 (
                     before_parsed.1,
                     before_parsed.2,
@@ -668,8 +700,8 @@ impl<'d, Fp: Hashable> TryFrom<(&'d serde::SMTPath, &'d serde::SMTPath, serde::H
                         assert!(common_prefix_depth >= old.depth());
                         let ext_dist = common_prefix_depth - old.depth() + 1;
                         let last_node_hash = old.hashes[old.hashes.len() - 2];
-                        old = old.extend(ext_dist);
-                        new = new.extend(ext_dist);
+                        old = old.extend(ext_dist, key);
+                        new = new.extend(ext_dist, key);
 
                         path.push(Fp::from(k2_bit as u64));
                         siblings.push(last_node_hash);
