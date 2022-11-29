@@ -120,13 +120,28 @@ impl MPTOpTables {
         )
     }
 
+    pub fn build_lookup<'d, Fp: FieldExt>(
+        &self,
+        enable: Expression<Fp>,
+        old: Expression<Fp>,
+        new: Expression<Fp>,
+        mark: u64,
+    ) -> Vec<(Expression<Fp>, TableColumn)>{
+
+        vec![
+            (enable.clone() * old, self.0),
+            (enable.clone() * new, self.1),
+            (enable * Expression::Constant(Fp::from(mark)), self.2),
+        ]
+    }
+
     pub fn fill_constant<Fp: FieldExt>(
         &self,
         layouter: &mut impl Layouter<Fp>,
         rules: impl Iterator<Item = (u32, u32, u32)> + Clone,
     ) -> Result<(), Error> {
         layouter.assign_table(
-            || "trans table",
+            || "op table",
             |mut table| {
                 // default: 0, 0, 0
                 table.assign_cell(|| "default", self.0, 0, || Value::known(Fp::zero()))?;
@@ -154,7 +169,7 @@ impl MPTOpTables {
                         self.2,
                         offset,
                         || Value::known(Fp::from(item.2 as u64)),
-                    )?;
+                    )?;                  
                 }
                 Ok(())
             },
@@ -162,7 +177,6 @@ impl MPTOpTables {
     }
 }
 
-// TODO: hash table maybe advice?
 #[derive(Clone, Debug)]
 pub(crate) struct HashTable(pub Column<Advice>, pub Column<Advice>, pub Column<Advice>);
 
@@ -181,6 +195,22 @@ impl HashTable {
 
     pub fn commitment_index(&self) -> [usize; 3] {
         [self.0.index(), self.1.index(), self.2.index()]
+    }
+
+    pub fn build_lookup<'d, Fp: FieldExt>(
+        &self,
+        meta: &mut VirtualCells<'d, Fp>, 
+        enable: Expression<Fp>,
+        fst: Expression<Fp>,
+        snd: Expression<Fp>,
+        hash: Expression<Fp>,
+    ) -> Vec<(Expression<Fp>, Expression<Fp>)>{
+
+        vec![
+            (enable.clone() * fst, meta.query_advice(self.0, Rotation::cur())),
+            (enable.clone() * snd, meta.query_advice(self.1, Rotation::cur())),
+            (enable.clone() * hash, meta.query_advice(self.2, Rotation::cur())),
+        ]
     }
 
     /// a helper entry to fill hash table with specified rows, use padding record
@@ -252,6 +282,7 @@ struct MPTOpConfig {
     path: Column<Advice>,
     old_val: Column<Advice>,
     new_val: Column<Advice>,
+    key_aux: Column<Advice>,
 
     hash_table: HashTable,
     tables: MPTOpTables,
@@ -270,7 +301,7 @@ pub(crate) struct MPTOpGadget {
 
 impl MPTOpGadget {
     pub fn min_free_cols() -> usize {
-        6
+        8
     }
 
     /// if the gadget would be used only once, this entry is more easy
@@ -289,7 +320,7 @@ impl MPTOpGadget {
     /// create gadget from assigned cols, we need:
     /// + circuit selector * 1
     /// + exported col * 4 (MUST by following sequence: layout_flag, s_enable, old_val, new_val)
-    /// + free col * 6
+    /// + free col * 8
     /// notice the gadget has bi-direction exporting (on top it exporting mpt root and bottom exporting leaf)
     pub fn configure<Fp: FieldExt>(
         meta: &mut ConstraintSystem<Fp>,
@@ -299,7 +330,7 @@ impl MPTOpGadget {
         tables: MPTOpTables,
         hash_tbl: HashTable,
     ) -> Self {
-        assert!(free.len() >= 6, "require at least 6 free cols");
+        assert!(free.len() >= 8, "require at least 6 free cols");
 
         let g_config = MPTOpConfig {
             tables,
@@ -309,6 +340,7 @@ impl MPTOpGadget {
             new_hash_type: free[2],
             sibling: free[3],
             path: free[4],
+            key_aux: free[5],
             old_hash_type: exported[0],
             s_enable: exported[1],
             old_val: exported[2],
@@ -336,11 +368,11 @@ impl MPTOpGadget {
 
     pub fn transition_rules() -> impl Iterator<Item = (u32, u32, u32)> + Clone {
         let i1 = TRANSMAP
-            .iter()
-            .map(|(a, b)| (*a as u32, *b as u32, CtrlTransitionKind::Mpt as u32));
+            .iter().copied()
+            .map(|(a, b)| (a as u32, b as u32, CtrlTransitionKind::Mpt as u32));
         let i2 = OPMAP
-            .iter()
-            .map(|(a, b)| (*a as u32, *b as u32, CtrlTransitionKind::Operation as u32));
+            .iter().copied()
+            .map(|(a, b)| (a as u32, b as u32, CtrlTransitionKind::Operation as u32));
         i1.chain(i2)
     }
 
@@ -433,19 +465,14 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
         } else {
             g_config.new_val
         };
-        let key = g_config.acc_key;
-
+        //let key = g_config.acc_key;
+        let ext_sibling_val = val;
+        let key_immediate = g_config.key_aux;
         let hash_table = &g_config.hash_table;
 
         let s_row = g_config.s_row;
         let sibling = g_config.sibling;
         let path = g_config.path;
-        let left =
-            |meta: &mut VirtualCells<'_, Fp>| meta.query_advice(hash_table.0, Rotation::cur());
-        let right =
-            |meta: &mut VirtualCells<'_, Fp>| meta.query_advice(hash_table.1, Rotation::cur());
-        let hash =
-            |meta: &mut VirtualCells<'_, Fp>| meta.query_advice(hash_table.2, Rotation::cur());
         let trans_table = &g_config.tables;
 
         // Only lookup for hash table should be
@@ -480,35 +507,33 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
             let path_bit = meta.query_advice(path, Rotation::cur());
             let val_col = meta.query_advice(val, Rotation::cur());
             let sibling_col = meta.query_advice(sibling, Rotation::cur());
-            let right_lookup = s_path.clone()
-                * (path_bit.clone() * (val_col.clone() - sibling_col.clone())
-                    + sibling_col.clone());
-            let left_lookup =
-                s_path.clone() * (path_bit * (sibling_col - val_col.clone()) + val_col);
-            let hash_lookup = s_path * meta.query_advice(val, Rotation::prev());
+            let node_hash = meta.query_advice(val, Rotation::prev());
 
-            vec![
-                (left_lookup, left(meta)),
-                (right_lookup, right(meta)),
-                (hash_lookup, hash(meta)),
-            ]
+            hash_table.build_lookup(meta, 
+                s_path, 
+                path_bit.clone() * (sibling_col.clone() - val_col.clone()) + val_col.clone(), 
+                path_bit * (val_col - sibling_col.clone()) + sibling_col, 
+                node_hash,
+            )
+
         });
 
-/*         meta.lookup_any("mpt leaf hash", |meta| {
+        // calculate part of the leaf hash: hash(key_immediate, val) = hash_of_key_node
+        meta.lookup_any("mpt leaf hash", |meta| {
             let hash_type = meta.query_advice(hash_type, Rotation::cur());
             let s_leaf = meta.query_advice(s_enable, Rotation::cur())
                 * lagrange_polynomial_for_hashtype::<_, 5>(hash_type); //Leaf
 
-            let key_col = s_leaf.clone() * meta.query_advice(key, Rotation::cur());
-            let val_leaf_col = s_leaf.clone() * meta.query_advice(val, Rotation::cur());
-            let hash_lookup = s_leaf * meta.query_advice(val, Rotation::prev());
-
-            vec![
-                (key_col, left(meta)),
-                (val_leaf_col, right(meta)),
-                (hash_lookup, hash(meta)),
-            ]
-        });*/
+            let key_immediate = meta.query_advice(key_immediate, Rotation::cur());
+            let leaf_val = meta.query_advice(val, Rotation::cur());
+            let leaf_hash = meta.query_advice(val, Rotation::prev());
+            hash_table.build_lookup(meta, 
+                s_leaf,
+                key_immediate,
+                leaf_val, 
+                leaf_hash,
+            )
+        });
 
         //transition, notice the start status is ensured outside of the gadget
         meta.lookup("mpt type trans", |meta| {
@@ -518,17 +543,14 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
                 ); //not Start
 
             let s_block_enable = meta.query_advice(s_enable, Rotation::cur()) * s_not_begin;
-            let hash = s_block_enable.clone() * meta.query_advice(hash_type, Rotation::cur());
-            let prev_hash = s_block_enable.clone() * meta.query_advice(hash_type, Rotation::prev());
 
-            vec![
-                (prev_hash, trans_table.0),
-                (hash, trans_table.1),
-                (
-                    s_block_enable * Expression::Constant(Fp::from(CtrlTransitionKind::Mpt as u64)),
-                    trans_table.2,
-                ),
-            ]
+            trans_table.build_lookup(
+                s_block_enable, 
+                meta.query_advice(hash_type, Rotation::prev()), 
+                meta.query_advice(hash_type, Rotation::cur()), 
+                CtrlTransitionKind::Mpt as u64,
+            )
+
         });
 
         meta.create_gate("leaf extended", |meta| {
@@ -621,6 +643,7 @@ struct OpChipConfig {
     path: Column<Advice>,
     depth: Column<Advice>,
     acc_key: Column<Advice>,
+    key_aux: Column<Advice>,
 }
 
 /// chip for verify mutiple merkle path in MPT
@@ -655,36 +678,26 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
         let acc_key = g_config.acc_key;
         let sibling = g_config.sibling;
         let depth_aux = g_config.depth;
+        let key_aux = g_config.key_aux;
 
         let s_row = g_config.s_row;
         let s_enable = g_config.s_enable;
         let s_path = g_config.s_path;
+
         let type_table = &g_config.tables;
 
         let hash_table = &g_config.hash_table;
-        let left =
-            |meta: &mut VirtualCells<'_, Fp>| meta.query_advice(hash_table.0, Rotation::cur());
-        let right =
-            |meta: &mut VirtualCells<'_, Fp>| meta.query_advice(hash_table.1, Rotation::cur());
-        let hash =
-            |meta: &mut VirtualCells<'_, Fp>| meta.query_advice(hash_table.2, Rotation::cur());
 
         //old - new
         meta.lookup("op update trans", |meta| {
-            let old_hash = meta.query_advice(s_enable, Rotation::cur())
-                * meta.query_advice(old_hash_type, Rotation::cur());
-            let new_hash = meta.query_advice(s_enable, Rotation::cur())
-                * meta.query_advice(new_hash_type, Rotation::cur());
 
-            vec![
-                (old_hash, type_table.0),
-                (new_hash, type_table.1),
-                (
-                    // notice we have (0, 0) as one of the rules so we do not conditionally disable the constant here
-                    Expression::Constant(Fp::from(CtrlTransitionKind::Operation as u64)),
-                    type_table.2,
-                ),
-            ]
+            type_table.build_lookup(
+                meta.query_advice(s_enable, Rotation::cur()),
+                meta.query_advice(old_hash_type, Rotation::cur()), 
+                meta.query_advice(new_hash_type, Rotation::cur()),
+                CtrlTransitionKind::Operation as u64,
+            )
+
         });
 
         meta.create_gate("s_path and path bit", |meta| {
@@ -718,48 +731,48 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
             let s_begin = lagrange_polynomial_for_hashtype::<_, 0>(
                 meta.query_advice(old_hash_type, Rotation::cur()),
             ); //Start
-            let s_path = meta.query_advice(s_path, Rotation::cur());
+            let path = meta.query_advice(path, Rotation::cur());
             let depth_aux_start = meta.query_advice(depth_aux, Rotation::cur())
                 - Expression::Constant(Fp::one().double().invert().unwrap());
             let depth_aux_common = meta.query_advice(depth_aux, Rotation::cur())
                 - meta.query_advice(depth_aux, Rotation::prev())
                     * Expression::Constant(Fp::from(2u64));
-            let key_cur = meta.query_advice(acc_key, Rotation::cur());
+            let key_acc = meta.query_advice(acc_key, Rotation::cur()) - 
+                (meta.query_advice(acc_key, Rotation::prev()) + path * meta.query_advice(depth_aux, Rotation::cur()));
 
-            // for any row which s_path not 0: depth_aux == depth_aux.prev * 2
+            // for any row which is not s_begin: depth_aux == depth_aux.prev * 2
             // for row at the beginning, depth_aux must be 1/2
             // for row at the beginning, acc_key must be 0
+            // for row not beginning, acc_key is path * depth_aux + acc_key_prev
             vec![
                 enable.clone() * s_begin.clone() * depth_aux_start,
-                enable.clone() * s_begin * key_cur,
-                enable * s_path * depth_aux_common,
+                enable.clone() * (Expression::Constant(Fp::one()) - s_begin.clone()) * depth_aux_common,
+                enable.clone() * s_begin.clone() * meta.query_advice(acc_key, Rotation::cur()),
+                enable.clone() * (Expression::Constant(Fp::one()) - s_begin) * key_acc,
             ]
         });
 
-/*         meta.lookup_any("mpt key pre calc", |meta| {
+         meta.lookup_any("mpt key pre calc", |meta| {
             let hash_type = meta.query_advice(old_hash_type, Rotation::cur());
             let s_leaf = meta.query_advice(s_enable, Rotation::cur())
                 * lagrange_polynomial_for_hashtype::<_, 5>(hash_type); //Leaf
 
-            let one = s_leaf.clone() * Expression::Constant(Fp::one());
-            let key_calc = s_leaf.clone()
-                * (meta.query_advice(path, Rotation::cur())
-                    * meta.query_advice(depth_aux, Rotation::cur())
-                    + meta.query_advice(acc_key, Rotation::prev()));
-            let hash_lookup = s_leaf * meta.query_advice(acc_key, Rotation::cur());
-
-            vec![
-                (one, left(meta)),
-                (key_calc, right(meta)),
-                (hash_lookup, hash(meta)),
-            ]
-        });*/
+            let key = meta.query_advice(acc_key, Rotation::cur());
+            let key_immediate = meta.query_advice(key_aux, Rotation::cur());
+            hash_table.build_lookup(meta, 
+                s_leaf, 
+                Expression::Constant(Fp::one()), 
+                key,
+                key_immediate,
+            )
+        });
 
         OpChipConfig {
             path,
             sibling,
             depth: depth_aux,
             acc_key,
+            key_aux,
         }
     }
 
@@ -810,23 +823,18 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
         let mut cur_depth = Fp::one();
         let mut acc_key = Fp::zero();
 
+        let extend_proof = self.data.extended_proof();
+
         for (path, sibling) in paths.iter().zip(siblings.iter()) {
             acc_key = *path * cur_depth + acc_key;
 
             region.assign_advice(|| "path", config.path, offset, || Value::known(*path))?;
-            region.assign_advice(
-                || "acckey",
-                config.acc_key,
-                offset,
-                || Value::known(acc_key),
-            )?;
+            region.assign_advice(|| "acckey", config.acc_key, offset, || Value::known(acc_key))?;
             region.assign_advice(|| "depth", config.depth, offset, || Value::known(cur_depth))?;
-            region.assign_advice(
-                || "sibling",
-                config.sibling,
-                offset,
-                || Value::known(*sibling),
-            )?;
+            region.assign_advice(|| "sibling", config.sibling, offset, || Value::known(*sibling))?;
+            // currently we simply fill key_aux col with extend_proof (if any)
+            region.assign_advice(|| "ext proof key immediate", config.key_aux, offset, 
+                || Value::known(extend_proof.map(|pf|pf.1).unwrap_or_default()))?;
 
             cur_depth = cur_depth.double();
             offset += 1;
@@ -840,17 +848,27 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
             || Value::known(self.data.key_residual),
         )?;
         region.assign_advice(
-            || "acckey",
+            || "key final",
             config.acc_key,
             offset,
             || Value::known(self.data.key),
         )?;
-        region.assign_advice(|| "depth", config.depth, offset, || Value::known(cur_depth))?;
         region.assign_advice(
-            || "sibling",
+            || "key hash aux: immediate",
+            config.key_aux,
+            offset,
+            || Value::known(self.data.key_immediate),
+        )?;
+        region.assign_advice(
+            || "depth", 
+            config.depth, 
+            offset, 
+            || Value::known(cur_depth))?;
+        region.assign_advice(
+            || "sibling last (key for extended or padding)",
             config.sibling,
             offset,
-            || Value::known(Fp::zero()),
+            || Value::known(extend_proof.map(|pf|pf.0).unwrap_or_default()),
         )?;
 
         Ok(offset + 1)
@@ -887,6 +905,7 @@ mod test {
                 new_hash_type: meta.advice_column(),
                 old_val: meta.advice_column(),
                 new_val: meta.advice_column(),
+                key_aux: meta.advice_column(),
                 hash_table: HashTable::configure_create(meta),
                 tables: MPTOpTables::configure_create(meta),
             }
@@ -1244,7 +1263,8 @@ mod test {
                 &mut layouter,
                 OPMAP
                     .iter()
-                    .map(|(a, b)| (*a as u32, *b as u32, CtrlTransitionKind::Operation as u32)),
+                    .map(|(a, b)| (*a as u32, *b as u32, CtrlTransitionKind::Operation as u32))
+                    .chain(Some((0, 0, CtrlTransitionKind::Operation as u32))),
             )?;
 
             // op chip now need hash table (for key hash lookup)
@@ -1375,7 +1395,7 @@ mod test {
     struct GadgetTestConfig {
         gadget: MPTOpGadget,
         sel: Selector,
-        free_cols: [Column<Advice>; 11],
+        free_cols: [Column<Advice>; 13],
     }
 
     // express for a single path block
@@ -1394,7 +1414,7 @@ mod test {
 
         fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
             let sel = meta.complex_selector();
-            let free_cols = [(); 11].map(|_| meta.advice_column());
+            let free_cols = [(); 13].map(|_| meta.advice_column());
             let exported_cols = [free_cols[0], free_cols[1], free_cols[2], free_cols[3], free_cols[4]];
 
             GadgetTestConfig {

@@ -111,17 +111,13 @@ impl AccountGadget {
                     - AccountChip::<'_, Fp>::lagrange_polynomial_for_row::<0>(
                         meta.query_advice(ctrl_type, Rotation::cur()),
                     ));
-            let row_n = s_enable.clone() * meta.query_advice(ctrl_type, Rotation::cur());
-            let prev_row_n = s_enable.clone() * meta.query_advice(ctrl_type, Rotation::prev());
 
-            vec![
-                (prev_row_n, tables.0),
-                (row_n, tables.1),
-                (
-                    s_enable * Expression::Constant(Fp::from(CtrlTransitionKind::Account as u64)),
-                    tables.2,
-                ),
-            ]
+            tables.build_lookup(
+                s_enable,
+                meta.query_advice(ctrl_type, Rotation::prev()), 
+                meta.query_advice(ctrl_type, Rotation::cur()),
+                CtrlTransitionKind::Account as u64,
+            )
         });
 
         //additional row
@@ -165,8 +161,8 @@ impl AccountGadget {
 
     pub fn transition_rules() -> impl Iterator<Item = (u32, u32, u32)> + Clone {
         TRANSMAP
-            .iter()
-            .map(|(a, b)| (*a, *b, CtrlTransitionKind::Account as u32))
+            .iter().copied()
+            .map(|(a, b)| (a, b, CtrlTransitionKind::Account as u32))
     }
 
     /// assign data and enable flag for account circuit

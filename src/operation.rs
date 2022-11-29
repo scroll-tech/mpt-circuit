@@ -129,9 +129,9 @@ impl<Fp: FieldExt> MPTPath<Fp> {
 
         let mut hashes = self.hashes;
         let mut addi_hashes = vec![hashes[ins_pos - 1]; l - 1]; //pick the hash of leaf
-        addi_hashes.push(Fp::zero());
 
-        // drop the old value at last row
+        // move the old value at last row to upper (row LeafExtFinal)
+        addi_hashes.push(hashes[ins_pos]);        
         hashes[ins_pos] = Fp::zero();
         drop(hashes.splice(ins_pos..ins_pos, addi_hashes));
 
