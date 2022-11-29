@@ -939,6 +939,12 @@ mod test {
             )?;
             region.assign_advice(
                 || "flushing",
+                self.key_aux,
+                offset,
+                || Value::known(rand_fp()),
+            )?;            
+            region.assign_advice(
+                || "flushing",
                 self.acc_key,
                 offset,
                 || Value::known(rand_fp()),
@@ -1054,18 +1060,31 @@ mod test {
                     }
 
                     region.assign_advice(
+                        || "enable",
+                        config.s_enable,
+                        next_offset,
+                        || Value::known(Fp::one()),
+                    )?;                    
+                    region.assign_advice(
                         || "path",
                         config.path,
                         next_offset,
                         || Value::known(self.key_residue),
                     )?;
-
+                    region.assign_advice(
+                        || "sibling",
+                        config.sibling,
+                        next_offset,
+                        || Value::known(Fp::zero()),
+                    )?;
                     region.assign_advice(
                         || "key",
-                        config.acc_key,
+                        config.key_aux,
                         next_offset,
                         || Value::known(self.key_immediate),
                     )?;
+
+                    config.s_row.enable(&mut region, next_offset)?;
 
                     let next_offset = next_offset + 1;
                     let chip_next_offset = mpt_chip.assign(&mut region)?;
