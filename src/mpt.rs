@@ -585,6 +585,39 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
             ]
         });
 
+        // prove the silbing is really a leaf when extended
+        meta.lookup_any("extended sibling proof 1", |meta| {
+
+            let s_last_extended = meta.query_advice(s_enable, Rotation::cur()) *
+                lagrange_polynomial_for_hashtype::<_, 4>(meta.query_advice(hash_type, Rotation::cur())); //LeafExtFinal
+            let key_proof = meta.query_advice(sibling, Rotation::next()); //key is written here
+            let key_proof_immediate = meta.query_advice(key_immediate, Rotation::cur());
+
+            hash_table.build_lookup(meta, 
+                s_last_extended,
+                Expression::Constant(Fp::one()),
+                key_proof, 
+                key_proof_immediate,
+            )
+        });
+
+        meta.lookup_any("extended sibling proof 2", |meta| {
+
+            let s_last_extended = meta.query_advice(s_enable, Rotation::cur()) * 
+                lagrange_polynomial_for_hashtype::<_, 4>(meta.query_advice(hash_type, Rotation::cur())); //LeafExtFinal
+            let extended_sibling = meta.query_advice(sibling, Rotation::cur());
+            let key_proof_immediate = meta.query_advice(key_immediate, Rotation::cur());
+            let key_proof_value = meta.query_advice(ext_sibling_val, Rotation::cur());
+
+            hash_table.build_lookup(meta, 
+                s_last_extended,
+                key_proof_immediate,
+                key_proof_value, 
+                extended_sibling,
+            )
+
+        });
+
         PathChipConfig {
             s_path,
             hash_type,
