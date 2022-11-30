@@ -336,7 +336,7 @@ impl<Fp: FieldExt> SingleOp<Fp> {
     /// when op has extention, return the proof for last silbling
     /// (notice if both old/new has proof, they should be identical)
     pub fn extended_proof(&self) -> Option<(Fp, Fp, Fp)>{
-        self.old.extended_proof().or(self.new.extended_proof())
+        self.old.extended_proof().or_else(||self.new.extended_proof())
     }
 
 }

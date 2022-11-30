@@ -537,7 +537,7 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
                             op_root,
                             1,
                         )?;
-                        start = config.storage.assign(&mut region, start, &op, Fp::from(TEMP_RANDOMNESS))?;
+                        start = config.storage.assign(&mut region, start, op, Fp::from(TEMP_RANDOMNESS))?;
 
                         last_op_code = OP_STORAGE;
                     } else {

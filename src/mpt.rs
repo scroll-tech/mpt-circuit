@@ -120,7 +120,7 @@ impl MPTOpTables {
         )
     }
 
-    pub fn build_lookup<'d, Fp: FieldExt>(
+    pub fn build_lookup<Fp: FieldExt>(
         &self,
         enable: Expression<Fp>,
         old: Expression<Fp>,
@@ -209,7 +209,7 @@ impl HashTable {
         vec![
             (enable.clone() * fst, meta.query_advice(self.0, Rotation::cur())),
             (enable.clone() * snd, meta.query_advice(self.1, Rotation::cur())),
-            (enable.clone() * hash, meta.query_advice(self.2, Rotation::cur())),
+            (enable * hash, meta.query_advice(self.2, Rotation::cur())),
         ]
     }
 
@@ -781,7 +781,7 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
                 enable.clone() * s_begin.clone() * depth_aux_start,
                 enable.clone() * (Expression::Constant(Fp::one()) - s_begin.clone()) * depth_aux_common,
                 enable.clone() * s_begin.clone() * meta.query_advice(acc_key, Rotation::cur()),
-                enable.clone() * (Expression::Constant(Fp::one()) - s_begin) * key_acc,
+                enable * (Expression::Constant(Fp::one()) - s_begin) * key_acc,
             ]
         });
 

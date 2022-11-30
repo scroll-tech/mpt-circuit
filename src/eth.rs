@@ -593,7 +593,7 @@ impl StorageGadget {
             (&self.key, &full_op.store_key)] {
             let chip = StorageChip {
                 offset,
-                config: config,
+                config,
                 randomness,
                 value: value.as_ref().map(|v|v.val()),
             };
