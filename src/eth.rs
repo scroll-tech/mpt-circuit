@@ -34,7 +34,7 @@
 
 use super::mpt;
 use super::CtrlTransitionKind;
-use crate::operation::{Account, AccountOp};
+use crate::operation::{Account, AccountOp, KeyValue};
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Chip, Region, Value},
@@ -76,6 +76,7 @@ impl AccountGadget {
         sel: Selector,
         exported: [Column<Advice>; 5],
         free: &[Column<Advice>],
+        address_index: Option<Column<Advice>>,
         tables: mpt::MPTOpTables,
         hash_tbl: mpt::HashTable,
     ) -> Self {
@@ -84,6 +85,7 @@ impl AccountGadget {
         let ctrl_type = exported[0];
         let data_old = exported[2];
         let data_new = exported[3];
+        let data_key = exported[4];
 
         let old_state = AccountChip::configure(
             meta,
@@ -101,7 +103,7 @@ impl AccountGadget {
             ctrl_type,
             data_new,
             &free[3..6],
-            hash_tbl,
+            hash_tbl.clone(),
         );
 
         //transition
@@ -119,6 +121,38 @@ impl AccountGadget {
                 CtrlTransitionKind::Account as u64,
             )
         });
+
+        if let Some(address_index) = address_index {
+            meta.create_gate("address constraint", |meta| {
+                let s_enable = meta.query_selector(sel) * meta.query_advice(s_enable, Rotation::cur());
+                let row0 = AccountChip::<'_, Fp>::lagrange_polynomial_for_row::<0>(
+                    meta.query_advice(ctrl_type, Rotation::cur()),
+                );
+                let address_limb_0 = meta.query_advice(old_state.data_limbs, Rotation::cur());
+                let address_limb_1 = meta.query_advice(new_state.data_limbs, Rotation::cur());
+    
+                vec![s_enable * row0 * (address_limb_0 * Expression::Constant(Fp::from(0x100000000u64))
+                    + address_limb_1 * Expression::Constant(Fp::from_u128(0x1000000000000000000000000u128).invert().unwrap())
+                    - meta.query_advice(address_index, Rotation::cur()))]
+            });
+            
+            meta.lookup_any("address hash", |meta| {
+                let s_enable = meta.query_advice(s_enable, Rotation::cur())
+                    * AccountChip::<'_, Fp>::lagrange_polynomial_for_row::<0>(meta.query_advice(ctrl_type, Rotation::cur()));
+
+                let address_limb_0 = meta.query_advice(old_state.data_limbs, Rotation::cur());
+                let address_limb_1 = meta.query_advice(new_state.data_limbs, Rotation::cur());
+                let addr_hash = meta.query_advice(data_key, Rotation::prev());
+
+                hash_tbl.build_lookup(
+                    meta,
+                    s_enable,
+                    address_limb_0, 
+                    address_limb_1,
+                    addr_hash,
+                )
+            });            
+        }
 
         //additional row
         // TODO: nonce now can increase more than 1, we should constraint it with lookup table (better than a compare circuit)
@@ -171,6 +205,7 @@ impl AccountGadget {
         region: &mut Region<'_, Fp>,
         offset: usize,
         data: (&'d Account<Fp>, &'d Account<Fp>),
+        address: KeyValue<Fp>,
         apply_last_row: Option<bool>,
         randomness: Fp,
     ) -> Result<usize, Error> {
@@ -201,6 +236,19 @@ impl AccountGadget {
 
         old_acc_chip.assign(region)?;
         new_acc_chip.assign(region)?;
+
+        // overwrite the datalimb in first row for address
+        for (col, val) in [
+            (old_acc_chip.config.data_limbs, address.limb_0()),
+            (new_acc_chip.config.data_limbs, address.limb_1()),
+        ]{
+            region.assign_advice(
+                || "address assignment",
+                col,
+                offset,
+                || Value::known(val),
+            )?;            
+        }
 
         for (index, offset) in (offset..end_offset).enumerate() {
             region.assign_advice(
@@ -435,7 +483,7 @@ struct StorageChipConfig {
 struct StorageChip<'d, F> {
     offset: usize,
     config: &'d StorageChipConfig,
-    value: Option<(F, F)>,
+    value: Option<KeyValue<F>>,
     randomness: F,
 }
 
@@ -492,22 +540,22 @@ impl<'d, Fp: FieldExt> StorageChip<'d, Fp> {
             || "val limb 0",
             config.v_limbs[0],
             self.offset,
-            || Value::known(self.value.map_or_else(Fp::zero, |v|v.0)),
+            || Value::known(self.value.as_ref().map_or_else(Fp::zero, |v|v.limb_0())),
         )?;        
 
         region.assign_advice(
             || "val limb 1",
             config.v_limbs[1],
             self.offset,
-            || Value::known(self.value.map_or_else(Fp::zero, |v|v.1)),
+            || Value::known(self.value.as_ref().map_or_else(Fp::zero, |v|v.limb_1())),
         )?; 
 
         region.assign_advice(
             || "val rlc",
             config.value,
             self.offset,
-            || Value::known(self.value.map_or_else(Fp::zero, |v|{v.0 + self.randomness * v.1})),
-        )?; 
+            || Value::known(self.value.as_ref().map_or_else(Fp::zero, |v|v.lc(self.randomness))),
+        )?;
 
         Ok(self.offset+1)
     }
@@ -595,7 +643,7 @@ impl StorageGadget {
                 offset,
                 config,
                 randomness,
-                value: value.as_ref().map(|v|v.val()),
+                value: value.clone(),
             };
 
             chip.assign(region)?;
@@ -654,6 +702,7 @@ mod test {
                 sel,
                 exported_cols,
                 &free_cols[5..],
+                None,
                 op_tabl.clone(),
                 hash_tabl.clone(),
             );
@@ -690,7 +739,7 @@ mod test {
                     let till =
                         config
                             .gadget
-                            .assign(&mut region, 1, (&self.data.0, &self.data.1), None, *TEST_RANDOMNESS)?;
+                            .assign(&mut region, 1, (&self.data.0, &self.data.1), Default::default(), None, *TEST_RANDOMNESS)?;
                     for offset in 1..till {
                         config.sel.enable(&mut region, offset)?;
                     }

@@ -310,11 +310,12 @@ impl MPTOpGadget {
         sel: Selector,
         exported: [Column<Advice>; 5],
         free: &[Column<Advice>],
+        root_index: Option<(Column<Advice>,Column<Advice>)>,
     ) -> Self {
         let tables = MPTOpTables::configure_create(meta);
         let hash_tbls = HashTable::configure_create(meta);
 
-        Self::configure(meta, sel, exported, free, tables, hash_tbls)
+        Self::configure(meta, sel, exported, free, root_index, tables, hash_tbls)
     }
 
     /// create gadget from assigned cols, we need:
@@ -327,6 +328,7 @@ impl MPTOpGadget {
         sel: Selector,
         exported: [Column<Advice>; 5],
         free: &[Column<Advice>],
+        root_index: Option<(Column<Advice>,Column<Advice>)>,
         tables: MPTOpTables,
         hash_tbl: HashTable,
     ) -> Self {
@@ -355,6 +357,26 @@ impl MPTOpGadget {
             // s_enable ∈ {0, 1}
             vec![s_row * (Expression::Constant(Fp::one()) - s_enable.clone()) * s_enable]
         });
+
+        if let Some((old_root_index, new_root_index)) = root_index {
+            meta.create_gate("root index", |meta| {
+                let s_row = meta.query_selector(g_config.s_row);
+                let hash_type = meta.query_advice(g_config.old_hash_type, Rotation::cur());
+                let s_enable = s_row * meta.query_advice(g_config.s_enable, Rotation::cur())
+                    * lagrange_polynomial_for_hashtype::<_, 0>(hash_type); //Start;
+                // constraint root index:
+                // the old root in heading row (START) equal to the new_root_index_prev
+                // the old root in heading row (START) also equal to the old_root_index_cur
+                // the new root in heading row (START) equal must be equal to new_root_index_cur
+                vec![s_enable.clone() * (meta.query_advice(g_config.old_val, Rotation::cur()) 
+                    - meta.query_advice(new_root_index, Rotation::prev())),
+                    s_enable.clone() * (meta.query_advice(g_config.old_val, Rotation::cur()) 
+                    - meta.query_advice(old_root_index, Rotation::cur())),
+                    s_enable * (meta.query_advice(g_config.new_val, Rotation::cur()) 
+                    - meta.query_advice(new_root_index, Rotation::cur())),
+                ]
+            });    
+        }
 
         Self {
             s_enable: g_config.s_enable,
@@ -1470,7 +1492,7 @@ mod test {
             let exported_cols = [free_cols[0], free_cols[1], free_cols[2], free_cols[3], free_cols[4]];
 
             GadgetTestConfig {
-                gadget: MPTOpGadget::configure_simple(meta, sel, exported_cols, &free_cols[5..]),
+                gadget: MPTOpGadget::configure_simple(meta, sel, exported_cols, &free_cols[5..], None),
                 free_cols,
                 sel,
             }

@@ -443,33 +443,64 @@ impl<Fp: Hashable> Account<Fp> {
 
 /// 2 fields for representing 32 byte, used for storage key or value, the hash is also saved
 #[derive(Clone, Debug, Default)]
-pub struct KeyValue<Fp: FieldExt> (pub (
-    Fp, // the first 16 bytes
-    Fp, // the second 16 bytes
-    Fp, // hash value
-));
-    
+pub struct KeyValue<Fp> {
+  
+    data :(Fp, Fp, Fp), // (the first 16 bytes, the second 16 bytes, hash value)
+    mpi_factor: (Fp, Fp), // factor for mpi, default is 2^128
+
+}
+
 impl<Fp: FieldExt> KeyValue<Fp> {
 
     /// obtain the value pair
-    pub fn val(&self) -> (Fp, Fp) { (self.0.0, self.0.1)}
+    pub fn val(&self) -> (Fp, Fp) { (self.data.0, self.data.1)}
     /// obtain the hash
-    pub fn hash(&self) -> Fp { self.0.2 }
+    pub fn hash(&self) -> Fp { self.data.2 }
+    /// obtian the whole integer value (without checking if it can be contained in the field)
+    pub fn mpi(&self) -> Fp {
+        self.mpi_factor.0 * self.data.0 + 
+        self.mpi_factor.1 * self.data.1
+    }
+    /// obtian the linear combination of two field
+    pub fn lc(&self, randomness: Fp) -> Fp {
+        self.data.0 + self.data.1 * randomness
+    }
+    /// obtain the first limb
+    pub fn limb_0(&self) -> Fp {self.data.0}
+    /// obtain the snd limb
+    pub fn limb_1(&self) -> Fp {self.data.1}
+
 }
 
 impl<Fp: Hashable> KeyValue<Fp> {
+
+    /// create object and also calc the hash, specify a factor for the most effective
+    /// bits for limb_1, i.e: 32 bit use factor Fp::from(2^32)
+    pub fn create_with_factor(bytes32: (Fp, Fp), factor: Fp) -> Self {
+        let (fst, snd) = bytes32;
+        let hash = <Fp as Hashable>::hash([fst, snd]);
+        let effect_factor_def = Fp::from_u128(0x10000000000000000u128).square();
+
+        Self { 
+            data: (fst, snd, hash), 
+            mpi_factor: (factor, factor * effect_factor_def.invert().unwrap()),
+        }
+    } 
 
     /// create object and also calc the hash
     pub fn create(bytes32: (Fp, Fp)) -> Self {
         let (fst, snd) = bytes32;
         let hash = <Fp as Hashable>::hash([fst, snd]);
 
-        Self ((fst, snd, hash))
+        Self { 
+            data: (fst, snd, hash), 
+            mpi_factor:(Fp::from_u128(0x10000000000000000u128).square(), Fp::one()),
+        }
     }    
 
     /// return the triple group of hash
     pub fn hash_traces(&self) -> &(Fp, Fp, Fp){
-        &self.0
+        &self.data
     }    
 }
 
@@ -788,10 +819,11 @@ impl<'d, Fp: Hashable> From<&'d serde::HexBytes<20>> for KeyValue<Fp> {
         let bytes = byte32.0;
         let first_16bytes: [u8; 16] = bytes[..16].try_into().expect("expect first 16 bytes");
         let last_4bytes: [u8; 4] = bytes[16..].try_into().expect("expect second 4 bytes");
-        Self::create((
+        Self::create_with_factor((
             Fp::from_u128(u128::from_be_bytes(first_16bytes)),
-            Fp::from_u128(u32::from_be_bytes(last_4bytes) as u128),
-        ))
+            Fp::from_u128(u32::from_be_bytes(last_4bytes) as u128 * 0x1000000000000000000000000u128)),
+            Fp::from(0x100000000u64),
+        )
     }
 }
 
@@ -977,8 +1009,22 @@ mod tests {
             let b = Fp::random(rand_gen([105u8; 32]));
             let h = hasher(&a, &b);
 
-            Self((a, b, h))
+            Self {
+                data: (a, b, h), 
+                mpi_factor: (Fp::from_u128(0x10000000000000000u128).square(), Fp::one())
+            }
         }
+
+        pub fn create_rand_with_factor(mut hasher: impl FnMut(&Fp, &Fp) -> Fp + Clone, factor: Fp) -> Self {
+            let a = Fp::random(rand_gen([104u8; 32]));
+            let b = Fp::random(rand_gen([105u8; 32]));
+            let h = hasher(&a, &b);
+
+            Self {
+                data: (a, b, h), 
+                mpi_factor: (factor, Fp::from_u128(0x10000000000000000u128).square().invert().unwrap() * factor),
+            }
+        }        
     }
 
     fn decompose<Fp: FieldExt>(inp: Fp, l: usize) -> (Vec<bool>, Fp) {

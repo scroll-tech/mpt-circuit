@@ -144,6 +144,7 @@ impl<Fp: FieldExt> Circuit<Fp> for SimpleTrie<Fp> {
             layer.public_sel(),
             layer.exported_cols(OP_MPT),
             layer.get_free_cols(),
+            Some(layer.get_root_indexs()),
         );
 
         let cst = meta.fixed_column();
@@ -170,12 +171,11 @@ impl<Fp: FieldExt> Circuit<Fp> for SimpleTrie<Fp> {
                     .layer
                     .assign(&mut region, self.c_size, self.start_root)?;
                 for op in self.ops.iter() {
+                    let block_start = start;
                     config.layer.pace_op(
                         &mut region,
                         start,
-                        series,
                         (last_op_code, OP_MPT),
-                        op.new_root(),
                         op.use_rows(),
                     )?;
                     start = config.mpt.assign(&mut region, start, op)?;
@@ -184,6 +184,13 @@ impl<Fp: FieldExt> Circuit<Fp> for SimpleTrie<Fp> {
                         "assigned rows exceed limited {}",
                         self.c_size
                     );
+                    config.layer.complete_block(&mut region, 
+                        block_start, 
+                        series, 
+                        Some((op.start_root(), op.new_root())), 
+                        None, 
+                        op.use_rows(),
+                    )?;                
                     series += 1;
                     last_op_code = OP_MPT;
                 }
@@ -193,14 +200,19 @@ impl<Fp: FieldExt> Circuit<Fp> for SimpleTrie<Fp> {
                     config.layer.pace_op(
                         &mut region,
                         start,
-                        series,
                         (last_op_code, OP_PADDING),
-                        self.final_root,
                         row_left,
                     )?;
                     config
                         .padding
-                        .padding(&mut region, start, row_left, self.final_root)?;
+                        .padding(&mut region, start, row_left)?;
+                    config.layer.complete_block(&mut region, 
+                        start, 
+                        series, 
+                        None, 
+                        None, 
+                        row_left,
+                    )?;                        
                 }
 
                 Ok(())
@@ -417,6 +429,7 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
             layer.public_sel(),
             layer.exported_cols(OP_TRIE_ACCOUNT),
             layer.get_free_cols(),
+            Some(layer.get_root_indexs()),
             tables.clone(),
             hash_tbl.clone(),
         );
@@ -425,6 +438,7 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
             layer.public_sel(),
             layer.exported_cols(OP_TRIE_STATE),
             layer.get_free_cols(),
+            None,
             tables.clone(),
             hash_tbl.clone(),
         );
@@ -433,6 +447,7 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
             layer.public_sel(),
             layer.exported_cols(OP_ACCOUNT),
             layer.get_free_cols(),
+            Some(layer.get_address_index()),
             tables.clone(),
             hash_tbl.clone(),
         );
@@ -470,11 +485,6 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
             .first()
             .map(|op| op.account_root_before())
             .unwrap_or_else(Fp::zero);
-        let final_root = self
-            .0
-            .last()
-            .map(|op| op.account_root())
-            .unwrap_or_else(Fp::zero);
         let rows = self.1;
 
         //TODO: need to import randomness
@@ -489,13 +499,11 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
 
                 let empty_account = Default::default();
                 for op in self.0.iter() {
-                    let op_root = op.account_root();
+                    let block_start = start;
                     config.layer.pace_op(
                         &mut region,
                         start,
-                        series,
                         (last_op_code, OP_TRIE_ACCOUNT),
-                        op_root,
                         op.use_rows_trie_account(),
                     )?;
                     start = config
@@ -504,9 +512,7 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
                     config.layer.pace_op(
                         &mut region,
                         start,
-                        series,
                         (OP_TRIE_ACCOUNT, OP_ACCOUNT),
-                        op_root,
                         op.use_rows_account(),
                     )?;
                     start = config.account.assign(
@@ -516,6 +522,7 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
                             op.account_before.as_ref().unwrap_or(&empty_account),
                             &op.account_after,
                         ),
+                        op.address.clone(),
                         Some(op.state_trie.is_none()),
                         randonmess,
                     )?;
@@ -523,18 +530,14 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
                         config.layer.pace_op(
                             &mut region,
                             start,
-                            series,
                             (OP_ACCOUNT, OP_TRIE_STATE),
-                            op_root,
                             op.use_rows_trie_state(),
                         )?;
                         start = config.state_trie.assign(&mut region, start, trie)?;
                         config.layer.pace_op(
                             &mut region,
                             start,
-                            series,
                             (OP_TRIE_STATE, OP_STORAGE),
-                            op_root,
                             1,
                         )?;
                         start = config.storage.assign(&mut region, start, op, Fp::from(TEMP_RANDOMNESS))?;
@@ -546,6 +549,15 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
 
                     assert!(start <= rows, "assigned rows for exceed limited {}", rows);
 
+                    config.layer.complete_block(
+                        &mut region, 
+                        block_start, 
+                        series, 
+                        Some((op.account_root_before(), op.account_root())), 
+                        Some(op.address.mpi()), 
+                        start - block_start,
+                    )?;
+
                     series += 1;
                 }
 
@@ -554,14 +566,20 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
                     config.layer.pace_op(
                         &mut region,
                         start,
-                        series,
                         (last_op_code, OP_PADDING),
-                        final_root,
                         row_left,
                     )?;
                     config
                         .padding
-                        .padding(&mut region, start, row_left, final_root)?;
+                        .padding(&mut region, start, row_left)?;
+                    config.layer.complete_block(
+                        &mut region, 
+                        start, 
+                        series, 
+                        None, 
+                        None, 
+                        row_left,
+                    )?;                        
                 }
 
                 Ok(())
@@ -665,10 +683,12 @@ mod test {
         let account_before = account_before.complete(mock_hash);
         let account_after = account_after.complete(mock_hash);
 
+        let address = KeyValue::create_rand_with_factor(mock_hash, Fp::from(0x100000000u64));
+
         let acc_trie = SingleOp::<Fp>::create_rand_op(
             4,
             Some((account_before.account_hash(), account_after.account_hash())),
-            None,
+            Some(address.hash()),
             mock_hash,
         );
 
@@ -677,6 +697,7 @@ mod test {
             state_trie: Some(state_trie),
             account_after,
             account_before: Some(account_before),
+            address,
             store_key: Some(store_key),
             store_before: Some(store_before),
             store_after: Some(store_after),
