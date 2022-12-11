@@ -11,6 +11,7 @@ pub use crate::serde::{Hash, Row, RowDeError};
 mod eth;
 mod layers;
 mod mpt;
+//mod mpt_table;
 #[cfg(test)]
 mod test_utils;
 
@@ -642,6 +643,22 @@ mod test {
     use crate::test_utils::*;
     use halo2_proofs::dev::MockProver;
     use operation::*;
+
+
+    #[test]
+    fn circuit_degrees() {
+        let mut cs: ConstraintSystem<Fp> = Default::default();
+        EthTrieCircuit::configure(&mut cs);
+
+        println!("mpt circuit degree: {}", cs.degree());
+        //assert!(cs.degree() <= 9);
+
+        let mut cs: ConstraintSystem<Fp> = Default::default();
+        HashCircuit::configure(&mut cs);
+
+        println!("hash circuit degree: {}", cs.degree());
+        //assert!(cs.degree() <= 9);
+    }
 
     #[test]
     fn empty_eth_trie() {
