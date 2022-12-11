@@ -758,6 +758,15 @@ mod test {
     }
 
     #[test]
+    fn gadget_degrees() {
+        let mut cs: ConstraintSystem<Fp> = Default::default();
+        AccountTestCircuit::configure(&mut cs);
+
+        println!("account gadget degree: {}", cs.degree());
+        //assert!(cs.degree() <= 9);
+    }
+
+    #[test]
     fn single_account() {
         let acc_data = Account::<Fp> {
             balance: Fp::from(100000u64),

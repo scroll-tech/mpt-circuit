@@ -1220,6 +1220,15 @@ mod test {
     }
 
     #[test]
+    fn path_gadget_degrees() {
+        let mut cs: ConstraintSystem<Fp> = Default::default();
+        TestPathCircuit::<true>::configure(&mut cs);
+
+        println!("mpt path gadget degree: {}", cs.degree());
+        //assert!(cs.degree() <= 9);
+    }
+
+    #[test]
     fn single_path() {
         let k = 5; //at least 32 rows for constant table use many space
 
@@ -1363,6 +1372,15 @@ mod test {
                 },
             }
         }
+    }
+
+    #[test]
+    fn op_gadget_degrees() {
+        let mut cs: ConstraintSystem<Fp> = Default::default();
+        TestOpCircuit::configure(&mut cs);
+
+        println!("mpt op gadget degree: {}", cs.degree());
+        //assert!(cs.degree() <= 9);
     }
 
     lazy_static! {
@@ -1538,6 +1556,15 @@ mod test {
         fn from(data: SingleOp<Fp>) -> Self {
             Self { data }
         }
+    }
+
+    #[test]
+    fn gadget_degrees() {
+        let mut cs: ConstraintSystem<Fp> = Default::default();
+        MPTTestCircuit::configure(&mut cs);
+
+        println!("mpt full gadget degree: {}", cs.degree());
+        //assert!(cs.degree() <= 9);
     }
 
     #[test]

@@ -867,6 +867,15 @@ mod test {
     }
 
     #[test]
+    fn gadget_degrees() {
+        let mut cs: ConstraintSystem<Fp> = Default::default();
+        MultiOpCircuit::configure(&mut cs);
+
+        println!("layer gadget degree: {}", cs.degree());
+        //assert!(cs.degree() <= 9);
+    }
+
+    #[test]
     fn layer_multi() {
         let k = 4;
         let circuit = MultiOpCircuit {
