@@ -47,18 +47,18 @@ pub(crate) struct Config {
     old_value: Column<Advice>,
 
     // the rep for current single field values
-    // notice we do not include old value, which is in fact expressed
-    // by old_root intrinsically
     key_rep: RepConfig,
     new_val_rep: RepConfig,
+    old_val_rep: RepConfig,
 
-    range_check_u8: RangeCheckConfig,      
+    range_check_u8: RangeCheckConfig,
 
     change_aux: Column<Advice>, //used for marking if an entry include change of state (read or write)
 
     // turn into pair represent (hi, lo)
     storage_key_2: PairRepConfig,
     new_value_2: PairRepConfig,
+    old_value_2: PairRepConfig,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -66,6 +66,15 @@ pub(crate) struct MPTEntry<F: Field> {
     base: [F; 7],
     storage_key: KeyValue<F>,
     new_value: KeyValue<F>,
+    old_value: KeyValue<F>,
+}
+
+impl<F: FieldExt> MPTEntry<F> {
+    pub fn construct(
+
+    ) {
+
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -102,17 +111,19 @@ impl<F: FieldExt> MPTTable<F> {
 
         let key_rep = RepConfig::configure_rlc(meta, sel, storage_key, randomness.clone(), &range_check_u8, None);
         let new_val_rep = RepConfig::configure_rlc(meta, sel, new_value, randomness.clone(), &range_check_u8, None);
+        let old_val_rep = RepConfig::configure_rlc(meta, sel, new_value, randomness.clone(), &range_check_u8, None);
 
         let storage_key_2 = PairRepConfig::configure(meta, sel, &key_rep.limbs);
         let new_value_2 = PairRepConfig::configure(meta, sel, &new_val_rep.limbs);
+        let old_value_2 = PairRepConfig::configure(meta, sel, &new_val_rep.limbs);
 
         Config {
             sel,
             address, storage_key, new_value, old_value, proof_type, new_root, old_root,
             change_aux,
             range_check_u8,
-            key_rep, new_val_rep,
-            storage_key_2, new_value_2,
+            key_rep, new_val_rep, old_val_rep,
+            storage_key_2, new_value_2, old_value_2,
         }
 
     }
@@ -154,6 +165,7 @@ impl<F: FieldExt> MPTTable<F> {
 
                 config.storage_key_2.assign(&mut region, offset, &(entry.storage_key.limb_0(), entry.storage_key.limb_1()))?;
                 config.new_value_2.assign(&mut region, offset, &(entry.new_value.limb_0(), entry.new_value.limb_1()))?;
+                config.old_value_2.assign(&mut region, offset, &(entry.old_value.limb_0(), entry.old_value.limb_1()))?;
 
                 config.key_rep.assign(&mut region, offset, 
                     RepCfg::<16, 8>::le_value_to_limbs(entry.storage_key.limb_0()).as_slice().iter()
@@ -163,6 +175,11 @@ impl<F: FieldExt> MPTTable<F> {
                 config.new_val_rep.assign(&mut region, offset, 
                     RepCfg::<16, 8>::le_value_to_limbs(entry.new_value.limb_0()).as_slice().iter()
                     .chain(RepCfg::<16, 8>::le_value_to_limbs(entry.new_value.limb_1()).as_slice().iter())
+                )?;
+
+                config.old_val_rep.assign(&mut region, offset, 
+                    RepCfg::<16, 8>::le_value_to_limbs(entry.old_value.limb_0()).as_slice().iter()
+                    .chain(RepCfg::<16, 8>::le_value_to_limbs(entry.old_value.limb_1()).as_slice().iter())
                 )?;
 
             }
