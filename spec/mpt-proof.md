@@ -51,7 +51,7 @@ So there are 5 kinds of proof (4 proof 'pair' mentioned before and a 'padding' p
 >        + look up current `(op_type, ctrl_type)` pair from 'external rules' collection when value of current `op_type` cell different from which in above row (the difference must be one)
 >        + look up current `(op_type, ctrl_type)` pair from 'internal rules' collection when value of current `op_delta_aux` is one
 
-+ Data part currently has 3 cols `data_0` ~ `data_2` which dedicate to values whose relations should be provided to be correct by a proof. Different proof assign specified data on that columns: For proof 1 and 3 (the BMPT proof), the hashes of nodes for the BMPT before and after updating are recorded in `data_0` and `data_1` respectively; for proof 2 `data_0` and `data_1` are used for account hash before and after being updated. proofs can also refer cells in data columns which belong to the rows adjacent to it, i.e. the data which has been provided by another proof.
++ Data part currently has 3 cols `data_0` ~ `data_2` which dedicate to values whose relations should be provided to be correct by a proof, and 3 additional cols `data_0_ext` ~ `data_2_ext` if 1 field is not enough for represent the value (like codehash and storekey/value). Different proof assign specified data on that columns: For proof 1 and 3 (the BMPT proof), the hashes of nodes for the BMPT before and after updating are recorded in `data_0` and `data_1` respectively; for proof 2 `data_0` and `data_1` are used for account hash before and after being updated. proofs can also refer cells in data columns which belong to the rows adjacent to it, i.e. the data which has been provided by another proof.
 
 There are also 2 limb cols for each `data_N` col in case of a 256bit variable and assign it into 2 128-bit limbs, naming as `data_N_limb_0/1`.
 
@@ -162,24 +162,25 @@ This provide the account data consist with its hash under the new zktrie scheme 
 
 There are a pair of proofs which provide for the account data before and after updating respectively. For each use following columns:
 
-> `data_0` and `data_1` in the data part contain all fields in account data except for the account root (the root of storage trie for current account), i.e. the `nonce`, `balance` and `code_hash`, for the 32 bytes codeHash, two cols would be assigned for the two 16 bytes limbs (first and last 16 bytes) and the RLC of them is recorded in `data_0/1` col
-> `Intermediate_1`, `Intermediate_2`: contain account root and some intermediate value being use in the hashing scheme
+> + `data_0` and `data_1` in the data part contain all fields in account data except for the account root (the root of storage trie for current account), i.e. the `nonce`, `balance` and `code_hash`, for the 32 bytes codeHash, two cols would be assigned for the two 16 bytes limbs (first and last 16 bytes) and the RLC of them is recorded in `data_0/1` col.
+> + For codehash, which require 2 field to be represented, the `data_0/1_ext` are also used
+> + `Intermediate_1`, `Intermediate_2`: contain account root and some intermediate value being use in the hashing scheme
 
 The layout for account proof looks like following:
 
-|op_type|ctrl_type|   datalimb_s    | Intermediate_1  | Intermediate_2  |    data_0/1    |
-|-------|---------|-----------------|-----------------|-----------------|----------------|
-|   1   |         |                 |                 |                 |   *hash_final* |
-|   2   |    0    |                 |                 |   hash_final    |    nonce       |
-|   2   |    1    |Codehash_first   |      hash3      |      hash2      |    balance     |
-|   2   |    2    |Codehash_Second  |      hash1      |      Root       |    code_hash   |
-|   3   |         |                 |                 |                 |      *Root*    |
+|op_type|ctrl_type| Intermediate_1  | Intermediate_2  |    data_0/1    |  data_0/1_ext |
+|-------|---------|-----------------|-----------------|----------------|---------------|
+|   1   |         |                 |                 |   *hash_final* |               |
+|   2   |    0    |                 |   hash_final    |    nonce       |               |
+|   2   |    1    |      hash3      |      hash2      |    balance     |               |
+|   2   |    2    |      hash1      |      Root       |  code_hash_hi  | code_hash_low |
+|   3   |         |                 |                 |      *Root*    |               |
 
 value of `1`, `2`, `3` in`op_type` col indicate the row dedicating to proof of state trie (proof 4), account data (proof 3) and storage trie (proof 2) respectively. we can see in account data proof  the top and bottom cell in data columns can be easily constrained to be equal to the cell above / below them. So the proofs are being "connected".
 
 The proof also lookup hashes for the hashing scheme:
 
->    * `Poseidon(Codehash_first, Codehash_Second) = hash1`
+>    * `Poseidon(Codehash_hi, Codehash_low) = hash1`
 >    * `Poseidon(nonce, balance) = hash3`
 >    * `Poseidon(hash1, Root) = hash2`
 >    * `Poseidon(hash3, hash2) = hash_final`
@@ -197,10 +198,10 @@ The 4 rows layout is used when the value in `OldHash` and `NewHash` is equal. Th
 
 This provide the hash of stored value and key is consistent with the key / value of leaf node in the BMPT proof for storage proof (proof 2). It has a one-row layout as follows:
 
-|op_type|ctrl_type|  data_0   | s_value_limb_1 | s_value_limb_2 | data_1  | s_value_limb_1 | s_value_limb_2 |  data_2  | key_limb_1 | key_limb_2 |
-|-------|---------|-----------|----------------|----------------|---------|----------------|----------------|--------- |------------|------------|
-|   3   |         | *s_hash*  |                |                |*e_hash* |                |                |*key_hash*|            |            |
-|   4   |   0     |  s_value  | s_value_first  | s_value_second | e_value | e_value_first  | e_value_second |   key    |  key_first | key_second |
+|op_type|ctrl_type|    data_0     |   data_0_ext   |    data_1     |   data_1_ext   |   data_2  | data_2_ext |
+|-------|---------|---------------|----------------|---------------|----------------|-----------|------------|
+|   3   |         |   *s_hash*    |                |   *e_hash*    |                |*key_hash* |            |
+|   4   |   0     | s_value_first | s_value_second | e_value_first | e_value_second | key_first | key_second |
 
 The data cols is assigned with the RLC of their corresponding 16-byte limbs and hash is being lookup:
 
@@ -229,4 +230,6 @@ Currently the least N we need is 3:
 |   1    | FQ1|    |    | FQ         |
 |   3    | FQ1| FQ2| FQ3| FQ         |
 |   3    | FQ1| FQ2| FQ3| FQ         |
+
+## MPT table
 

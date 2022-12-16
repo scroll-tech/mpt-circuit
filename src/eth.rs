@@ -74,7 +74,7 @@ impl AccountGadget {
     pub fn configure<Fp: FieldExt>(
         meta: &mut ConstraintSystem<Fp>,
         sel: Selector,
-        exported: [Column<Advice>; 5],
+        exported: &[Column<Advice>],
         free: &[Column<Advice>],
         address_index: Option<Column<Advice>>,
         tables: mpt::MPTOpTables,
@@ -583,7 +583,7 @@ impl StorageGadget {
     pub fn configure<Fp: FieldExt>(
         meta: &mut ConstraintSystem<Fp>,
         sel: Selector,
-        exported: [Column<Advice>; 5],
+        exported: &[Column<Advice>],
         free: &[Column<Advice>],
         hash_tbl: mpt::HashTable,
         randomness: Expression<Fp>,
@@ -671,7 +671,7 @@ mod test {
     struct AccountTestConfig {
         gadget: AccountGadget,
         sel: Selector,
-        free_cols: [Column<Advice>; 11],
+        free_cols: [Column<Advice>; 14],
         op_tabl: mpt::MPTOpTables,
         hash_tabl: mpt::HashTable,
     }
@@ -692,16 +692,17 @@ mod test {
 
         fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
             let sel = meta.selector();
-            let free_cols = [(); 11].map(|_| meta.advice_column());
-            let exported_cols = [free_cols[0], free_cols[1], free_cols[2], free_cols[3], free_cols[4]];
+            let free_cols = [(); 14].map(|_| meta.advice_column());
+            let exported_cols = [free_cols[0], free_cols[1], free_cols[2], 
+                free_cols[3], free_cols[4], free_cols[5], free_cols[6], free_cols[7]];
             let op_tabl = mpt::MPTOpTables::configure_create(meta);
             let hash_tabl = mpt::HashTable::configure_create(meta);
 
             let gadget = AccountGadget::configure(
                 meta,
                 sel,
-                exported_cols,
-                &free_cols[5..],
+                exported_cols.as_slice(),
+                &free_cols[8..],
                 None,
                 op_tabl.clone(),
                 hash_tabl.clone(),

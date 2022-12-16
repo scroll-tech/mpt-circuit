@@ -308,7 +308,7 @@ impl MPTOpGadget {
     pub fn configure_simple<Fp: FieldExt>(
         meta: &mut ConstraintSystem<Fp>,
         sel: Selector,
-        exported: [Column<Advice>; 5],
+        exported: &[Column<Advice>],
         free: &[Column<Advice>],
         root_index: Option<(Column<Advice>,Column<Advice>)>,
     ) -> Self {
@@ -326,7 +326,7 @@ impl MPTOpGadget {
     pub fn configure<Fp: FieldExt>(
         meta: &mut ConstraintSystem<Fp>,
         sel: Selector,
-        exported: [Column<Advice>; 5],
+        exported: &[Column<Advice>],
         free: &[Column<Advice>],
         root_index: Option<(Column<Advice>,Column<Advice>)>,
         tables: MPTOpTables,
@@ -1487,7 +1487,7 @@ mod test {
     struct GadgetTestConfig {
         gadget: MPTOpGadget,
         sel: Selector,
-        free_cols: [Column<Advice>; 13],
+        free_cols: [Column<Advice>; 16],
     }
 
     // express for a single path block
@@ -1506,11 +1506,14 @@ mod test {
 
         fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
             let sel = meta.complex_selector();
-            let free_cols = [(); 13].map(|_| meta.advice_column());
-            let exported_cols = [free_cols[0], free_cols[1], free_cols[2], free_cols[3], free_cols[4]];
+            let free_cols = [(); 16].map(|_| meta.advice_column());
+            let exported_cols = [
+                free_cols[0], free_cols[1], free_cols[2], free_cols[3],
+                free_cols[4], free_cols[5], free_cols[6], free_cols[7],
+            ];
 
             GadgetTestConfig {
-                gadget: MPTOpGadget::configure_simple(meta, sel, exported_cols, &free_cols[5..], None),
+                gadget: MPTOpGadget::configure_simple(meta, sel, &exported_cols[..], &free_cols[8..], None),
                 free_cols,
                 sel,
             }

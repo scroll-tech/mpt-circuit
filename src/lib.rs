@@ -139,11 +139,11 @@ impl<Fp: FieldExt> Circuit<Fp> for SimpleTrie<Fp> {
     fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
         let layer = LayerGadget::configure(meta, 2, MPTOpGadget::min_free_cols());
         let padding =
-            PaddingGadget::configure(meta, layer.public_sel(), layer.exported_cols(OP_PADDING));
+            PaddingGadget::configure(meta, layer.public_sel(), layer.exported_cols(OP_PADDING).as_slice());
         let mpt = MPTOpGadget::configure_simple(
             meta,
             layer.public_sel(),
-            layer.exported_cols(OP_MPT),
+            layer.exported_cols(OP_MPT).as_slice(),
             layer.get_free_cols(),
             Some(layer.get_root_indexs()),
         );
@@ -424,11 +424,11 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
             ),
         );
         let padding =
-            PaddingGadget::configure(meta, layer.public_sel(), layer.exported_cols(OP_PADDING));
+            PaddingGadget::configure(meta, layer.public_sel(), layer.exported_cols(OP_PADDING).as_slice());
         let account_trie = MPTOpGadget::configure(
             meta,
             layer.public_sel(),
-            layer.exported_cols(OP_TRIE_ACCOUNT),
+            layer.exported_cols(OP_TRIE_ACCOUNT).as_slice(),
             layer.get_free_cols(),
             Some(layer.get_root_indexs()),
             tables.clone(),
@@ -437,7 +437,7 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
         let state_trie = MPTOpGadget::configure(
             meta,
             layer.public_sel(),
-            layer.exported_cols(OP_TRIE_STATE),
+            layer.exported_cols(OP_TRIE_STATE).as_slice(),
             layer.get_free_cols(),
             None,
             tables.clone(),
@@ -446,7 +446,7 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
         let account = AccountGadget::configure(
             meta,
             layer.public_sel(),
-            layer.exported_cols(OP_ACCOUNT),
+            layer.exported_cols(OP_ACCOUNT).as_slice(),
             layer.get_free_cols(),
             Some(layer.get_address_index()),
             tables.clone(),
@@ -455,7 +455,7 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
         let storage = StorageGadget::configure(
             meta,
             layer.public_sel(),
-            layer.exported_cols(OP_STORAGE),
+            layer.exported_cols(OP_STORAGE).as_slice(),
             layer.get_free_cols(),
             hash_tbl.clone(), 
             randomness,

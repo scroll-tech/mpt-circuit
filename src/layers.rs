@@ -37,9 +37,16 @@ pub(crate) struct LayerGadget {
     // its flag when assigned
     s_stepflags: Vec<Column<Advice>>,
     ctrl_type: Column<Advice>,
+    // the 3 exported value now can be represented by 2-field and the additional
+    // field is marked as "ext" (most value still use 1 field only)
     data_0: Column<Advice>,
     data_1: Column<Advice>,
     data_2: Column<Advice>,
+
+    data_0_ext: Column<Advice>,
+    data_1_ext: Column<Advice>,
+    data_2_ext: Column<Advice>,
+
 
     old_root_index: Column<Advice>,
     new_root_index: Column<Advice>,
@@ -55,13 +62,16 @@ pub(crate) struct LayerGadget {
 pub(crate) type OpBorder = ((u32, u32), (u32, u32));
 
 impl LayerGadget {
-    pub fn exported_cols(&self, step: u32) -> [Column<Advice>; 5] {
+    pub fn exported_cols(&self, step: u32) -> [Column<Advice>; 8] {
         [
             self.ctrl_type,
             self.s_stepflags[step as usize],
             self.data_0,
             self.data_1,
             self.data_2,
+            self.data_0_ext,
+            self.data_1_ext,
+            self.data_2_ext,
         ]
     }
 
@@ -97,6 +107,9 @@ impl LayerGadget {
         let data_0 = meta.advice_column();
         let data_1 = meta.advice_column();
         let data_2 = meta.advice_column();
+        let data_0_ext = meta.advice_column();
+        let data_1_ext = meta.advice_column();
+        let data_2_ext = meta.advice_column();        
         let old_root_index = meta.advice_column();
         let new_root_index = meta.advice_column();
         let address_index = meta.advice_column();
@@ -231,6 +244,7 @@ impl LayerGadget {
             op_type,
             ctrl_type,
             data_0, data_1, data_2,
+            data_0_ext, data_1_ext, data_2_ext,
             free_cols,
             old_root_index, new_root_index, address_index,
             op_delta_aux,
@@ -635,7 +649,7 @@ impl PaddingGadget {
     pub fn configure<Fp: FieldExt>(
         _meta: &mut ConstraintSystem<Fp>,
         _sel: Selector,
-        exported: [Column<Advice>; 5],
+        exported: &[Column<Advice>],
     ) -> Self {
 
         Self {
@@ -671,6 +685,7 @@ impl PaddingGadget {
 #[cfg(test)]
 mod test {
     #![allow(unused_imports)]
+
     use super::*;
     use crate::{operation::*, serde::Row, test_utils::*};
     use halo2_proofs::{
@@ -701,7 +716,7 @@ mod test {
 
         fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
             let layer = LayerGadget::configure(meta, 1, 3);
-            let padding = PaddingGadget::configure(meta, layer.sel, layer.exported_cols(0));
+            let padding = PaddingGadget::configure(meta, layer.sel, layer.exported_cols(0).as_slice());
 
             let cst = meta.fixed_column();
             meta.enable_constant(cst);
@@ -797,8 +812,8 @@ mod test {
 
         fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
             let layer = LayerGadget::configure(meta, 3, 2);
-            let padding0 = PaddingGadget::configure(meta, layer.sel, layer.exported_cols(0));
-            let padding1 = PaddingGadget::configure(meta, layer.sel, layer.exported_cols(2));
+            let padding0 = PaddingGadget::configure(meta, layer.sel, layer.exported_cols(0).as_slice());
+            let padding1 = PaddingGadget::configure(meta, layer.sel, layer.exported_cols(2).as_slice());
 
             let cst = meta.fixed_column();
             meta.enable_constant(cst);
