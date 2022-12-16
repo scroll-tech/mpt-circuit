@@ -12,7 +12,6 @@ use super::range_check::Config as RangeCheckConfig;
 #[derive(Clone, Debug)]
 pub(crate) struct Config<const N: usize, const EXP: usize> {
     pub limbs: [Column<Advice>; N],
-    pub effect_limbs: Option<usize>,
 }
 
 impl<const N: usize, const EXP: usize> Config<N, EXP> {
@@ -51,7 +50,7 @@ impl<const N: usize, const EXP: usize> Config<N, EXP> {
             rg_check.range_check_col(meta, "limb range check", col);
         }
 
-        Self { limbs, effect_limbs }
+        Self { limbs }
     }
 
     pub fn configure_mpi<F: PrimeField>(
@@ -90,14 +89,14 @@ impl<const N: usize, const EXP: usize> Config<N, EXP> {
         out
     }
 
-    pub fn assign<F: Field>(
+    pub fn assign<'d, F: Field>(
         &self,
         region: &mut Region<'_, F>,
         offset: usize,
-        limbs: &[F; N],
+        limbs: impl IntoIterator<Item = &'d F>,
     ) -> Result<bool, Error> {
 
-        for (limb, col) in limbs.as_slice().iter().zip(self.limbs.as_slice().iter()){
+        for (limb, col) in limbs.into_iter().zip(self.limbs.as_slice().iter()){
             region.assign_advice(
                 || format!("assign for limbs on rep {}", N),
                 *col,
@@ -115,7 +114,7 @@ impl<const N: usize, const EXP: usize> Config<N, EXP> {
         offset: usize,
     ) -> Result<bool, Error> {
 
-        self.assign(region, offset, &[F::zero(); N])
+        self.assign(region, offset, [F::zero(); N].as_slice())
     }
 
 }

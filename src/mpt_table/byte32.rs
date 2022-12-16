@@ -157,14 +157,14 @@ mod test {
                             offset,
                             || Value::known(Fp::from((base1+base2) as u64*16)),
                         )?;
-                        
-                        let mut rep = vec![Fp::from(*base1 as u64); 16];
-                        rep.append(&mut vec![Fp::from(*base2 as u64); 16]);
 
                         config.rep.assign(
                             &mut region, 
                             offset,
-                            &rep.as_slice().try_into().unwrap(),
+                            vec![Fp::from(*base1 as u64); 16]
+                            .iter().chain(
+                                vec![Fp::from(*base2 as u64); 16].iter()
+                            ),
                         )?;
 
                         config.byte32_rep.assign(
