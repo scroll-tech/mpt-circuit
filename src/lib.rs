@@ -409,8 +409,6 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
     fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
         let tables = mpt::MPTOpTables::configure_create(meta);
         let hash_tbl = mpt::HashTable::configure_create(meta);
-        //TODO: need to induce randomness
-        let randomness = Expression::Constant(Fp::from(TEMP_RANDOMNESS));
 
         let layer = LayerGadget::configure(
             meta,
@@ -458,7 +456,6 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
             layer.exported_cols(OP_STORAGE).as_slice(),
             layer.get_free_cols(),
             hash_tbl.clone(), 
-            randomness,
         );
 
         let cst = meta.fixed_column();
@@ -487,9 +484,6 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
             .map(|op| op.account_root_before())
             .unwrap_or_else(Fp::zero);
         let rows = self.1;
-
-        //TODO: need to import randomness
-        let randonmess = Fp::one();
 
         layouter.assign_region(
             || "main",
@@ -523,9 +517,8 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
                             op.account_before.as_ref().unwrap_or(&empty_account),
                             &op.account_after,
                         ),
-                        op.address.clone(),
+                        op.address_rep.clone(),
                         Some(op.state_trie.is_none()),
-                        randonmess,
                     )?;
                     if let Some(trie) = &op.state_trie {
                         config.layer.pace_op(
@@ -541,7 +534,7 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
                             (OP_TRIE_STATE, OP_STORAGE),
                             1,
                         )?;
-                        start = config.storage.assign(&mut region, start, op, Fp::from(TEMP_RANDOMNESS))?;
+                        start = config.storage.assign(&mut region, start, op)?;
 
                         last_op_code = OP_STORAGE;
                     } else {
@@ -555,7 +548,7 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
                         block_start, 
                         series, 
                         Some((op.account_root_before(), op.account_root())), 
-                        Some(op.address.mpi()), 
+                        Some(op.address), 
                         start - block_start,
                     )?;
 
@@ -700,12 +693,14 @@ mod test {
         let account_before = account_before.complete(mock_hash);
         let account_after = account_after.complete(mock_hash);
 
-        let address = KeyValue::create_rand_with_factor(mock_hash, Fp::from(0x100000000u64));
+        let address_rep = KeyValue::create_rand(mock_hash);
+        let address = address_rep.limb_0() * Fp::from(0x100000000u64)
+            + address_rep.limb_1() * Fp::from_u128(0x1000000000000000000000000u128).invert().unwrap();
 
         let acc_trie = SingleOp::<Fp>::create_rand_op(
             4,
             Some((account_before.account_hash(), account_after.account_hash())),
-            Some(address.hash()),
+            Some(address_rep.hash()),
             mock_hash,
         );
 
@@ -715,6 +710,7 @@ mod test {
             account_after,
             account_before: Some(account_before),
             address,
+            address_rep,
             store_key: Some(store_key),
             store_before: Some(store_before),
             store_after: Some(store_after),

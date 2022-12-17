@@ -444,10 +444,7 @@ impl<Fp: Hashable> Account<Fp> {
 /// 2 fields for representing 32 byte, used for storage key or value, the hash is also saved
 #[derive(Clone, Debug, Default)]
 pub struct KeyValue<Fp> {
-  
     data :(Fp, Fp, Fp), // (the first 16 bytes, the second 16 bytes, hash value)
-    mpi_factor: (Fp, Fp), // factor for mpi, default is 2^128
-
 }
 
 impl<Fp: FieldExt> KeyValue<Fp> {
@@ -456,11 +453,6 @@ impl<Fp: FieldExt> KeyValue<Fp> {
     pub fn val(&self) -> (Fp, Fp) { (self.data.0, self.data.1)}
     /// obtain the hash
     pub fn hash(&self) -> Fp { self.data.2 }
-    /// obtian the whole integer value (without checking if it can be contained in the field)
-    pub fn mpi(&self) -> Fp {
-        self.mpi_factor.0 * self.data.0 + 
-        self.mpi_factor.1 * self.data.1
-    }
     /// obtian the linear combination of two field
     pub fn lc(&self, randomness: Fp) -> Fp {
         self.data.0 + self.data.1 * randomness
@@ -474,27 +466,13 @@ impl<Fp: FieldExt> KeyValue<Fp> {
 
 impl<Fp: Hashable> KeyValue<Fp> {
 
-    /// create object and also calc the hash, specify a factor for the most effective
-    /// bits for limb_1, i.e: 32 bit use factor Fp::from(2^32)
-    pub fn create_with_factor(bytes32: (Fp, Fp), factor: Fp) -> Self {
-        let (fst, snd) = bytes32;
-        let hash = <Fp as Hashable>::hash([fst, snd]);
-        let effect_factor_def = Fp::from_u128(0x10000000000000000u128).square();
-
-        Self { 
-            data: (fst, snd, hash), 
-            mpi_factor: (factor, factor * effect_factor_def.invert().unwrap()),
-        }
-    } 
-
     /// create object and also calc the hash
     pub fn create(bytes32: (Fp, Fp)) -> Self {
         let (fst, snd) = bytes32;
         let hash = <Fp as Hashable>::hash([fst, snd]);
 
         Self { 
-            data: (fst, snd, hash), 
-            mpi_factor:(Fp::from_u128(0x10000000000000000u128).square(), Fp::one()),
+            data: (fst, snd, hash),
         }
     }    
 
@@ -519,8 +497,10 @@ pub struct AccountOp<Fp: FieldExt> {
     pub store_before: Option<KeyValue<Fp>>,
     /// the stored value after being updated
     pub store_after: Option<KeyValue<Fp>>,
+    /// address (the preimage of acc_trie's key)
+    pub address: Fp,
     /// address (the preimage of acc_trie's key, splitted by 2 fields)
-    pub address: KeyValue<Fp>,
+    pub address_rep: KeyValue<Fp>,
     /// the key being store (preimage of state_trie's key)
     pub store_key: Option<KeyValue<Fp>>,
 }
@@ -597,7 +577,7 @@ impl<Fp: Hashable> AccountOp<Fp> {
                     .flat_map(|i| i.hash_traces.iter()),
             )
             .chain(self.account_after.hash_traces.iter())
-            .chain(Some(self.address.hash_traces()))
+            .chain(Some(self.address_rep.hash_traces()))
             .chain(self.store_key.as_ref().map(|v|v.hash_traces()))
             .chain(self.store_before.as_ref().map(|v|v.hash_traces()))
             .chain(self.store_after.as_ref().map(|v|v.hash_traces()))
@@ -815,14 +795,13 @@ impl<'d, Fp: Hashable> From<&'d serde::HexBytes<32>> for KeyValue<Fp> {
 }
 
 impl<'d, Fp: Hashable> From<&'d serde::HexBytes<20>> for KeyValue<Fp> {
-    fn from(byte32: &'d serde::HexBytes<20>) -> Self {
-        let bytes = byte32.0;
+    fn from(byte20: &'d serde::HexBytes<20>) -> Self {
+        let bytes = byte20.0;
         let first_16bytes: [u8; 16] = bytes[..16].try_into().expect("expect first 16 bytes");
         let last_4bytes: [u8; 4] = bytes[16..].try_into().expect("expect second 4 bytes");
-        Self::create_with_factor((
+        Self::create((
             Fp::from_u128(u128::from_be_bytes(first_16bytes)),
             Fp::from_u128(u32::from_be_bytes(last_4bytes) as u128 * 0x1000000000000000000000000u128)),
-            Fp::from(0x100000000u64),
         )
     }
 }
@@ -835,8 +814,7 @@ impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTTrace> for AccountOp<Fp> {
             &trace.account_path[0],
             &trace.account_path[1],
             trace.account_key,
-        )
-            .try_into()?;
+        ).try_into()?;
 
         let state_trie: Option<SingleOp<Fp>> =
             if trace.state_path[0].is_some() && trace.state_path[1].is_some() {
@@ -894,7 +872,14 @@ impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTTrace> for AccountOp<Fp> {
             Default::default()
         };
 
-        let address = KeyValue::from(&trace.address);
+        let address = {
+            let bytes = trace.address.0;
+            let first_16bytes: [u8; 16] = bytes[..16].try_into().expect("expect first 16 bytes");
+            let last_4bytes: [u8; 4] = bytes[16..].try_into().expect("expect second 4 bytes");
+            Fp::from_u128(u128::from_be_bytes(first_16bytes)) * Fp::from(0x100000000u64) 
+            + Fp::from(u32::from_be_bytes(last_4bytes) as u64)
+        };
+        let address_rep = KeyValue::from(&trace.address);
 
         let (store_key, store_before, store_after) = if state_trie.is_some() {
 
@@ -915,6 +900,7 @@ impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTTrace> for AccountOp<Fp> {
             account_before,
             account_after,
             address,
+            address_rep,
             store_key,
             store_before,
             store_after,
@@ -1010,21 +996,9 @@ mod tests {
             let h = hasher(&a, &b);
 
             Self {
-                data: (a, b, h), 
-                mpi_factor: (Fp::from_u128(0x10000000000000000u128).square(), Fp::one())
+                data: (a, b, h),
             }
-        }
-
-        pub fn create_rand_with_factor(mut hasher: impl FnMut(&Fp, &Fp) -> Fp + Clone, factor: Fp) -> Self {
-            let a = Fp::random(rand_gen([104u8; 32]));
-            let b = Fp::random(rand_gen([105u8; 32]));
-            let h = hasher(&a, &b);
-
-            Self {
-                data: (a, b, h), 
-                mpi_factor: (factor, Fp::from_u128(0x10000000000000000u128).square().invert().unwrap() * factor),
-            }
-        }        
+        }       
     }
 
     fn decompose<Fp: FieldExt>(inp: Fp, l: usize) -> (Vec<bool>, Fp) {

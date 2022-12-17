@@ -64,12 +64,12 @@ pub(crate) struct AccountGadget {
 
 impl AccountGadget {
     pub fn min_free_cols() -> usize {
-        6
+        4
     }
 
     /// create gadget from assigned cols, we need:
     /// + circuit selector * 1
-    /// + exported col * 5 (MUST by following sequence: layout_flag, s_enable, old_val, new_val, key_val)
+    /// + exported col * 8 (MUST by following sequence: layout_flag, s_enable, old_val, new_val, key_val and 3 ext field for old/new/key_val)
     /// + free col * 4
     pub fn configure<Fp: FieldExt>(
         meta: &mut ConstraintSystem<Fp>,
@@ -80,12 +80,14 @@ impl AccountGadget {
         tables: mpt::MPTOpTables,
         hash_tbl: mpt::HashTable,
     ) -> Self {
-        assert!(free.len() >= 6, "require at least 6 free cols");
+        assert!(free.len() >= 4, "require at least 4 free cols");
         let s_enable = exported[1];
         let ctrl_type = exported[0];
         let data_old = exported[2];
         let data_new = exported[3];
         let data_key = exported[4];
+        let data_old_ext = exported[5];
+        let data_new_ext = exported[6];
 
         let old_state = AccountChip::configure(
             meta,
@@ -93,7 +95,8 @@ impl AccountGadget {
             s_enable,
             ctrl_type,
             data_old,
-            &free[0..3],
+            data_old_ext,
+            &free[0..2],
             hash_tbl.clone(),
         );
         let new_state = AccountChip::configure(
@@ -102,7 +105,8 @@ impl AccountGadget {
             s_enable,
             ctrl_type,
             data_new,
-            &free[3..6],
+            data_new_ext,
+            &free[2..4],
             hash_tbl.clone(),
         );
 
@@ -128,8 +132,8 @@ impl AccountGadget {
                 let row0 = AccountChip::<'_, Fp>::lagrange_polynomial_for_row::<0>(
                     meta.query_advice(ctrl_type, Rotation::cur()),
                 );
-                let address_limb_0 = meta.query_advice(old_state.data_limbs, Rotation::cur());
-                let address_limb_1 = meta.query_advice(new_state.data_limbs, Rotation::cur());
+                let address_limb_0 = meta.query_advice(old_state.intermediate_1, Rotation::cur());
+                let address_limb_1 = meta.query_advice(new_state.intermediate_1, Rotation::cur());
     
                 vec![s_enable * row0 * (address_limb_0 * Expression::Constant(Fp::from(0x100000000u64))
                     + address_limb_1 * Expression::Constant(Fp::from_u128(0x1000000000000000000000000u128).invert().unwrap())
@@ -140,8 +144,8 @@ impl AccountGadget {
                 let s_enable = meta.query_advice(s_enable, Rotation::cur())
                     * AccountChip::<'_, Fp>::lagrange_polynomial_for_row::<0>(meta.query_advice(ctrl_type, Rotation::cur()));
 
-                let address_limb_0 = meta.query_advice(old_state.data_limbs, Rotation::cur());
-                let address_limb_1 = meta.query_advice(new_state.data_limbs, Rotation::cur());
+                let address_limb_0 = meta.query_advice(old_state.intermediate_1, Rotation::cur());
+                let address_limb_1 = meta.query_advice(new_state.intermediate_1, Rotation::cur());
                 let addr_hash = meta.query_advice(data_key, Rotation::prev());
 
                 hash_tbl.build_lookup(
@@ -207,19 +211,16 @@ impl AccountGadget {
         data: (&'d Account<Fp>, &'d Account<Fp>),
         address: KeyValue<Fp>,
         apply_last_row: Option<bool>,
-        randomness: Fp,
     ) -> Result<usize, Error> {
         let old_acc_chip = AccountChip::<Fp> {
             offset,
             config: &self.old_state,
             data: data.0,
-            randomness,
         };
         let new_acc_chip = AccountChip::<Fp> {
             offset,
             config: &self.new_state,
             data: data.1,
-            randomness,
         };
 
         let apply_last_row = if let Some(apply) = apply_last_row {
@@ -239,8 +240,8 @@ impl AccountGadget {
 
         // overwrite the datalimb in first row for address
         for (col, val) in [
-            (old_acc_chip.config.data_limbs, address.limb_0()),
-            (new_acc_chip.config.data_limbs, address.limb_1()),
+            (old_acc_chip.config.intermediate_1, address.limb_0()),
+            (new_acc_chip.config.intermediate_1, address.limb_1()),
         ]{
             region.assign_advice(
                 || "address assignment",
@@ -287,8 +288,8 @@ impl AccountGadget {
 struct AccountChipConfig {
     intermediate_1: Column<Advice>,
     intermediate_2: Column<Advice>,
-    data_limbs: Column<Advice>, //in its 3 rows we pub address_limb, codehash_first and codehash_sec
     acc_data_fields: Column<Advice>,
+    acc_data_fields_ext: Column<Advice>, // for accommodate codehash's low field
 }
 
 /// chip for verify account data's hash in zkktrie
@@ -296,7 +297,6 @@ struct AccountChip<'d, F> {
     offset: usize,
     config: &'d AccountChipConfig,
     data: &'d Account<F>,
-    randomness: F,
 }
 
 impl<Fp: FieldExt> Chip<Fp> for AccountChip<'_, Fp> {
@@ -323,12 +323,12 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
         s_enable: Column<Advice>,
         ctrl_type: Column<Advice>,
         acc_data_fields: Column<Advice>,
+        acc_data_fields_ext: Column<Advice>,
         free_cols: &[Column<Advice>],
         hash_table: mpt::HashTable,
     ) -> <Self as Chip<Fp>>::Config {
-        let data_limbs = free_cols[0];
-        let intermediate_1 = free_cols[1];
-        let intermediate_2 = free_cols[2];
+        let intermediate_1 = free_cols[0];
+        let intermediate_2 = free_cols[1];
 
         // first hash lookup (Poseidon(Codehash_first, Codehash_Second) = hash1)
         meta.lookup_any("account hash1 calc", |meta| {
@@ -340,11 +340,11 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
 
             vec![
                 (
-                    enable.clone() * meta.query_advice(data_limbs, Rotation::prev()),
+                    enable.clone() * meta.query_advice(acc_data_fields, Rotation::cur()),
                     meta.query_advice(hash_table.0, Rotation::cur()),
                 ),
                 (
-                    enable.clone() * meta.query_advice(data_limbs, Rotation::cur()),
+                    enable.clone() * meta.query_advice(acc_data_fields_ext, Rotation::cur()),
                     meta.query_advice(hash_table.1, Rotation::cur()),
                 ),
                 (
@@ -425,9 +425,9 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
 
         AccountChipConfig {
             acc_data_fields,
+            acc_data_fields_ext,
             intermediate_1,
             intermediate_2,
-            data_limbs,
         }
     }
 
@@ -445,10 +445,10 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
         
         // fill the main block of chip
         for (col, vals, desc) in [
-            (config.acc_data_fields, [data.nonce, data.balance, data.codehash.0 + self.randomness * data.codehash.1], "data field"),
+            (config.acc_data_fields, [data.nonce, data.balance, data.codehash.0], "data field"),
+            (config.acc_data_fields_ext, [Fp::zero(), Fp::zero(), data.codehash.1], "data field ext"),
             (config.intermediate_2, [data.account_hash(), data.hash_traces(1), data.state_root], "intermedia 2"),
             (config.intermediate_1, [Fp::zero(), data.hash_traces(2), data.hash_traces(0)], "intermedia 1"),
-            (config.data_limbs, [Fp::zero(), data.codehash.0, data.codehash.1], "data limbs"),
         ] {
 
             for (i, val) in vals.iter().enumerate() {
@@ -474,17 +474,15 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
 
 #[derive(Clone, Debug)]
 struct StorageChipConfig {
-    value: Column<Advice>,
     v_limbs: [Column<Advice>;2],
 }
 
-/// a single row chip for mapping the storage kv (both with 2 limbs) to its 2-field rlc and 
+/// a single row chip for mapping the storage kv (both with 2 limbs) and lookup for its
 /// hash value in the prev row, this chip can be used by both key and value
 struct StorageChip<'d, F> {
     offset: usize,
     config: &'d StorageChipConfig,
     value: Option<KeyValue<F>>,
-    randomness: F,
 }
 
 impl<'d, Fp: FieldExt> StorageChip<'d, Fp> {
@@ -493,19 +491,10 @@ impl<'d, Fp: FieldExt> StorageChip<'d, Fp> {
         meta: &mut ConstraintSystem<Fp>,
         sel: Selector,
         s_enable: Column<Advice>,
-        value: Column<Advice>,
+        hash: Column<Advice>,
         v_limbs: [Column<Advice>;2],
         hash_table: &mpt::HashTable,
-        randomness: Expression<Fp>,
     ) -> StorageChipConfig {
-
-        meta.create_gate("value rlc", |meta|{
-            let s_enable = meta.query_selector(sel) * meta.query_advice(s_enable, Rotation::cur());
-            let value = meta.query_advice(value, Rotation::cur());
-            let limb_0 = meta.query_advice(v_limbs[0], Rotation::cur());
-            let limb_1 = meta.query_advice(v_limbs[1], Rotation::cur());
-            vec![s_enable * (limb_0 + randomness * limb_1 - value)]
-        });
 
         meta.lookup_any("value hash", |meta| {
             let enable = meta.query_advice(s_enable, Rotation::cur());
@@ -519,14 +508,13 @@ impl<'d, Fp: FieldExt> StorageChip<'d, Fp> {
                     meta.query_advice(hash_table.1, Rotation::cur()),
                 ),
                 (
-                    enable * meta.query_advice(value, Rotation::prev()),
+                    enable * meta.query_advice(hash, Rotation::prev()),
                     meta.query_advice(hash_table.2, Rotation::cur()),
                 ),
             ]
         });  
         
         StorageChipConfig {
-            value,
             v_limbs,
         }
 
@@ -549,13 +537,6 @@ impl<'d, Fp: FieldExt> StorageChip<'d, Fp> {
             self.offset,
             || Value::known(self.value.as_ref().map_or_else(Fp::zero, |v|v.limb_1())),
         )?; 
-
-        region.assign_advice(
-            || "val rlc",
-            config.value,
-            self.offset,
-            || Value::known(self.value.as_ref().map_or_else(Fp::zero, |v|v.lc(self.randomness))),
-        )?;
 
         Ok(self.offset+1)
     }
@@ -586,20 +567,22 @@ impl StorageGadget {
         exported: &[Column<Advice>],
         free: &[Column<Advice>],
         hash_tbl: mpt::HashTable,
-        randomness: Expression<Fp>,
     ) -> Self {
 
         let s_enable = exported[1];
         let ctrl_type = exported[0];
+        let s_hash = exported[2];
+        let e_hash = exported[3];
+        let k_hash = exported[4];
+        let s_val_limbs = [exported[2], exported[5]];
+        let e_val_limbs = [exported[3], exported[6]];
+        let k_val_limbs = [exported[4], exported[7]];
+        
+        let s_value = StorageChip::<_>::configure(meta, sel, s_enable, s_hash, s_val_limbs, &hash_tbl);
 
-        let s_value = StorageChip::<_>::configure(meta, sel, s_enable, exported[2], 
-            free[..2].try_into().expect("length specified"), &hash_tbl, randomness.clone());
+        let e_value = StorageChip::<_>::configure(meta, sel, s_enable, e_hash, e_val_limbs, &hash_tbl);
 
-        let e_value = StorageChip::<_>::configure(meta, sel, s_enable, exported[3], 
-            free[2..4].try_into().expect("length specified"), &hash_tbl, randomness.clone());
-
-        let key = StorageChip::<_>::configure(meta, sel, s_enable, exported[4], 
-            free[4..6].try_into().expect("length specified"), &hash_tbl, randomness);
+        let key = StorageChip::<_>::configure(meta, sel, s_enable, k_hash, k_val_limbs, &hash_tbl);
         
         Self {
             s_enable,
@@ -618,7 +601,6 @@ impl StorageGadget {
         region: &mut Region<'_, Fp>,
         offset: usize,
         full_op: &'d AccountOp<Fp>,
-        randomness: Fp,
     ) -> Result<usize, Error> {
 
         region.assign_advice(
@@ -642,7 +624,6 @@ impl StorageGadget {
             let chip = StorageChip {
                 offset,
                 config,
-                randomness,
                 value: value.clone(),
             };
 
@@ -740,7 +721,7 @@ mod test {
                     let till =
                         config
                             .gadget
-                            .assign(&mut region, 1, (&self.data.0, &self.data.1), Default::default(), None, *TEST_RANDOMNESS)?;
+                            .assign(&mut region, 1, (&self.data.0, &self.data.1), Default::default(), None)?;
                     for offset in 1..till {
                         config.sel.enable(&mut region, offset)?;
                     }
