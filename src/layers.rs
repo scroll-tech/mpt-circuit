@@ -378,7 +378,7 @@ impl LayerGadget {
                     .assign_advice(|| "flushing free", *col, offset, || Value::known(Fp::zero()))
                     .map(|_| ())
             })?;
-            [self.data_0, self.data_1, self.data_2].iter().try_for_each(|col| {
+            [self.data_0, self.data_1, self.data_2, self.data_0_ext, self.data_1_ext, self.data_2_ext].iter().try_for_each(|col| {
                 region
                     .assign_advice(|| "flushing exported", *col, offset, || Value::known(Fp::zero()))
                     .map(|_| ())

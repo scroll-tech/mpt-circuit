@@ -60,11 +60,14 @@ pub(crate) struct AccountGadget {
     new_state: AccountChipConfig,
     s_enable: Column<Advice>,
     ctrl_type: Column<Advice>,
+
+    state_change_key : Column<Advice>,
+    state_change_aux: [Column<Advice>;2],
 }
 
 impl AccountGadget {
     pub fn min_free_cols() -> usize {
-        4
+        6
     }
 
     /// create gadget from assigned cols, we need:
@@ -88,6 +91,7 @@ impl AccountGadget {
         let data_key = exported[4];
         let data_old_ext = exported[5];
         let data_new_ext = exported[6];
+        let state_change_key = data_key;
 
         let old_state = AccountChip::configure(
             meta,
@@ -109,6 +113,8 @@ impl AccountGadget {
             &free[2..4],
             hash_tbl.clone(),
         );
+
+        let state_change_aux : [Column<Advice>; 2] = free[4..6].try_into().expect("size specified");
 
         //transition
         meta.lookup("account row trans", |meta| {
@@ -158,6 +164,29 @@ impl AccountGadget {
             });            
         }
 
+        // this gate constraint each gadget handle at most one change in account data
+        meta.create_gate("single update for account data", |meta| {
+            let enable = meta.query_selector(sel) * meta.query_advice(s_enable, Rotation::cur());
+            let data_diff = meta.query_advice(data_old, Rotation::cur()) - meta.query_advice(data_new, Rotation::cur());
+            let data_ext_diff = meta.query_advice(data_old_ext, Rotation::cur()) - meta.query_advice(data_new_ext, Rotation::cur());
+
+            let is_diff_boolean = data_diff.clone() * meta.query_advice(state_change_aux[0], Rotation::cur());
+            let is_diff_ext_boolean = data_ext_diff.clone() * meta.query_advice(state_change_aux[0], Rotation::cur());
+
+            let one = Expression::Constant(Fp::one());
+            // switch A || B to ! (!A ^ !B)
+            let has_diff = one.clone() - (one.clone() - is_diff_boolean.clone()) * (one.clone() - is_diff_ext_boolean.clone());
+            let diff_acc = has_diff + meta.query_advice(s_enable, Rotation::prev()) * meta.query_advice(data_key, Rotation::prev());
+            let data_key = meta.query_advice(data_key, Rotation::cur());
+
+            vec![
+                enable.clone() * data_diff * (one.clone()-is_diff_boolean),
+                enable.clone() * data_ext_diff * (one.clone()-is_diff_ext_boolean),
+                enable.clone() * (data_key.clone() - diff_acc),
+                enable * data_key.clone() * (one - data_key),
+            ]
+        });
+
         //additional row
         // TODO: nonce now can increase more than 1, we should constraint it with lookup table (better than a compare circuit)
         // BUT: this constraint should also exist in state circui so do we really need it?
@@ -194,6 +223,8 @@ impl AccountGadget {
             ctrl_type,
             old_state,
             new_state,
+            state_change_key,
+            state_change_aux,
         }
     }
 
@@ -251,6 +282,7 @@ impl AccountGadget {
             )?;            
         }
 
+        let mut has_data_delta = false;
         for (index, offset) in (offset..end_offset).enumerate() {
             region.assign_advice(
                 || "enable account circuit",
@@ -271,6 +303,7 @@ impl AccountGadget {
                     offset,
                     || Value::known(Fp::zero()),
                 )?;
+
                 region.assign_advice(
                     || "padding last row",
                     self.new_state.intermediate_2,
@@ -278,6 +311,33 @@ impl AccountGadget {
                     || Value::known(Fp::zero()),
                 )?;
             }
+            let data_delta = match index {
+                0 => [data.0.nonce - data.1.nonce, Fp::zero()],
+                1 => [data.0.balance - data.1.balance, Fp::zero()],
+                2 => [data.0.codehash.0 -data.1.codehash.0, data.0.codehash.1 -data.1.codehash.1],
+                3 => [data.0.state_root - data.1.state_root, Fp::zero()],
+                _ => unreachable!("no such row number"),
+            };
+
+            if !has_data_delta {
+                has_data_delta = !(bool::from(data_delta[0].is_zero()) && bool::from(data_delta[1].is_zero()));
+            }
+
+            for (col, val) in self.state_change_aux.iter().zip(data_delta){
+                region.assign_advice(
+                    || "data delta",
+                    *col,
+                    offset,
+                    || Value::known(if bool::from(val.is_zero()) {Fp::zero()} else {val.invert().unwrap()}),
+                )?;
+            }
+
+            region.assign_advice(
+                || "is data delta",
+                self.state_change_key,
+                offset,
+                || Value::known(if has_data_delta {Fp::one()} else {Fp::zero()}),
+            )?;            
         }
 
         Ok(end_offset)
@@ -468,6 +528,13 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
             || Value::known(self.data.state_root),
         )?;
 
+        region.assign_advice(
+            || "state root padding",
+            config.acc_data_fields_ext,
+            self.offset + LAST_ROW,
+            || Value::known(Fp::zero()),
+        )?;
+
         Ok(self.offset + LAST_ROW)
     }
 }
@@ -489,7 +556,7 @@ impl<'d, Fp: FieldExt> StorageChip<'d, Fp> {
 
     fn configure(
         meta: &mut ConstraintSystem<Fp>,
-        sel: Selector,
+        _sel: Selector,
         s_enable: Column<Advice>,
         hash: Column<Advice>,
         v_limbs: [Column<Advice>;2],
@@ -565,7 +632,7 @@ impl StorageGadget {
         meta: &mut ConstraintSystem<Fp>,
         sel: Selector,
         exported: &[Column<Advice>],
-        free: &[Column<Advice>],
+        _free: &[Column<Advice>],
         hash_tbl: mpt::HashTable,
     ) -> Self {
 
@@ -718,6 +785,16 @@ mod test {
             layouter.assign_region(
                 || "account",
                 |mut region| {
+
+                    for col in config.free_cols {
+                        region.assign_advice(
+                            || "flush top row",
+                            col,
+                            0,
+                            || Value::known(Fp::zero()),
+                        )?;
+                    }
+
                     let till =
                         config
                             .gadget

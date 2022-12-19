@@ -16,7 +16,7 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
 const TEST_TRACE: &str = include_str!("./traces.json");
-const TEST_TRACE_SMALL: &str = include_str!("./deploy_traces.json");
+const TEST_TRACE_SMALL: &str = include_str!("./token_traces.json");
 const TEST_TRACE_READONLY: &str = include_str!("./read_traces.json");
 
 #[test]
