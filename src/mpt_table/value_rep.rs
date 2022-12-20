@@ -1,7 +1,7 @@
 use halo2_proofs::{
     circuit::{Region, Value},
     plonk::{
-        Advice, Column, ConstraintSystem, Error, Expression, Selector,
+        Advice, Column, ConstraintSystem, Error, Expression, VirtualCells,
     },
     poly::Rotation,
 };
@@ -16,35 +16,12 @@ pub(crate) struct Config<const N: usize, const EXP: usize> {
 
 impl<const N: usize, const EXP: usize> Config<N, EXP> {
 
-    pub fn configure_rlc<F: Field>(
+    pub fn configure<F: Field>(
         meta: &mut ConstraintSystem<F>,
-        sel: Selector,
-        val: Column<Advice>,
-        randomness: Expression<F>,
         rg_check: &RangeCheckConfig<EXP>,
-        effect_limbs: Option<usize>,
     ) -> Self {
 
         let limbs = [0; N].map(|_|meta.advice_column());
-
-        let half = N / 2;
-        assert_eq!(half * 2, N);
-
-        let nib_bytes =  256 / N;
-        assert_eq!(nib_bytes * N, 256);
-
-        meta.create_gate("rep linear combination", |meta| {
-            let sel = meta.query_selector(sel);
-
-            let val_rep = limbs[0..effect_limbs.unwrap_or(N)].iter()
-            .map(|col|meta.query_advice(*col, Rotation::cur()))
-            .reduce(|exp, col_exp| randomness.clone() * exp + col_exp )
-            .expect("should have fields");
-
-            vec![
-                sel * (val_rep - meta.query_advice(val, Rotation::cur())),
-            ]
-        });
 
         for col in limbs {
             rg_check.range_check_col(meta, "limb range check", col);
@@ -53,20 +30,42 @@ impl<const N: usize, const EXP: usize> Config<N, EXP> {
         Self { limbs }
     }
 
-    pub fn configure_mpi<F: PrimeField>(
-        meta: &mut ConstraintSystem<F>,
-        sel: Selector,
-        val: Column<Advice>,
-        rg_check: &RangeCheckConfig<EXP>,
+    pub fn bind_mpi_value<'d, F: PrimeField>(
+        &self,
+        meta: &mut VirtualCells<'d, F>,
+        val: Expression<F>,
         effect_limbs: Option<usize>,
-    ) -> Self {
+    ) -> Expression<F> {
 
         // mpi consider value as the be represent of limbs
         // and can be considered as a special rlc use LIMB_RANGE as randomness
-        Self::configure_rlc(meta, sel, val, 
+        self.bind_rlc_value(meta, val, 
             Expression::Constant(F::from((1 << EXP) as u64)),
-            rg_check, effect_limbs,
+            effect_limbs,
         )
+    }
+
+    pub fn bind_rlc_value<'d, F: Field>(
+        &self,
+        meta: &mut VirtualCells<'d, F>,
+        val: Expression<F>,
+        randomness: Expression<F>,
+        effect_limbs: Option<usize>,
+    ) -> Expression<F> {
+
+        let limbs = &self.limbs;
+        let half = N / 2;
+        assert_eq!(half * 2, N);
+
+        let nib_bytes =  256 / N;
+        assert_eq!(nib_bytes * N, 256);
+
+        let val_rep = limbs[0..effect_limbs.unwrap_or(N)].iter()
+            .map(|col|meta.query_advice(*col, Rotation::cur()))
+            .reduce(|exp, col_exp| randomness.clone() * exp + col_exp )
+            .expect("should have fields");
+
+        val_rep - val
     }
 
     pub fn le_value_to_limbs<F: PrimeField>(val: F) -> [F; N] {
@@ -130,7 +129,7 @@ mod test {
     use halo2_proofs::{
         circuit::{Layouter, Region, SimpleFloorPlanner},
         dev::{MockProver, VerifyFailure},
-        plonk::Circuit,
+        plonk::{Selector, Circuit},
     };
 
     #[derive(Clone, Debug)]
@@ -159,7 +158,12 @@ mod test {
             let sel = meta.selector();
             let val = meta.advice_column();
             let rg_chk = RangeCheckChip::<Fp, 16>::configure(meta);
-            let rep = Config::<16, 16>::configure_mpi(meta, sel, val, &rg_chk, None);
+            let rep = Config::<16, 16>::configure(meta, &rg_chk);
+
+            meta.create_gate("bind rep", |meta| {
+                let val = meta.query_advice(val, Rotation::cur());
+                vec![meta.query_selector(sel) * rep.bind_mpi_value(meta, val, None)]
+            });
 
             TestConfig {sel, val, rg_chk, rep}
         }

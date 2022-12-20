@@ -128,10 +128,13 @@ mod test {
             let sel = meta.selector();
             let val = meta.advice_column();
             let rg_chk = RangeCheckChip::<Fp, 8>::configure(meta);
-            let rep = RepConfig::<32, 8>::configure_rlc(meta, sel, val, 
-                Expression::Constant(Fp::one()),
-                &rg_chk, None);
+            let rep = RepConfig::<32, 8>::configure(meta, &rg_chk);
             let byte32_rep = Config::configure(meta, sel, &rep.limbs);
+
+            meta.create_gate("bind rep", |meta| {
+                let val = meta.query_advice(val, Rotation::cur());
+                vec![meta.query_selector(sel) * rep.bind_rlc_value(meta, val, Expression::Constant(Fp::one()), None)]
+            });
 
             TestConfig {sel, val, byte32_rep, rg_chk, rep}
         }
