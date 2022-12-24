@@ -449,14 +449,33 @@ pub struct KeyValue<Fp> {
 
 impl<Fp: FieldExt> KeyValue<Fp> {
 
+    /// create object and omit the hash
+    pub fn create_base(bytes32: (Fp, Fp)) -> Self {
+        let (fst, snd) = bytes32;
+        Self { 
+            data: (fst, snd, Fp::zero()),
+        }
+    }
+
     /// obtain the value pair
     pub fn val(&self) -> (Fp, Fp) { (self.data.0, self.data.1)}
     /// obtain the hash
     pub fn hash(&self) -> Fp { self.data.2 }
-    /// obtian the linear combination of two field
+    /// obtain the linear combination of two field
     pub fn lc(&self, randomness: Fp) -> Fp {
         self.data.0 + self.data.1 * randomness
     }
+    /// obtain the linear combination of the value, in byte represent, which
+    /// is common used in zkevm circuit
+    /// the u256 is represented by le bytes and combined with randomness 1, o, o^2 ... o^31 on each
+    /// and we calculate it from be represent
+    pub fn u8_rlc(&self, randomness: Fp) -> Fp {
+        let u128_hi = self.data.0.get_lower_128();
+        let u128_lo = self.data.1.get_lower_128();
+        u128_hi.to_be_bytes().into_iter().chain(u128_lo.to_be_bytes())
+        .map(|bt|Fp::from(bt as u64))
+        .reduce(|acc, f| acc * randomness + f).expect("not empty")
+    }    
     /// obtain the first limb
     pub fn limb_0(&self) -> Fp {self.data.0}
     /// obtain the snd limb
@@ -492,7 +511,7 @@ pub struct AccountOp<Fp: FieldExt> {
     /// the state before updating in account
     pub account_before: Option<Account<Fp>>,
     /// the state after updating in account
-    pub account_after: Account<Fp>,
+    pub account_after: Option<Account<Fp>>,
     /// the stored value before being updated
     pub store_before: Option<KeyValue<Fp>>,
     /// the stored value after being updated
@@ -576,7 +595,11 @@ impl<Fp: Hashable> AccountOp<Fp> {
                     .iter()
                     .flat_map(|i| i.hash_traces.iter()),
             )
-            .chain(self.account_after.hash_traces.iter())
+            .chain(
+                self.account_after
+                    .iter()
+                    .flat_map(|i| i.hash_traces.iter()),
+            )
             .chain(Some(self.address_rep.hash_traces()))
             .chain(self.store_key.as_ref().map(|v|v.hash_traces()))
             .chain(self.store_before.as_ref().map(|v|v.hash_traces()))
@@ -867,9 +890,9 @@ impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTTrace> for AccountOp<Fp> {
 
             // sanity check
             assert_eq!(account.account_hash(), leaf);
-            account
+            Some(account)
         } else {
-            Default::default()
+            None
         };
 
         let address = {

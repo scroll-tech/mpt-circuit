@@ -515,7 +515,7 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
                         start,
                         (
                             op.account_before.as_ref().unwrap_or(&empty_account),
-                            &op.account_after,
+                            op.account_after.as_ref().unwrap_or(&empty_account),
                         ),
                         op.address_rep.clone(),
                         Some(op.state_trie.is_none()),
@@ -707,7 +707,7 @@ mod test {
         let op1 = AccountOp::<Fp> {
             acc_trie,
             state_trie: Some(state_trie),
-            account_after,
+            account_after: Some(account_after),
             account_before: Some(account_before),
             address,
             address_rep,
