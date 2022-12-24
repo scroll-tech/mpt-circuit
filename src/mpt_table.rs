@@ -1,7 +1,6 @@
 
 
-use super::{CtrlTransitionKind, HashType};
-use crate::operation::KeyValue;
+use crate::operation::{KeyValue, AccountOp};
 use halo2_proofs::{
     arithmetic::{Field, FieldExt},
     circuit::{Layouter, Value},
@@ -50,6 +49,22 @@ pub(crate) struct Config {
     old_value_2: PairRepConfig,
 }
 
+
+/*
+  The defination is greped from state-circuit
+ */
+
+ #[derive(Clone, Copy)]
+pub(crate) enum MPTProofType {
+    NonceChanged = 1,
+    BalanceChanged,
+    CodeHashExists,
+    AccountDoesNotExist,
+    AccountDestructed,
+    StorageChanged,
+    StorageDoesNotExist
+}
+
 #[derive(Clone, Debug, Default)]
 pub(crate) struct MPTEntry<F: Field> {
     base: [F; 7],
@@ -59,25 +74,100 @@ pub(crate) struct MPTEntry<F: Field> {
 }
 
 impl<F: FieldExt> MPTEntry<F> {
-    pub fn construct(
 
-    ) {
+    // detect proof type from op data itself, just mocking,
+    // not always correct
+    pub fn mock_from_op(
+        op: &AccountOp<F>,
+        randomness: F,
+    ) -> Self {
 
+        if op.state_trie.is_some() {
+            return if op.store_after.is_none() && op.store_before.is_none() {
+                Self::from_op(MPTProofType::StorageDoesNotExist, op, randomness)
+            } else {
+                Self::from_op(MPTProofType::StorageChanged, op, randomness)
+            };
+        }
+
+        match (&op.account_before, &op.account_after) {
+            (Some(before), Some(after)) => {
+                if before.balance != after.balance {
+                    Self::from_op(MPTProofType::BalanceChanged, op, randomness)
+                } else if before.nonce != after.nonce {
+                    Self::from_op(MPTProofType::NonceChanged, op, randomness)
+                } else {
+                    Self::from_op(MPTProofType::CodeHashExists, op, randomness)
+                }                
+            },
+            (None, Some(_)) => Self::from_op(MPTProofType::CodeHashExists, op, randomness),
+            (Some(_), None) => Self::from_op(MPTProofType::AccountDestructed, op, randomness),
+            (None, None) => Self::from_op(MPTProofType::AccountDoesNotExist, op, randomness),
+        }
+
+    }
+
+    pub fn from_op(
+        proof_type: MPTProofType,
+        op: &AccountOp<F>,
+        randomness: F,
+    ) -> Self {
+        let storage_key = op.store_key.clone().unwrap_or_default();
+        let (old_value, new_value) = match proof_type {
+            MPTProofType::CodeHashExists => (
+                    op.account_before.as_ref()
+                        .map(|acc|acc.codehash)
+                        .map(KeyValue::create_base)
+                        .unwrap_or_default(),
+                    op.account_after.as_ref()
+                        .map(|acc|acc.codehash)
+                        .map(KeyValue::create_base)
+                        .unwrap_or_default(),
+                ),
+                MPTProofType::StorageChanged =>
+                (
+                    op.store_before.clone().unwrap_or_default(),
+                    op.store_after.clone().unwrap_or_default(),
+                ),
+            _ => (Default::default(), Default::default()),
+        };
+
+        let (old_value_f, new_value_f) = match proof_type {
+            MPTProofType::NonceChanged => (
+                    op.account_before.as_ref().map(|acc|acc.nonce).unwrap_or_default(),
+                    op.account_after.as_ref().map(|acc|acc.nonce).unwrap_or_default(),
+                ),
+            MPTProofType::BalanceChanged => (
+                    op.account_before.as_ref().map(|acc|acc.balance).unwrap_or_default(),
+                    op.account_after.as_ref().map(|acc|acc.balance).unwrap_or_default(),
+                ),
+            MPTProofType::StorageChanged | MPTProofType::CodeHashExists =>
+                (
+                    old_value.u8_rlc(randomness),
+                    new_value.u8_rlc(randomness),    
+                ),
+            _ => (F::zero(), F::zero()),
+        };
+
+        let base = [
+            F::from(proof_type as u64),
+            op.address,
+            storage_key.u8_rlc(randomness),
+            old_value_f,
+            new_value_f,
+            op.account_root_before(),
+            op.account_root(),
+        ];
+
+        Self {
+            base,
+            storage_key,
+            new_value,
+            old_value,
+        }
     }
 }
 
-/*
-  The defination is greped from state-circuit
- */
- pub(crate) enum MPTProofType {
-    NonceChanged = 1,
-    BalanceChanged,
-    CodeHashExists,
-    AccountDoesNotExist,
-    AccountDestructed,
-    StorageChanged,
-    StorageDoesNotExist
-}
 
 #[derive(Clone, Debug)]
 pub(crate) struct MPTTable<F: Field> {
