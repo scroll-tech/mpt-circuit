@@ -171,15 +171,18 @@ impl<F: FieldExt> MPTEntry<F> {
 
 #[derive(Clone, Debug)]
 pub(crate) struct MPTTable<F: Field> {
+    pub entries: Vec<MPTEntry<F>>,
+
     config: Config,
-    entries: Vec<MPTEntry<F>>,
+    rows: usize,
 }
 
 impl<F: FieldExt> MPTTable<F> {
 
-    pub fn construct(config: Config) -> Self {
+    pub fn construct(config: Config, rows: usize) -> Self {
         Self {
             config,
+            rows,
             entries: Default::default(),
         }
     }
@@ -191,11 +194,11 @@ impl<F: FieldExt> MPTTable<F> {
         let sel = meta.selector();
         let address = meta.advice_column();
         let storage_key = meta.advice_column();
-        let new_value = meta.advice_column();
-        let old_value = meta.advice_column();
         let proof_type = meta.advice_column();
         let new_root = meta.advice_column();
         let old_root = meta.advice_column();
+        let new_value = meta.advice_column();
+        let old_value = meta.advice_column();
 
         let proof_sel = [0;7].map(|_|meta.advice_column());
         let change_aux = meta.advice_column();
@@ -208,10 +211,13 @@ impl<F: FieldExt> MPTTable<F> {
 
         meta.create_gate("bind reps", |meta| {
             let sel = meta.query_selector(sel);
-            let enable_codehash = meta.query_advice(proof_sel[2], Rotation::cur());
-            let key_val = meta.query_advice(storage_key, Rotation::cur());
-            let new_val = enable_codehash.clone() * meta.query_advice(new_value, Rotation::cur());
-            let old_val = enable_codehash * meta.query_advice(old_value, Rotation::cur());
+            let enable_key_rep = meta.query_advice(proof_sel[5], Rotation::cur())
+                + meta.query_advice(proof_sel[6], Rotation::cur());
+            let enable_val_rep = meta.query_advice(proof_sel[2], Rotation::cur())
+                + enable_key_rep.clone();
+            let key_val = enable_key_rep * meta.query_advice(storage_key, Rotation::cur());
+            let new_val = enable_val_rep.clone() * meta.query_advice(new_value, Rotation::cur());
+            let old_val = enable_val_rep * meta.query_advice(old_value, Rotation::cur());
 
             vec![
                 sel.clone() * key_rep.bind_rlc_value(meta, key_val, randomness.clone(), None),
@@ -261,22 +267,6 @@ impl<F: FieldExt> MPTTable<F> {
             storage_key_2, new_value_2, old_value_2,
         }
 
-    }
-
-    // helpers for build lookups to from 7 values in mpt table entry: the root pair and address index
-    // are fixed and the other 3 lookup pair (value and key) need to be specified
-    fn build_mpt_table_entry_lookup<'d, const T: usize>(
-        meta: &mut VirtualCells<'d, F>,
-        control_pair: (u64, u64),
-        gadget_id: Column<Advice>,
-        ctrl_id: Column<Advice>,        
-    ) -> Vec<(Expression<F>, Expression<F>)> {
-
-        vec![
-            (Expression::Constant(F::from(control_pair.0)),meta.query_advice(gadget_id, Rotation::cur())),
-            (Expression::Constant(F::from(control_pair.1)),meta.query_advice(ctrl_id, Rotation::cur())),
-            
-        ]
     }
 
     pub fn bind_mpt_circuit(
@@ -432,6 +422,8 @@ impl<F: FieldExt> MPTTable<F> {
 
     pub fn load(&self, layouter: &mut impl Layouter<F>) -> Result<(), Error> {
 
+        assert!(self.entries.len() <= self.rows);
+
         let config = &self.config;
         RangeCheckChip::construct(config.range_check_u8.clone()).load(layouter)?;
 
@@ -488,6 +480,32 @@ impl<F: FieldExt> MPTTable<F> {
 
             }
 
+            for row in self.entries.len()..self.rows {
+                for col in [
+                    config.proof_type,
+                    config.address,
+                    config.storage_key,
+                    config.old_value,
+                    config.new_value,                    
+                    config.old_root,
+                    config.new_root,
+                ]{
+                    region.assign_advice(
+                        || "flush rows",
+                        col,
+                        row,
+                        || Value::known(F::zero()),
+                    )?;
+                }
+
+                config.storage_key_2.flush(&mut region, row)?;
+                config.new_value_2.flush(&mut region, row)?;
+                config.old_value_2.flush(&mut region, row)?;
+                config.key_rep.flush(&mut region, row)?;
+                config.new_val_rep.flush(&mut region, row)?;
+                config.old_val_rep.flush(&mut region, row)?;
+            }
+
             Ok(())
         })?;
 
@@ -495,3 +513,114 @@ impl<F: FieldExt> MPTTable<F> {
     }
 
 }
+
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::test_utils::*;
+    use halo2_proofs::{
+        halo2curves::group::ff::PrimeField,
+        circuit::SimpleFloorPlanner,
+        dev::MockProver,
+        plonk::Circuit,
+    };
+
+    // express for a single path block
+    #[derive(Clone)]
+    struct TestMPTTableCircuit {
+        entries: Vec<MPTEntry<Fp>>
+    }
+
+    impl Circuit<Fp> for TestMPTTableCircuit {
+        type Config = Config;
+        type FloorPlanner = SimpleFloorPlanner;
+
+        fn without_witnesses(&self) -> Self {
+            self.clone()
+        }
+
+        fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
+            let dummy_randomness = Expression::Constant(Fp::from(0x100u64));
+            MPTTable::<Fp>::configure(
+                meta,
+                dummy_randomness,
+            )
+        }
+
+        fn synthesize(
+            &self,
+            config: Self::Config,
+            mut layouter: impl Layouter<Fp>,
+        ) -> Result<(), Error> {
+
+            let mut mpt_table = MPTTable::construct(config, self.entries.len());
+            mpt_table.entries.append(&mut self.entries.clone());
+            mpt_table.load(&mut layouter)?;
+
+            Ok(())
+        }
+    }    
+
+    #[test]
+    fn solo_mpt_table() {
+
+        let randomness = Fp::from(0x100u64);
+        let address = Fp::from_str_vartime(
+            "1024405194924367004341088897210496901613465825763"
+        ).unwrap(); //0xb36feaeaf76c2a33335b73bef9aef7a23d9af1e3
+        let storage_key = KeyValue::create_base((
+            Fp::from_u128(0x1234567890ABCDEFu128),
+            Fp::from_u128(0xFEDCBA0987654321u128),
+        ));
+
+        let entry1 = MPTEntry{
+            base: [
+                address,
+                Fp::zero(),
+                Fp::from(MPTProofType::BalanceChanged as u64),
+                rand_fp(),
+                rand_fp(),
+                Fp::from(123456789u64),
+                Fp::from(123456790u64),
+            ],
+            ..Default::default()
+        };
+
+        let entry2 = MPTEntry{
+            base: [
+                address,
+                storage_key.u8_rlc(randomness),
+                Fp::from(MPTProofType::StorageChanged as u64),
+                entry1.base[6],
+                rand_fp(),
+                Fp::from(10u64),
+                Fp::from(1u64),
+            ],
+            storage_key: storage_key.clone(),
+            new_value: KeyValue::create_base((Fp::zero(), Fp::from(10u64))),
+            old_value: KeyValue::create_base((Fp::zero(), Fp::from(1u64))),
+        };
+
+        let entry3 = MPTEntry{
+            base: [
+                address + Fp::one(),
+                Fp::zero(),
+                Fp::from(MPTProofType::AccountDoesNotExist as u64),
+                entry2.base[6],
+                entry2.base[6],
+                Fp::zero(),
+                Fp::zero(),
+            ],
+            ..Default::default()
+        };        
+
+        let circuit = TestMPTTableCircuit{entries: vec![entry1, entry2, entry3]};
+        let k = 9;
+        let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
+        let ret = prover.verify();
+        assert_eq!(ret, Ok(()), "{:#?}", ret);
+    }
+
+}
+
