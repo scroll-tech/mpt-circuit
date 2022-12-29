@@ -3,6 +3,7 @@
 
 #![allow(dead_code)]
 #![allow(unused_macros)]
+#![allow(clippy::too_many_arguments)]
 #![deny(missing_docs)]
 #![deny(unsafe_code)]
 
@@ -138,8 +139,11 @@ impl<Fp: FieldExt> Circuit<Fp> for SimpleTrie<Fp> {
 
     fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
         let layer = LayerGadget::configure(meta, 2, MPTOpGadget::min_free_cols());
-        let padding =
-            PaddingGadget::configure(meta, layer.public_sel(), layer.exported_cols(OP_PADDING).as_slice());
+        let padding = PaddingGadget::configure(
+            meta,
+            layer.public_sel(),
+            layer.exported_cols(OP_PADDING).as_slice(),
+        );
         let mpt = MPTOpGadget::configure_simple(
             meta,
             layer.public_sel(),
@@ -185,13 +189,14 @@ impl<Fp: FieldExt> Circuit<Fp> for SimpleTrie<Fp> {
                         "assigned rows exceed limited {}",
                         self.c_size
                     );
-                    config.layer.complete_block(&mut region, 
-                        block_start, 
-                        series, 
-                        Some((op.start_root(), op.new_root())), 
-                        None, 
+                    config.layer.complete_block(
+                        &mut region,
+                        block_start,
+                        series,
+                        Some((op.start_root(), op.new_root())),
+                        None,
                         op.use_rows(),
-                    )?;                
+                    )?;
                     series += 1;
                     last_op_code = OP_MPT;
                 }
@@ -204,16 +209,15 @@ impl<Fp: FieldExt> Circuit<Fp> for SimpleTrie<Fp> {
                         (last_op_code, OP_PADDING),
                         row_left,
                     )?;
-                    config
-                        .padding
-                        .padding(&mut region, start, row_left)?;
-                    config.layer.complete_block(&mut region, 
-                        start, 
-                        series, 
-                        None, 
-                        None, 
+                    config.padding.padding(&mut region, start, row_left)?;
+                    config.layer.complete_block(
+                        &mut region,
+                        start,
+                        series,
+                        None,
+                        None,
                         row_left,
-                    )?;                        
+                    )?;
                 }
 
                 Ok(())
@@ -335,7 +339,6 @@ impl<Fp: Hashable> Circuit<Fp> for HashCircuit<Fp> {
 }
 
 impl<Fp: Hashable> EthTrie<Fp> {
-
     /// Obtain the total required rows for mpt and hash circuits (include the top and bottom padding)
     pub fn use_rows(&self) -> (usize, usize) {
         // calc rows for mpt circuit, we need to compare the rows used by adviced region and table region
@@ -396,7 +399,7 @@ impl CommitmentIndexs {
     }
 }
 
-const TEMP_RANDOMNESS : u64 = 1;
+const TEMP_RANDOMNESS: u64 = 1;
 
 impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
     type Config = EthTrieConfig;
@@ -414,15 +417,18 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
             meta,
             5,
             std::cmp::max(
-                MPTOpGadget::min_free_cols(), 
+                MPTOpGadget::min_free_cols(),
                 std::cmp::max(
                     AccountGadget::min_free_cols(),
                     StorageGadget::min_free_cols(),
-                )                
+                ),
             ),
         );
-        let padding =
-            PaddingGadget::configure(meta, layer.public_sel(), layer.exported_cols(OP_PADDING).as_slice());
+        let padding = PaddingGadget::configure(
+            meta,
+            layer.public_sel(),
+            layer.exported_cols(OP_PADDING).as_slice(),
+        );
         let account_trie = MPTOpGadget::configure(
             meta,
             layer.public_sel(),
@@ -455,7 +461,7 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
             layer.public_sel(),
             layer.exported_cols(OP_STORAGE).as_slice(),
             layer.get_free_cols(),
-            hash_tbl.clone(), 
+            hash_tbl.clone(),
         );
 
         let cst = meta.fixed_column();
@@ -528,12 +534,9 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
                             op.use_rows_trie_state(),
                         )?;
                         start = config.state_trie.assign(&mut region, start, trie)?;
-                        config.layer.pace_op(
-                            &mut region,
-                            start,
-                            (OP_TRIE_STATE, OP_STORAGE),
-                            1,
-                        )?;
+                        config
+                            .layer
+                            .pace_op(&mut region, start, (OP_TRIE_STATE, OP_STORAGE), 1)?;
                         start = config.storage.assign(&mut region, start, op)?;
 
                         last_op_code = OP_STORAGE;
@@ -544,11 +547,11 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
                     assert!(start <= rows, "assigned rows for exceed limited {}", rows);
 
                     config.layer.complete_block(
-                        &mut region, 
-                        block_start, 
-                        series, 
-                        Some((op.account_root_before(), op.account_root())), 
-                        Some(op.address), 
+                        &mut region,
+                        block_start,
+                        series,
+                        Some((op.account_root_before(), op.account_root())),
+                        Some(op.address),
                         start - block_start,
                     )?;
 
@@ -563,17 +566,15 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
                         (last_op_code, OP_PADDING),
                         row_left,
                     )?;
-                    config
-                        .padding
-                        .padding(&mut region, start, row_left)?;
+                    config.padding.padding(&mut region, start, row_left)?;
                     config.layer.complete_block(
-                        &mut region, 
-                        start, 
-                        series, 
-                        None, 
-                        None, 
+                        &mut region,
+                        start,
+                        series,
+                        None,
+                        None,
                         row_left,
-                    )?;                        
+                    )?;
                 }
 
                 Ok(())
@@ -598,8 +599,8 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
         )?;
 
         let possible_end_block = [
-//            (OP_TRIE_STATE, HashType::Empty as u32),
-//            (OP_TRIE_STATE, HashType::Leaf as u32),
+            //            (OP_TRIE_STATE, HashType::Empty as u32),
+            //            (OP_TRIE_STATE, HashType::Leaf as u32),
             (OP_ACCOUNT, 3),
             (OP_STORAGE, 0),
         ];
@@ -615,7 +616,7 @@ impl<Fp: Hashable> Circuit<Fp> for EthTrieCircuit<Fp> {
             ((OP_ACCOUNT, 0), (OP_TRIE_ACCOUNT, HashType::Leaf as u32)),
             ((OP_TRIE_STATE, HashType::Start as u32), (OP_ACCOUNT, 2)),
             ((OP_STORAGE, 0), (OP_TRIE_STATE, HashType::Empty as u32)),
-            ((OP_STORAGE, 0), (OP_TRIE_STATE, HashType::Leaf as u32)),            
+            ((OP_STORAGE, 0), (OP_TRIE_STATE, HashType::Leaf as u32)),
         ];
 
         config.layer.set_op_border_ex(
@@ -636,7 +637,6 @@ mod test {
     use crate::test_utils::*;
     use halo2_proofs::dev::MockProver;
     use operation::*;
-
 
     #[test]
     fn circuit_degrees() {
@@ -665,16 +665,16 @@ mod test {
 
     #[test]
     fn rand_eth_trie() {
-
         let store_key = KeyValue::create_rand(mock_hash);
         let store_before = KeyValue::create_rand(mock_hash);
         let store_after = KeyValue::create_rand(mock_hash);
 
         let state_trie = SingleOp::<Fp>::create_rand_op(
-            3, 
-            Some((store_before.hash(), store_after.hash())), 
-            Some(store_key.hash()), 
-            mock_hash);
+            3,
+            Some((store_before.hash(), store_after.hash())),
+            Some(store_key.hash()),
+            mock_hash,
+        );
 
         let account_before = Account::<Fp> {
             balance: Fp::from(1000000u64),
@@ -695,7 +695,10 @@ mod test {
 
         let address_rep = KeyValue::create_rand(mock_hash);
         let address = address_rep.limb_0() * Fp::from(0x100000000u64)
-            + address_rep.limb_1() * Fp::from_u128(0x1000000000000000000000000u128).invert().unwrap();
+            + address_rep.limb_1()
+                * Fp::from_u128(0x1000000000000000000000000u128)
+                    .invert()
+                    .unwrap();
 
         let acc_trie = SingleOp::<Fp>::create_rand_op(
             4,

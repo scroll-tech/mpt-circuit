@@ -16,7 +16,7 @@ pub enum MPTPathStatus<Fp: FieldExt> {
     Empty,
     /// Path has leaf node and the (key, keyImmediate) is tracked
     Leaf((Fp, Fp)),
-    /// Path is under extended status, 
+    /// Path is under extended status,
     /// the "pushed down" sibling's proof (key, keyImmediate, value) is tracked
     Extended(((Fp, Fp), (Fp, Fp, Fp))),
 }
@@ -87,7 +87,7 @@ impl<Fp: FieldExt> MPTPath<Fp> {
         matches!(self.status, MPTPathStatus::Extended(_))
     }
 
-    /// the proof (key, key_immediate, value) in extended, for the last sibling is a leaf 
+    /// the proof (key, key_immediate, value) in extended, for the last sibling is a leaf
     pub fn extended_proof(&self) -> Option<(Fp, Fp, Fp)> {
         match self.status {
             MPTPathStatus::Extended((_, proof)) => Some(proof),
@@ -101,10 +101,10 @@ impl<Fp: FieldExt> MPTPath<Fp> {
     }
 
     pub(crate) fn extend_with_hasher(
-        self, 
+        self,
         l: usize,
         new_key: Fp,
-        mut hasher: impl FnMut(&Fp, &Fp) -> Fp,        
+        mut hasher: impl FnMut(&Fp, &Fp) -> Fp,
     ) -> Self {
         if l == 0 {
             return self;
@@ -115,8 +115,10 @@ impl<Fp: FieldExt> MPTPath<Fp> {
         // can only extend a path with leaf
         let new_key_immediate = hasher(&Fp::one(), &self.key().expect("can only extend leaf"));
         let status = match self.status {
-            MPTPathStatus::Leaf((fp, fp_immediate)) => 
-                MPTPathStatus::Extended(((new_key, new_key_immediate), (fp, fp_immediate, self.hashes[ins_pos]))),
+            MPTPathStatus::Leaf((fp, fp_immediate)) => MPTPathStatus::Extended((
+                (new_key, new_key_immediate),
+                (fp, fp_immediate, self.hashes[ins_pos]),
+            )),
             _ => panic!("can only extend leaf path"),
         };
 
@@ -131,7 +133,7 @@ impl<Fp: FieldExt> MPTPath<Fp> {
         let mut addi_hashes = vec![hashes[ins_pos - 1]; l - 1]; //pick the hash of leaf
 
         // move the old value at last row to upper (row LeafExtFinal)
-        addi_hashes.push(hashes[ins_pos]);        
+        addi_hashes.push(hashes[ins_pos]);
         hashes[ins_pos] = Fp::zero();
         drop(hashes.splice(ins_pos..ins_pos, addi_hashes));
 
@@ -202,27 +204,17 @@ impl<Fp: Hashable> MPTPath<Fp> {
     /// create a common path data layout (only contains middle and leaf type)
     /// with the help of siblings and path bits (false indicate zero)
     /// to calculate path ad-hoc by hasher function
-    pub fn create(
-        path: &[bool],
-        siblings: &[Fp],
-        key: Fp,
-        leaf: Option<Fp>,
-    ) -> Self {
-
-        Self::create_with_hasher(path, siblings, key, leaf, 
-            |a, b| {<Fp as Hashable>::hash([*a, *b])})
+    pub fn create(path: &[bool], siblings: &[Fp], key: Fp, leaf: Option<Fp>) -> Self {
+        Self::create_with_hasher(path, siblings, key, leaf, |a, b| {
+            <Fp as Hashable>::hash([*a, *b])
+        })
     }
-    
+
     /// extend a common path (contain only midle and leaf/empty) to under extended status,
     /// it require caller to calc how many level should be extended and what the new key is
-    pub fn extend(
-        self, 
-        l: usize,
-        new_key: Fp, 
-    ) -> Self {
-
-        self.extend_with_hasher(l, new_key, |a, b| {<Fp as Hashable>::hash([*a, *b])})
-    }    
+    pub fn extend(self, l: usize, new_key: Fp) -> Self {
+        self.extend_with_hasher(l, new_key, |a, b| <Fp as Hashable>::hash([*a, *b]))
+    }
 }
 
 /// Represent for a single operation
@@ -292,7 +284,13 @@ impl<Fp: FieldExt> SingleOp<Fp> {
         };
         let (old_leaf, new_leaf) = leafs;
 
-        let old = MPTPath::<Fp>::create_with_hasher(&path, &siblings, key, Some(old_leaf), hasher.clone());
+        let old = MPTPath::<Fp>::create_with_hasher(
+            &path,
+            &siblings,
+            key,
+            Some(old_leaf),
+            hasher.clone(),
+        );
         let new = MPTPath::<Fp>::create_with_hasher(&path, &siblings, key, Some(new_leaf), hasher);
         let key_immediate = old
             .key_immediate()
@@ -314,10 +312,19 @@ impl<Fp: FieldExt> SingleOp<Fp> {
     }
 
     /// create another updating op base on a previous action
-    pub(crate) fn update_next_with_hasher(self, new_leaf: Fp, hasher: impl FnMut(&Fp, &Fp) -> Fp + Clone) -> Self {
+    pub(crate) fn update_next_with_hasher(
+        self,
+        new_leaf: Fp,
+        hasher: impl FnMut(&Fp, &Fp) -> Fp + Clone,
+    ) -> Self {
         let path_bool: Vec<bool> = self.path.iter().map(|v| *v != Fp::zero()).collect();
-        let new =
-            MPTPath::<Fp>::create_with_hasher(&path_bool, &self.siblings, self.key, Some(new_leaf), hasher);
+        let new = MPTPath::<Fp>::create_with_hasher(
+            &path_bool,
+            &self.siblings,
+            self.key,
+            Some(new_leaf),
+            hasher,
+        );
         Self {
             old: self.new,
             new,
@@ -335,28 +342,26 @@ impl<Fp: FieldExt> SingleOp<Fp> {
 
     /// when op has extention, return the proof for last silbling
     /// (notice if both old/new has proof, they should be identical)
-    pub fn extended_proof(&self) -> Option<(Fp, Fp, Fp)>{
-        self.old.extended_proof().or_else(||self.new.extended_proof())
+    pub fn extended_proof(&self) -> Option<(Fp, Fp, Fp)> {
+        self.old
+            .extended_proof()
+            .or_else(|| self.new.extended_proof())
     }
-
 }
 
-impl<Fp: Hashable> SingleOp<Fp>{
+impl<Fp: Hashable> SingleOp<Fp> {
     /// data represent an update operation (only contains middle and leaf type)
     /// with the help of siblings and calculating path ad-hoc by hasher function
-    pub fn create_update_op(
-        layers: usize,
-        siblings: &[Fp],
-        key: Fp,
-        leafs: (Fp, Fp),
-    ) -> Self {
-        Self::create_update_op_with_hasher(layers, siblings, key, leafs, |a, b| {<Fp as Hashable>::hash([*a, *b])})
+    pub fn create_update_op(layers: usize, siblings: &[Fp], key: Fp, leafs: (Fp, Fp)) -> Self {
+        Self::create_update_op_with_hasher(layers, siblings, key, leafs, |a, b| {
+            <Fp as Hashable>::hash([*a, *b])
+        })
     }
 
     /// create another updating op base on a previous action
     pub fn update_next(self, new_leaf: Fp) -> Self {
-        self.update_next_with_hasher(new_leaf, |a, b| {<Fp as Hashable>::hash([*a, *b])})
-    }    
+        self.update_next_with_hasher(new_leaf, |a, b| <Fp as Hashable>::hash([*a, *b]))
+    }
 }
 
 fn bytes_to_fp<Fp: FieldExt>(mut bt: Vec<u8>) -> std::io::Result<Fp> {
@@ -431,36 +436,43 @@ impl<Fp: FieldExt> Account<Fp> {
     }
 }
 
-
 impl<Fp: Hashable> Account<Fp> {
-
     /// create object and complete the fields by calculating all traces
     pub fn create(balance: Fp, nonce: Fp, codehash: (Fp, Fp), state_root: Fp) -> Self {
-        let init = Self {balance, nonce, codehash, state_root, ..Default::default()};
-        init.trace(|a, b| {<Fp as Hashable>::hash([*a, *b])})
-    }    
+        let init = Self {
+            balance,
+            nonce,
+            codehash,
+            state_root,
+            ..Default::default()
+        };
+        init.trace(|a, b| <Fp as Hashable>::hash([*a, *b]))
+    }
 }
 
 /// 2 fields for representing 32 byte, used for storage key or value, the hash is also saved
 #[derive(Clone, Debug, Default)]
 pub struct KeyValue<Fp> {
-    data :(Fp, Fp, Fp), // (the first 16 bytes, the second 16 bytes, hash value)
+    data: (Fp, Fp, Fp), // (the first 16 bytes, the second 16 bytes, hash value)
 }
 
 impl<Fp: FieldExt> KeyValue<Fp> {
-
     /// create object and omit the hash
     pub fn create_base(bytes32: (Fp, Fp)) -> Self {
         let (fst, snd) = bytes32;
-        Self { 
+        Self {
             data: (fst, snd, Fp::zero()),
         }
     }
 
     /// obtain the value pair
-    pub fn val(&self) -> (Fp, Fp) { (self.data.0, self.data.1)}
+    pub fn val(&self) -> (Fp, Fp) {
+        (self.data.0, self.data.1)
+    }
     /// obtain the hash
-    pub fn hash(&self) -> Fp { self.data.2 }
+    pub fn hash(&self) -> Fp {
+        self.data.2
+    }
     /// obtain the linear combination of two field
     pub fn lc(&self, randomness: Fp) -> Fp {
         self.data.0 + self.data.1 * randomness
@@ -472,33 +484,39 @@ impl<Fp: FieldExt> KeyValue<Fp> {
     pub fn u8_rlc(&self, randomness: Fp) -> Fp {
         let u128_hi = self.data.0.get_lower_128();
         let u128_lo = self.data.1.get_lower_128();
-        u128_hi.to_be_bytes().into_iter().chain(u128_lo.to_be_bytes())
-        .map(|bt|Fp::from(bt as u64))
-        .reduce(|acc, f| acc * randomness + f).expect("not empty")
-    }    
+        u128_hi
+            .to_be_bytes()
+            .into_iter()
+            .chain(u128_lo.to_be_bytes())
+            .map(|bt| Fp::from(bt as u64))
+            .reduce(|acc, f| acc * randomness + f)
+            .expect("not empty")
+    }
     /// obtain the first limb
-    pub fn limb_0(&self) -> Fp {self.data.0}
+    pub fn limb_0(&self) -> Fp {
+        self.data.0
+    }
     /// obtain the snd limb
-    pub fn limb_1(&self) -> Fp {self.data.1}
-
+    pub fn limb_1(&self) -> Fp {
+        self.data.1
+    }
 }
 
 impl<Fp: Hashable> KeyValue<Fp> {
-
     /// create object and also calc the hash
     pub fn create(bytes32: (Fp, Fp)) -> Self {
         let (fst, snd) = bytes32;
         let hash = <Fp as Hashable>::hash([fst, snd]);
 
-        Self { 
+        Self {
             data: (fst, snd, hash),
         }
-    }    
+    }
 
     /// return the triple group of hash
-    pub fn hash_traces(&self) -> &(Fp, Fp, Fp){
+    pub fn hash_traces(&self) -> &(Fp, Fp, Fp) {
         &self.data
-    }    
+    }
 }
 
 /// Represent an operation in eth MPT, which update 2 layer of tries (state and account)
@@ -527,7 +545,10 @@ pub struct AccountOp<Fp: FieldExt> {
 impl<Fp: FieldExt> AccountOp<Fp> {
     /// indicate rows would take for whole operation
     pub fn use_rows(&self) -> usize {
-        self.use_rows_account() + self.use_rows_trie_state() + self.use_rows_trie_account() + self.use_rows_trie_kv()
+        self.use_rows_account()
+            + self.use_rows_trie_state()
+            + self.use_rows_trie_account()
+            + self.use_rows_trie_kv()
     }
 
     /// indicate rows would take in the account trie part
@@ -560,7 +581,7 @@ impl<Fp: FieldExt> AccountOp<Fp> {
         } else {
             0
         }
-    } 
+    }
 
     /// the root of account trie, which is global state
     pub fn account_root(&self) -> Fp {
@@ -571,7 +592,6 @@ impl<Fp: FieldExt> AccountOp<Fp> {
     pub fn account_root_before(&self) -> Fp {
         self.acc_trie.start_root()
     }
-
 }
 
 impl<Fp: Hashable> AccountOp<Fp> {
@@ -586,7 +606,6 @@ impl<Fp: Hashable> AccountOp<Fp> {
 
     /// iter all the hash traces inside an operation (may contain duplications)
     pub fn hash_traces(&self) -> impl Iterator<Item = &(Fp, Fp, Fp)> + Clone {
-
         self.acc_trie
             .hash_traces()
             .chain(self.state_trie.iter().flat_map(|i| i.hash_traces()))
@@ -595,16 +614,12 @@ impl<Fp: Hashable> AccountOp<Fp> {
                     .iter()
                     .flat_map(|i| i.hash_traces.iter()),
             )
-            .chain(
-                self.account_after
-                    .iter()
-                    .flat_map(|i| i.hash_traces.iter()),
-            )
+            .chain(self.account_after.iter().flat_map(|i| i.hash_traces.iter()))
             .chain(Some(self.address_rep.hash_traces()))
-            .chain(self.store_key.as_ref().map(|v|v.hash_traces()))
-            .chain(self.store_before.as_ref().map(|v|v.hash_traces()))
-            .chain(self.store_after.as_ref().map(|v|v.hash_traces()))
-    }    
+            .chain(self.store_key.as_ref().map(|v| v.hash_traces()))
+            .chain(self.store_before.as_ref().map(|v| v.hash_traces()))
+            .chain(self.store_after.as_ref().map(|v| v.hash_traces()))
+    }
 }
 
 /// include error raised in deserialize or data verification
@@ -824,20 +839,22 @@ impl<'d, Fp: Hashable> From<&'d serde::HexBytes<20>> for KeyValue<Fp> {
         let last_4bytes: [u8; 4] = bytes[16..].try_into().expect("expect second 4 bytes");
         Self::create((
             Fp::from_u128(u128::from_be_bytes(first_16bytes)),
-            Fp::from_u128(u32::from_be_bytes(last_4bytes) as u128 * 0x1000000000000000000000000u128)),
-        )
+            Fp::from_u128(
+                u32::from_be_bytes(last_4bytes) as u128 * 0x1000000000000000000000000u128,
+            ),
+        ))
     }
 }
 
 impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTTrace> for AccountOp<Fp> {
     type Error = TraceError;
     fn try_from(trace: &'d serde::SMTTrace) -> Result<Self, Self::Error> {
-
         let acc_trie: SingleOp<Fp> = (
             &trace.account_path[0],
             &trace.account_path[1],
             trace.account_key,
-        ).try_into()?;
+        )
+            .try_into()?;
 
         let state_trie: Option<SingleOp<Fp>> =
             if trace.state_path[0].is_some() && trace.state_path[1].is_some() {
@@ -899,23 +916,27 @@ impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTTrace> for AccountOp<Fp> {
             let bytes = trace.address.0;
             let first_16bytes: [u8; 16] = bytes[..16].try_into().expect("expect first 16 bytes");
             let last_4bytes: [u8; 4] = bytes[16..].try_into().expect("expect second 4 bytes");
-            Fp::from_u128(u128::from_be_bytes(first_16bytes)) * Fp::from(0x100000000u64) 
-            + Fp::from(u32::from_be_bytes(last_4bytes) as u64)
+            Fp::from_u128(u128::from_be_bytes(first_16bytes)) * Fp::from(0x100000000u64)
+                + Fp::from(u32::from_be_bytes(last_4bytes) as u64)
         };
         let address_rep = KeyValue::from(&trace.address);
 
         let (store_key, store_before, store_after) = if state_trie.is_some() {
-
             let update_pair = trace.state_update.as_ref().expect("state trie has existed");
             (
-                Some(KeyValue::from(&update_pair[0].as_ref().or(update_pair[1].as_ref()).expect("one of state update should not NONE").key)),
-                update_pair[0].as_ref().map(|st|KeyValue::from(&st.value)),
-                update_pair[1].as_ref().map(|st|KeyValue::from(&st.value)),
+                Some(KeyValue::from(
+                    &update_pair[0]
+                        .as_ref()
+                        .or(update_pair[1].as_ref())
+                        .expect("one of state update should not NONE")
+                        .key,
+                )),
+                update_pair[0].as_ref().map(|st| KeyValue::from(&st.value)),
+                update_pair[1].as_ref().map(|st| KeyValue::from(&st.value)),
             )
         } else {
             (None, None, None)
         };
-
 
         Ok(Self {
             acc_trie,
@@ -1000,7 +1021,7 @@ mod tests {
             let siblings: Vec<Fp> = (0..layers)
                 .map(|_| Fp::random(rand_gen([101u8; 32])))
                 .collect();
-            let key = key.unwrap_or_else(||Fp::random(rand_gen([99u8; 32])));
+            let key = key.unwrap_or_else(|| Fp::random(rand_gen([99u8; 32])));
             let leafs = leafs.unwrap_or_else(|| {
                 (
                     Fp::random(rand_gen([102u8; 32])),
@@ -1018,10 +1039,8 @@ mod tests {
             let b = Fp::random(rand_gen([105u8; 32]));
             let h = hasher(&a, &b);
 
-            Self {
-                data: (a, b, h),
-            }
-        }       
+            Self { data: (a, b, h) }
+        }
     }
 
     fn decompose<Fp: FieldExt>(inp: Fp, l: usize) -> (Vec<bool>, Fp) {

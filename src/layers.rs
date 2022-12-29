@@ -47,7 +47,6 @@ pub(crate) struct LayerGadget {
     data_1_ext: Column<Advice>,
     data_2_ext: Column<Advice>,
 
-
     old_root_index: Column<Advice>,
     new_root_index: Column<Advice>,
     address_index: Column<Advice>,
@@ -109,7 +108,7 @@ impl LayerGadget {
         let data_2 = meta.advice_column();
         let data_0_ext = meta.advice_column();
         let data_1_ext = meta.advice_column();
-        let data_2_ext = meta.advice_column();        
+        let data_2_ext = meta.advice_column();
         let old_root_index = meta.advice_column();
         let new_root_index = meta.advice_column();
         let address_index = meta.advice_column();
@@ -148,16 +147,13 @@ impl LayerGadget {
             let sel = meta.query_selector(sel);
             let series_delta = meta.query_advice(series, Rotation::cur())
                 - meta.query_advice(series, Rotation::prev());
-            
-            Vec::from([old_root_index, new_root_index, address_index].map(|col|{
 
-                sel.clone() 
-                * (Expression::Constant(Fp::one()) - series_delta.clone()) 
-                * (meta.query_advice(col, Rotation::cur())
-                - meta.query_advice(col, Rotation::prev()))
-
+            Vec::from([old_root_index, new_root_index, address_index].map(|col| {
+                sel.clone()
+                    * (Expression::Constant(Fp::one()) - series_delta.clone())
+                    * (meta.query_advice(col, Rotation::cur())
+                        - meta.query_advice(col, Rotation::prev()))
             }))
-
         });
 
         meta.create_gate("flags", |meta| {
@@ -243,10 +239,16 @@ impl LayerGadget {
             s_stepflags,
             op_type,
             ctrl_type,
-            data_0, data_1, data_2,
-            data_0_ext, data_1_ext, data_2_ext,
+            data_0,
+            data_1,
+            data_2,
+            data_0_ext,
+            data_1_ext,
+            data_2_ext,
             free_cols,
-            old_root_index, new_root_index, address_index,
+            old_root_index,
+            new_root_index,
+            address_index,
             op_delta_aux,
             control_table,
         }
@@ -292,12 +294,7 @@ impl LayerGadget {
             || Value::known(init_root),
         )?;
         for col in [self.old_root_index, self.address_index] {
-            region.assign_advice(
-                || "index flush",
-                col,
-                0,
-                || Value::known(Fp::zero()),
-            )?;    
+            region.assign_advice(|| "index flush", col, 0, || Value::known(Fp::zero()))?;
         }
 
         for offset in 1..max_rows {
@@ -317,19 +314,14 @@ impl LayerGadget {
         })?;
         // begin padding and final flush for data_rows
         for col in [self.data_0, self.data_1, self.data_2] {
-            region.assign_advice(
-                || "begin padding",
-                col,
-                0,
-                || Value::known(Fp::zero()),
-            )?;
+            region.assign_advice(|| "begin padding", col, 0, || Value::known(Fp::zero()))?;
 
             region.assign_advice(
                 || "last row flushing",
                 col,
                 max_rows,
                 || Value::known(Fp::zero()),
-            )?;            
+            )?;
         }
         region.assign_advice(
             || "terminalte series",
@@ -375,14 +367,33 @@ impl LayerGadget {
             // flush all cols to avoid unassigned error
             self.free_cols.iter().try_for_each(|col| {
                 region
-                    .assign_advice(|| "flushing free", *col, offset, || Value::known(Fp::zero()))
+                    .assign_advice(
+                        || "flushing free",
+                        *col,
+                        offset,
+                        || Value::known(Fp::zero()),
+                    )
                     .map(|_| ())
             })?;
-            [self.data_0, self.data_1, self.data_2, self.data_0_ext, self.data_1_ext, self.data_2_ext].iter().try_for_each(|col| {
+            [
+                self.data_0,
+                self.data_1,
+                self.data_2,
+                self.data_0_ext,
+                self.data_1_ext,
+                self.data_2_ext,
+            ]
+            .iter()
+            .try_for_each(|col| {
                 region
-                    .assign_advice(|| "flushing exported", *col, offset, || Value::known(Fp::zero()))
+                    .assign_advice(
+                        || "flushing exported",
+                        *col,
+                        offset,
+                        || Value::known(Fp::zero()),
+                    )
                     .map(|_| ())
-            })?;            
+            })?;
             self.s_stepflags.iter().try_for_each(|col| {
                 region
                     .assign_advice(|| "flushing", *col, offset, || Value::known(Fp::zero()))
@@ -395,7 +406,7 @@ impl LayerGadget {
         Ok(())
     }
 
-    // complete block is called AFTER all working gadget has been assigned on the specified offset, 
+    // complete block is called AFTER all working gadget has been assigned on the specified offset,
     // this entry fill whole block with series and index value
     pub fn complete_block<Fp: FieldExt>(
         &self,
@@ -417,25 +428,23 @@ impl LayerGadget {
                 || "old root index",
                 self.old_root_index,
                 offset,
-                || Value::known(roots.map(|(v, _)|v).unwrap_or_default()),
+                || Value::known(roots.map(|(v, _)| v).unwrap_or_default()),
             )?;
             region.assign_advice(
                 || "new root index",
                 self.new_root_index,
                 offset,
-                || Value::known(roots.map(|(_, v)|v).unwrap_or_default()),
-            )?;            
+                || Value::known(roots.map(|(_, v)| v).unwrap_or_default()),
+            )?;
             region.assign_advice(
                 || "address root index",
                 self.address_index,
                 offset,
                 || Value::known(address.unwrap_or_default()),
             )?;
-
         }
         Ok(())
     }
-
 
     // set all transition rules
     // + end_op: is the last op code in your assignation, often just (<padding gadget's op type, usually 0>, 0)
@@ -651,7 +660,6 @@ impl PaddingGadget {
         _sel: Selector,
         exported: &[Column<Advice>],
     ) -> Self {
-
         Self {
             ctrl_type: exported[0],
             s_enable: exported[1],
@@ -716,7 +724,8 @@ mod test {
 
         fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
             let layer = LayerGadget::configure(meta, 1, 3);
-            let padding = PaddingGadget::configure(meta, layer.sel, layer.exported_cols(0).as_slice());
+            let padding =
+                PaddingGadget::configure(meta, layer.sel, layer.exported_cols(0).as_slice());
 
             let cst = meta.fixed_column();
             meta.enable_constant(cst);
@@ -738,19 +747,17 @@ mod test {
                     let mut last_op = config.layer.start_op_code();
 
                     for (index, rows) in self.blocks.iter().enumerate() {
-                        config.layer.pace_op(
+                        config
+                            .layer
+                            .pace_op(&mut region, start, (last_op, 0), *rows)?;
+                        config.padding.padding(&mut region, start, *rows)?;
+                        config.layer.complete_block(
                             &mut region,
                             start,
-                            (last_op, 0),
+                            index + 1,
+                            Some((r, r)),
+                            None,
                             *rows,
-                        )?;
-                        config.padding.padding(&mut region, start, *rows)?;
-                        config.layer.complete_block(&mut region, 
-                            start, 
-                            index + 1, 
-                            Some((r, r)), 
-                            None, 
-                            *rows
                         )?;
                         start += rows;
                         last_op = 0;
@@ -812,8 +819,10 @@ mod test {
 
         fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
             let layer = LayerGadget::configure(meta, 3, 2);
-            let padding0 = PaddingGadget::configure(meta, layer.sel, layer.exported_cols(0).as_slice());
-            let padding1 = PaddingGadget::configure(meta, layer.sel, layer.exported_cols(2).as_slice());
+            let padding0 =
+                PaddingGadget::configure(meta, layer.sel, layer.exported_cols(0).as_slice());
+            let padding1 =
+                PaddingGadget::configure(meta, layer.sel, layer.exported_cols(2).as_slice());
 
             let cst = meta.fixed_column();
             meta.enable_constant(cst);
@@ -841,31 +850,26 @@ mod test {
                     for (index, rows) in self.blocks.iter().enumerate() {
                         let block_start = start;
                         let (op0, op1) = *rows;
-                        config.layer.pace_op(
-                            &mut region,
-                            start,
-                            (last_op, 0),
-                            op0,
-                        )?;
+                        config
+                            .layer
+                            .pace_op(&mut region, start, (last_op, 0), op0)?;
                         config.padding0.padding(&mut region, start, op0)?;
                         last_op = 0;
                         start += op0;
-                        config.layer.pace_op(
-                            &mut region,
-                            start,
-                            (last_op, 2),
-                            op1,
-                        )?;
+                        config
+                            .layer
+                            .pace_op(&mut region, start, (last_op, 2), op1)?;
                         config.padding1.padding(&mut region, start, op1)?;
                         last_op = 2;
                         start += op1;
-                        config.layer.complete_block(&mut region, 
-                            block_start, 
-                            index + 1, 
-                            Some((r, r)), 
-                            None, 
+                        config.layer.complete_block(
+                            &mut region,
+                            block_start,
+                            index + 1,
+                            Some((r, r)),
+                            None,
                             op0 + op1,
-                        )?;                        
+                        )?;
                     }
 
                     Ok(())

@@ -61,8 +61,8 @@ pub(crate) struct AccountGadget {
     s_enable: Column<Advice>,
     ctrl_type: Column<Advice>,
 
-    state_change_key : Column<Advice>,
-    state_change_aux: [Column<Advice>;2],
+    state_change_key: Column<Advice>,
+    state_change_aux: [Column<Advice>; 2],
 }
 
 impl AccountGadget {
@@ -114,7 +114,7 @@ impl AccountGadget {
             hash_tbl.clone(),
         );
 
-        let state_change_aux : [Column<Advice>; 2] = free[4..6].try_into().expect("size specified");
+        let state_change_aux: [Column<Advice>; 2] = free[4..6].try_into().expect("size specified");
 
         //transition
         meta.lookup("account row trans", |meta| {
@@ -126,7 +126,7 @@ impl AccountGadget {
 
             tables.build_lookup(
                 s_enable,
-                meta.query_advice(ctrl_type, Rotation::prev()), 
+                meta.query_advice(ctrl_type, Rotation::prev()),
                 meta.query_advice(ctrl_type, Rotation::cur()),
                 CtrlTransitionKind::Account as u64,
             )
@@ -134,54 +134,68 @@ impl AccountGadget {
 
         if let Some(address_index) = address_index {
             meta.create_gate("address constraint", |meta| {
-                let s_enable = meta.query_selector(sel) * meta.query_advice(s_enable, Rotation::cur());
+                let s_enable =
+                    meta.query_selector(sel) * meta.query_advice(s_enable, Rotation::cur());
                 let row0 = AccountChip::<'_, Fp>::lagrange_polynomial_for_row::<0>(
                     meta.query_advice(ctrl_type, Rotation::cur()),
                 );
                 let address_limb_0 = meta.query_advice(old_state.intermediate_1, Rotation::cur());
                 let address_limb_1 = meta.query_advice(new_state.intermediate_1, Rotation::cur());
-    
-                vec![s_enable * row0 * (address_limb_0 * Expression::Constant(Fp::from(0x100000000u64))
-                    + address_limb_1 * Expression::Constant(Fp::from_u128(0x1000000000000000000000000u128).invert().unwrap())
-                    - meta.query_advice(address_index, Rotation::cur()))]
+
+                vec![
+                    s_enable
+                        * row0
+                        * (address_limb_0 * Expression::Constant(Fp::from(0x100000000u64))
+                            + address_limb_1
+                                * Expression::Constant(
+                                    Fp::from_u128(0x1000000000000000000000000u128)
+                                        .invert()
+                                        .unwrap(),
+                                )
+                            - meta.query_advice(address_index, Rotation::cur())),
+                ]
             });
-            
+
             meta.lookup_any("address hash", |meta| {
                 let s_enable = meta.query_advice(s_enable, Rotation::cur())
-                    * AccountChip::<'_, Fp>::lagrange_polynomial_for_row::<0>(meta.query_advice(ctrl_type, Rotation::cur()));
+                    * AccountChip::<'_, Fp>::lagrange_polynomial_for_row::<0>(
+                        meta.query_advice(ctrl_type, Rotation::cur()),
+                    );
 
                 let address_limb_0 = meta.query_advice(old_state.intermediate_1, Rotation::cur());
                 let address_limb_1 = meta.query_advice(new_state.intermediate_1, Rotation::cur());
                 let addr_hash = meta.query_advice(data_key, Rotation::prev());
 
-                hash_tbl.build_lookup(
-                    meta,
-                    s_enable,
-                    address_limb_0, 
-                    address_limb_1,
-                    addr_hash,
-                )
-            });            
+                hash_tbl.build_lookup(meta, s_enable, address_limb_0, address_limb_1, addr_hash)
+            });
         }
 
         // this gate constraint each gadget handle at most one change in account data
         meta.create_gate("single update for account data", |meta| {
             let enable = meta.query_selector(sel) * meta.query_advice(s_enable, Rotation::cur());
-            let data_diff = meta.query_advice(data_old, Rotation::cur()) - meta.query_advice(data_new, Rotation::cur());
-            let data_ext_diff = meta.query_advice(data_old_ext, Rotation::cur()) - meta.query_advice(data_new_ext, Rotation::cur());
+            let data_diff = meta.query_advice(data_old, Rotation::cur())
+                - meta.query_advice(data_new, Rotation::cur());
+            let data_ext_diff = meta.query_advice(data_old_ext, Rotation::cur())
+                - meta.query_advice(data_new_ext, Rotation::cur());
 
-            let is_diff_boolean = data_diff.clone() * meta.query_advice(state_change_aux[0], Rotation::cur());
-            let is_diff_ext_boolean = data_ext_diff.clone() * meta.query_advice(state_change_aux[0], Rotation::cur());
+            let is_diff_boolean =
+                data_diff.clone() * meta.query_advice(state_change_aux[0], Rotation::cur());
+            let is_diff_ext_boolean =
+                data_ext_diff.clone() * meta.query_advice(state_change_aux[0], Rotation::cur());
 
             let one = Expression::Constant(Fp::one());
             // switch A || B to ! (!A ^ !B)
-            let has_diff = one.clone() - (one.clone() - is_diff_boolean.clone()) * (one.clone() - is_diff_ext_boolean.clone());
-            let diff_acc = has_diff + meta.query_advice(s_enable, Rotation::prev()) * meta.query_advice(data_key, Rotation::prev());
+            let has_diff = one.clone()
+                - (one.clone() - is_diff_boolean.clone())
+                    * (one.clone() - is_diff_ext_boolean.clone());
+            let diff_acc = has_diff
+                + meta.query_advice(s_enable, Rotation::prev())
+                    * meta.query_advice(data_key, Rotation::prev());
             let data_key = meta.query_advice(data_key, Rotation::cur());
 
             vec![
-                enable.clone() * data_diff * (one.clone()-is_diff_boolean),
-                enable.clone() * data_ext_diff * (one.clone()-is_diff_ext_boolean),
+                enable.clone() * data_diff * (one.clone() - is_diff_boolean),
+                enable.clone() * data_ext_diff * (one.clone() - is_diff_ext_boolean),
                 enable.clone() * (data_key.clone() - diff_acc),
                 enable * data_key.clone() * (one - data_key),
             ]
@@ -230,7 +244,8 @@ impl AccountGadget {
 
     pub fn transition_rules() -> impl Iterator<Item = (u32, u32, u32)> + Clone {
         TRANSMAP
-            .iter().copied()
+            .iter()
+            .copied()
             .map(|(a, b)| (a, b, CtrlTransitionKind::Account as u32))
     }
 
@@ -273,13 +288,8 @@ impl AccountGadget {
         for (col, val) in [
             (old_acc_chip.config.intermediate_1, address.limb_0()),
             (new_acc_chip.config.intermediate_1, address.limb_1()),
-        ]{
-            region.assign_advice(
-                || "address assignment",
-                col,
-                offset,
-                || Value::known(val),
-            )?;            
+        ] {
+            region.assign_advice(|| "address assignment", col, offset, || Value::known(val))?;
         }
 
         let mut has_data_delta = false;
@@ -314,21 +324,31 @@ impl AccountGadget {
             let data_delta = match index {
                 0 => [data.0.nonce - data.1.nonce, Fp::zero()],
                 1 => [data.0.balance - data.1.balance, Fp::zero()],
-                2 => [data.0.codehash.0 -data.1.codehash.0, data.0.codehash.1 -data.1.codehash.1],
+                2 => [
+                    data.0.codehash.0 - data.1.codehash.0,
+                    data.0.codehash.1 - data.1.codehash.1,
+                ],
                 3 => [data.0.state_root - data.1.state_root, Fp::zero()],
                 _ => unreachable!("no such row number"),
             };
 
             if !has_data_delta {
-                has_data_delta = !(bool::from(data_delta[0].is_zero()) && bool::from(data_delta[1].is_zero()));
+                has_data_delta =
+                    !(bool::from(data_delta[0].is_zero()) && bool::from(data_delta[1].is_zero()));
             }
 
-            for (col, val) in self.state_change_aux.iter().zip(data_delta){
+            for (col, val) in self.state_change_aux.iter().zip(data_delta) {
                 region.assign_advice(
                     || "data delta",
                     *col,
                     offset,
-                    || Value::known(if bool::from(val.is_zero()) {Fp::zero()} else {val.invert().unwrap()}),
+                    || {
+                        Value::known(if bool::from(val.is_zero()) {
+                            Fp::zero()
+                        } else {
+                            val.invert().unwrap()
+                        })
+                    },
                 )?;
             }
 
@@ -336,8 +356,14 @@ impl AccountGadget {
                 || "is data delta",
                 self.state_change_key,
                 offset,
-                || Value::known(if has_data_delta {Fp::one()} else {Fp::zero()}),
-            )?;            
+                || {
+                    Value::known(if has_data_delta {
+                        Fp::one()
+                    } else {
+                        Fp::zero()
+                    })
+                },
+            )?;
         }
 
         Ok(end_offset)
@@ -419,8 +445,8 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
             // only enable on row 1 and 2
             let s_enable = meta.query_advice(s_enable, Rotation::cur());
             let ctrl_type = meta.query_advice(ctrl_type, Rotation::cur());
-            let enable_rows = Self::lagrange_polynomial_for_row::<1>(ctrl_type.clone()) +
-                Self::lagrange_polynomial_for_row::<2>(ctrl_type);
+            let enable_rows = Self::lagrange_polynomial_for_row::<1>(ctrl_type.clone())
+                + Self::lagrange_polynomial_for_row::<2>(ctrl_type);
             let enable = enable_rows * s_enable;
 
             vec![
@@ -477,9 +503,7 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
                 s_enable.clone()
                     * Self::lagrange_polynomial_for_row::<0>(ctrl_type.clone())
                     * exported_equal1, // equality of hash_final
-                s_enable 
-                    * Self::lagrange_polynomial_for_row::<2>(ctrl_type) 
-                    * exported_equal2, // equality of state trie root
+                s_enable * Self::lagrange_polynomial_for_row::<2>(ctrl_type) * exported_equal2, // equality of state trie root
             ]
         });
 
@@ -502,15 +526,30 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
             offset,
             || Value::known(data.account_hash()),
         )?;
-        
+
         // fill the main block of chip
         for (col, vals, desc) in [
-            (config.acc_data_fields, [data.nonce, data.balance, data.codehash.0], "data field"),
-            (config.acc_data_fields_ext, [Fp::zero(), Fp::zero(), data.codehash.1], "data field ext"),
-            (config.intermediate_2, [data.account_hash(), data.hash_traces(1), data.state_root], "intermedia 2"),
-            (config.intermediate_1, [Fp::zero(), data.hash_traces(2), data.hash_traces(0)], "intermedia 1"),
+            (
+                config.acc_data_fields,
+                [data.nonce, data.balance, data.codehash.0],
+                "data field",
+            ),
+            (
+                config.acc_data_fields_ext,
+                [Fp::zero(), Fp::zero(), data.codehash.1],
+                "data field ext",
+            ),
+            (
+                config.intermediate_2,
+                [data.account_hash(), data.hash_traces(1), data.state_root],
+                "intermedia 2",
+            ),
+            (
+                config.intermediate_1,
+                [Fp::zero(), data.hash_traces(2), data.hash_traces(0)],
+                "intermedia 1",
+            ),
         ] {
-
             for (i, val) in vals.iter().enumerate() {
                 region.assign_advice(
                     || format!("{} row {} (offset {})", desc, i, self.offset),
@@ -541,7 +580,7 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
 
 #[derive(Clone, Debug)]
 struct StorageChipConfig {
-    v_limbs: [Column<Advice>;2],
+    v_limbs: [Column<Advice>; 2],
 }
 
 /// a single row chip for mapping the storage kv (both with 2 limbs) and lookup for its
@@ -553,16 +592,14 @@ struct StorageChip<'d, F> {
 }
 
 impl<'d, Fp: FieldExt> StorageChip<'d, Fp> {
-
     fn configure(
         meta: &mut ConstraintSystem<Fp>,
         _sel: Selector,
         s_enable: Column<Advice>,
         hash: Column<Advice>,
-        v_limbs: [Column<Advice>;2],
+        v_limbs: [Column<Advice>; 2],
         hash_table: &mpt::HashTable,
     ) -> StorageChipConfig {
-
         meta.lookup_any("value hash", |meta| {
             let enable = meta.query_advice(s_enable, Rotation::cur());
             vec![
@@ -579,33 +616,29 @@ impl<'d, Fp: FieldExt> StorageChip<'d, Fp> {
                     meta.query_advice(hash_table.2, Rotation::cur()),
                 ),
             ]
-        });  
-        
-        StorageChipConfig {
-            v_limbs,
-        }
+        });
 
+        StorageChipConfig { v_limbs }
     }
 
     fn assign(&self, region: &mut Region<'_, Fp>) -> Result<usize, Error> {
-
         let config = &self.config;
 
         region.assign_advice(
             || "val limb 0",
             config.v_limbs[0],
             self.offset,
-            || Value::known(self.value.as_ref().map_or_else(Fp::zero, |v|v.limb_0())),
-        )?;        
+            || Value::known(self.value.as_ref().map_or_else(Fp::zero, |v| v.limb_0())),
+        )?;
 
         region.assign_advice(
             || "val limb 1",
             config.v_limbs[1],
             self.offset,
-            || Value::known(self.value.as_ref().map_or_else(Fp::zero, |v|v.limb_1())),
-        )?; 
+            || Value::known(self.value.as_ref().map_or_else(Fp::zero, |v| v.limb_1())),
+        )?;
 
-        Ok(self.offset+1)
+        Ok(self.offset + 1)
     }
 }
 
@@ -618,12 +651,11 @@ pub(crate) struct StorageGadget {
     ctrl_type: Column<Advice>,
 }
 
-
 impl StorageGadget {
     pub fn min_free_cols() -> usize {
         6
     }
- 
+
     /// create gadget from assigned cols, we need:
     /// + circuit selector * 1
     /// + exported col * 5 (MUST by following sequence: layout_flag, s_enable, old_val, new_val, key_val)
@@ -635,7 +667,6 @@ impl StorageGadget {
         _free: &[Column<Advice>],
         hash_tbl: mpt::HashTable,
     ) -> Self {
-
         let s_enable = exported[1];
         let ctrl_type = exported[0];
         let s_hash = exported[2];
@@ -644,13 +675,15 @@ impl StorageGadget {
         let s_val_limbs = [exported[2], exported[5]];
         let e_val_limbs = [exported[3], exported[6]];
         let k_val_limbs = [exported[4], exported[7]];
-        
-        let s_value = StorageChip::<_>::configure(meta, sel, s_enable, s_hash, s_val_limbs, &hash_tbl);
 
-        let e_value = StorageChip::<_>::configure(meta, sel, s_enable, e_hash, e_val_limbs, &hash_tbl);
+        let s_value =
+            StorageChip::<_>::configure(meta, sel, s_enable, s_hash, s_val_limbs, &hash_tbl);
+
+        let e_value =
+            StorageChip::<_>::configure(meta, sel, s_enable, e_hash, e_val_limbs, &hash_tbl);
 
         let key = StorageChip::<_>::configure(meta, sel, s_enable, k_hash, k_val_limbs, &hash_tbl);
-        
+
         Self {
             s_enable,
             ctrl_type,
@@ -659,35 +692,37 @@ impl StorageGadget {
             e_value,
         }
     }
-    
+
     /// single row gadget has no transition rule
-    pub fn transition_rules() -> impl Iterator<Item = (u32, u32, u32)> + Clone {[].into_iter()}
-    
+    pub fn transition_rules() -> impl Iterator<Item = (u32, u32, u32)> + Clone {
+        [].into_iter()
+    }
+
     pub fn assign<'d, Fp: FieldExt>(
         &self,
         region: &mut Region<'_, Fp>,
         offset: usize,
         full_op: &'d AccountOp<Fp>,
     ) -> Result<usize, Error> {
-
         region.assign_advice(
             || "enable storage leaf circuit",
             self.s_enable,
             offset,
             || Value::known(Fp::one()),
         )?;
-        
+
         region.assign_advice(
             || "storage leaf circuit row",
             self.ctrl_type,
             offset,
             || Value::known(Fp::zero()),
         )?;
-        
+
         for (config, value) in [
-            (&self.s_value, &full_op.store_before), 
-            (&self.e_value, &full_op.store_after), 
-            (&self.key, &full_op.store_key)] {
+            (&self.s_value, &full_op.store_before),
+            (&self.e_value, &full_op.store_after),
+            (&self.key, &full_op.store_key),
+        ] {
             let chip = StorageChip {
                 offset,
                 config,
@@ -697,10 +732,8 @@ impl StorageGadget {
             chip.assign(region)?;
         }
 
-        Ok(offset+1)
-
+        Ok(offset + 1)
     }
-
 }
 
 #[cfg(test)]
@@ -741,8 +774,16 @@ mod test {
         fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
             let sel = meta.selector();
             let free_cols = [(); 14].map(|_| meta.advice_column());
-            let exported_cols = [free_cols[0], free_cols[1], free_cols[2], 
-                free_cols[3], free_cols[4], free_cols[5], free_cols[6], free_cols[7]];
+            let exported_cols = [
+                free_cols[0],
+                free_cols[1],
+                free_cols[2],
+                free_cols[3],
+                free_cols[4],
+                free_cols[5],
+                free_cols[6],
+                free_cols[7],
+            ];
             let op_tabl = mpt::MPTOpTables::configure_create(meta);
             let hash_tabl = mpt::HashTable::configure_create(meta);
 
@@ -785,7 +826,6 @@ mod test {
             layouter.assign_region(
                 || "account",
                 |mut region| {
-
                     for col in config.free_cols {
                         region.assign_advice(
                             || "flush top row",
@@ -795,10 +835,13 @@ mod test {
                         )?;
                     }
 
-                    let till =
-                        config
-                            .gadget
-                            .assign(&mut region, 1, (&self.data.0, &self.data.1), Default::default(), None)?;
+                    let till = config.gadget.assign(
+                        &mut region,
+                        1,
+                        (&self.data.0, &self.data.1),
+                        Default::default(),
+                        None,
+                    )?;
                     for offset in 1..till {
                         config.sel.enable(&mut region, offset)?;
                     }
