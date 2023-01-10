@@ -37,32 +37,216 @@ pub(crate) struct Config {
 
     range_check_u8: RangeCheckConfig,
 
-    change_aux: Column<Advice>, //used for marking if an entry include change of state (read or write)
-
     // turn into pair represent (hi, lo)
     storage_key_2: PairRepConfig,
     new_value_2: PairRepConfig,
     old_value_2: PairRepConfig,
 }
 
-/*
- The defination is greped from state-circuit
-*/
+impl Config {
+    pub fn mpt_table_begin_index(&self) -> usize {
+        self.address.index()
+    }
 
-#[derive(Clone, Copy)]
-pub(crate) enum MPTProofType {
+    pub fn bind_mpt_circuit<F: FieldExt>(
+        &self,
+        meta: &mut ConstraintSystem<F>,
+        gadget_id: Column<Advice>,
+        ctrl_id: Column<Advice>,
+        address_index: Column<Advice>,
+        root_index: [Column<Advice>; 2],
+        old_value: [Column<Advice>; 2],
+        new_value: [Column<Advice>; 2],
+        key: [Column<Advice>; 2],
+    ) {
+        let build_entry_lookup_common =
+            |meta: &mut VirtualCells<'_, F>, control_pair: (u64, u64)| {
+                [
+                    // positions
+                    (
+                        Expression::Constant(F::from(control_pair.0)),
+                        meta.query_advice(gadget_id, Rotation::cur()),
+                    ),
+                    (
+                        Expression::Constant(F::from(control_pair.1)),
+                        meta.query_advice(ctrl_id, Rotation::cur()),
+                    ),
+                    // indexs
+                    (
+                        meta.query_advice(self.address, Rotation::cur()),
+                        meta.query_advice(address_index, Rotation::cur()),
+                    ),
+                    (
+                        meta.query_advice(self.old_root, Rotation::cur()),
+                        meta.query_advice(root_index[0], Rotation::cur()),
+                    ),
+                    (
+                        meta.query_advice(self.new_root, Rotation::cur()),
+                        meta.query_advice(root_index[1], Rotation::cur()),
+                    ),
+                ]
+            };
+
+        let build_entry_lookup_value = |meta: &mut VirtualCells<'_, F>| {
+            [
+                // values
+                (
+                    meta.query_advice(self.old_value, Rotation::cur()),
+                    meta.query_advice(old_value[0], Rotation::cur()),
+                ),
+                (
+                    meta.query_advice(self.new_value, Rotation::cur()),
+                    meta.query_advice(new_value[0], Rotation::cur()),
+                ),
+            ]
+        };
+
+        let build_entry_lookup_rep_value = |meta: &mut VirtualCells<'_, F>| {
+            [
+                // values rep
+                (
+                    meta.query_advice(self.old_value_2.rep_hi, Rotation::cur()),
+                    meta.query_advice(old_value[0], Rotation::cur()),
+                ),
+                (
+                    meta.query_advice(self.old_value_2.rep_lo, Rotation::cur()),
+                    meta.query_advice(old_value[1], Rotation::cur()),
+                ),
+                (
+                    meta.query_advice(self.new_value_2.rep_hi, Rotation::cur()),
+                    meta.query_advice(new_value[0], Rotation::cur()),
+                ),
+                (
+                    meta.query_advice(self.new_value_2.rep_lo, Rotation::cur()),
+                    meta.query_advice(new_value[1], Rotation::cur()),
+                ),
+            ]
+        };
+
+        let build_entry_lookup_storage_key = |meta: &mut VirtualCells<'_, F>| {
+            [
+                (
+                    meta.query_advice(self.storage_key_2.rep_hi, Rotation::cur()),
+                    meta.query_advice(key[0], Rotation::cur()),
+                ),
+                (
+                    meta.query_advice(self.storage_key_2.rep_lo, Rotation::cur()),
+                    meta.query_advice(key[1], Rotation::cur()),
+                ),
+            ]
+        };
+
+        let build_entry_lookup_not_exist = |meta: &mut VirtualCells<'_, F>| {
+            [
+                // it lookup the mpt gadget above target gadget (only the hash type of old trie is looked up,
+                // it is mpt_table's responsibiliy to ensure old_root == new_root here)
+                (
+                    Expression::Constant(F::from(super::HashType::Empty as u64)),
+                    meta.query_advice(ctrl_id, Rotation::prev()),
+                ),
+            ]
+        };
+
+        // all lookup into account fields raised for gadget id = OP_ACCOUNT (3)
+        meta.lookup_any("mpt nonce entry lookup", |meta| {
+            let s_enable = meta.query_advice(self.proof_sel[0], Rotation::cur());
+
+            build_entry_lookup_common(meta, (3, 0))
+                .into_iter()
+                .chain(build_entry_lookup_value(meta))
+                .map(|(fst, snd)| (fst * s_enable.clone(), snd))
+                .collect()
+        });
+
+        meta.lookup_any("mpt balance entry lookup", |meta| {
+            let s_enable = meta.query_advice(self.proof_sel[1], Rotation::cur());
+
+            build_entry_lookup_common(meta, (3, 1))
+                .into_iter()
+                .chain(build_entry_lookup_value(meta))
+                .map(|(fst, snd)| (fst * s_enable.clone(), snd))
+                .collect()
+        });
+
+        meta.lookup_any("mpt codehash entry lookup", |meta| {
+            let s_enable = meta.query_advice(self.proof_sel[2], Rotation::cur());
+
+            build_entry_lookup_common(meta, (3, 2))
+                .into_iter()
+                .chain(build_entry_lookup_rep_value(meta))
+                .map(|(fst, snd)| (fst * s_enable.clone(), snd))
+                .collect()
+        });
+
+        meta.lookup_any("mpt account not exist entry lookup", |meta| {
+            let s_enable = meta.query_advice(self.proof_sel[3], Rotation::cur());
+
+            build_entry_lookup_common(meta, (3, 0))
+                .into_iter()
+                .chain(build_entry_lookup_not_exist(meta))
+                .map(|(fst, snd)| (fst * s_enable.clone(), snd))
+                .collect()
+        });
+
+        meta.lookup_any("mpt account destroy entry lookup", |meta| {
+            let s_enable = meta.query_advice(self.proof_sel[4], Rotation::cur());
+
+            // TODO: not handle AccountDestructed yet (this entry has no lookup: i.e. no verification)
+            build_entry_lookup_common(meta, (3, 2))
+                .into_iter()
+                .map(|(fst, snd)| (fst * s_enable.clone(), snd))
+                .collect()
+        });
+
+        // all lookup into storage raised for gadget id = OP_STORAGE (4)
+        meta.lookup_any("mpt storage entry lookup", |meta| {
+            let s_enable = meta.query_advice(self.proof_sel[5], Rotation::cur());
+
+            build_entry_lookup_common(meta, (4, 0))
+                .into_iter()
+                .chain(build_entry_lookup_rep_value(meta))
+                .chain(build_entry_lookup_storage_key(meta))
+                .map(|(fst, snd)| (fst * s_enable.clone(), snd))
+                .collect()
+        });
+
+        meta.lookup_any("mpt storage not exist entry lookup", |meta| {
+            let s_enable = meta.query_advice(self.proof_sel[6], Rotation::cur());
+
+            build_entry_lookup_common(meta, (4, 0))
+                .into_iter()
+                .chain(build_entry_lookup_storage_key(meta))
+                .chain(build_entry_lookup_not_exist(meta))
+                .map(|(fst, snd)| (fst * s_enable.clone(), snd))
+                .collect()
+        });
+    }
+}
+
+/// The defination is greped from state-circuit
+#[derive(Clone, Copy, Debug)]
+pub enum MPTProofType {
+    /// nonce
     NonceChanged = 1,
+    /// balance
     BalanceChanged,
+    /// codehash updated
     CodeHashExists,
+    /// non exist proof for account
     AccountDoesNotExist,
+    /// account destructed
     AccountDestructed,
+    /// storage
     StorageChanged,
+    /// non exist proof for storage
     StorageDoesNotExist,
 }
 
-#[derive(Clone, Debug, Default)]
+/// the Entry for mpt table
+#[derive(Clone, Debug)]
 pub(crate) struct MPTEntry<F: Field> {
-    base: [F; 7],
+    proof_type: MPTProofType,
+    base: Option<[F; 7]>,
     storage_key: KeyValue<F>,
     new_value: KeyValue<F>,
     old_value: KeyValue<F>,
@@ -96,7 +280,7 @@ impl<F: FieldExt> MPTEntry<F> {
         }
     }
 
-    pub fn from_op(proof_type: MPTProofType, op: &AccountOp<F>, randomness: F) -> Self {
+    pub fn from_op_no_base(proof_type: MPTProofType, op: &AccountOp<F>) -> Self {
         let storage_key = op.store_key.clone().unwrap_or_default();
         let (old_value, new_value) = match proof_type {
             MPTProofType::CodeHashExists => (
@@ -117,6 +301,18 @@ impl<F: FieldExt> MPTEntry<F> {
             ),
             _ => (Default::default(), Default::default()),
         };
+
+        Self {
+            proof_type,
+            base: None,
+            storage_key,
+            new_value,
+            old_value,
+        }
+    }
+
+    pub fn from_op(proof_type: MPTProofType, op: &AccountOp<F>, randomness: F) -> Self {
+        let mut ret = Self::from_op_no_base(proof_type, op);
 
         let (old_value_f, new_value_f) = match proof_type {
             MPTProofType::NonceChanged => (
@@ -139,60 +335,85 @@ impl<F: FieldExt> MPTEntry<F> {
                     .map(|acc| acc.balance)
                     .unwrap_or_default(),
             ),
-            MPTProofType::StorageChanged | MPTProofType::CodeHashExists => {
-                (old_value.u8_rlc(randomness), new_value.u8_rlc(randomness))
-            }
+            MPTProofType::StorageChanged | MPTProofType::CodeHashExists => (
+                ret.old_value.u8_rlc(randomness),
+                ret.new_value.u8_rlc(randomness),
+            ),
             _ => (F::zero(), F::zero()),
         };
 
-        let base = [
-            F::from(proof_type as u64),
+        ret.base.replace([
             op.address,
-            storage_key.u8_rlc(randomness),
-            old_value_f,
-            new_value_f,
-            op.account_root_before(),
+            ret.storage_key.u8_rlc(randomness),
+            F::from(proof_type as u64),
             op.account_root(),
-        ];
+            op.account_root_before(),
+            new_value_f,
+            old_value_f,
+        ]);
 
-        Self {
-            base,
-            storage_key,
-            new_value,
-            old_value,
-        }
+        ret
+    }
+
+    // this method construct entry without randomness (challenge)
+    pub fn from_op_and_table_entries(
+        op: &AccountOp<F>,
+        proof_type: MPTProofType,
+        old_value_f: F,
+        new_value_f: F,
+        store_key: Option<F>,
+    ) -> Self {
+        let mut ret = Self::from_op_no_base(proof_type, op);
+
+        ret.base.replace([
+            op.address,
+            store_key.unwrap_or_default(),
+            F::from(proof_type as u64),
+            op.account_root(),
+            op.account_root_before(),
+            new_value_f,
+            old_value_f,
+        ]);
+
+        ret
     }
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct MPTTable<F: Field> {
-    pub entries: Vec<MPTEntry<F>>,
-
+    entries: Vec<MPTEntry<F>>,
     config: Config,
     rows: usize,
 }
 
 impl<F: FieldExt> MPTTable<F> {
-    pub fn construct(config: Config, rows: usize) -> Self {
+    pub fn construct(
+        config: Config,
+        entries: impl IntoIterator<Item = MPTEntry<F>>,
+        rows: usize,
+    ) -> Self {
         Self {
             config,
             rows,
-            entries: Default::default(),
+            entries: entries.into_iter().collect(),
         }
     }
 
-    pub fn configure(meta: &mut ConstraintSystem<F>, randomness: Expression<F>) -> Config {
+    pub fn configure(
+        meta: &mut ConstraintSystem<F>,
+        tbl_base: [Column<Advice>; 7],
+        randomness: Expression<F>,
+    ) -> Config {
         let sel = meta.selector();
-        let address = meta.advice_column();
-        let storage_key = meta.advice_column();
-        let proof_type = meta.advice_column();
-        let new_root = meta.advice_column();
-        let old_root = meta.advice_column();
-        let new_value = meta.advice_column();
-        let old_value = meta.advice_column();
+        let address = tbl_base[0];
+        let storage_key = tbl_base[1];
+        let proof_type = tbl_base[2];
+        let new_root = tbl_base[3];
+        let old_root = tbl_base[4];
+        let new_value = tbl_base[5];
+        let old_value = tbl_base[6];
 
         let proof_sel = [0; 7].map(|_| meta.advice_column());
-        let change_aux = meta.advice_column();
 
         let range_check_u8 = RangeCheckChip::<F, 8>::configure(meta);
 
@@ -264,7 +485,6 @@ impl<F: FieldExt> MPTTable<F> {
             proof_type,
             new_root,
             old_root,
-            change_aux,
             range_check_u8,
             key_rep,
             new_val_rep,
@@ -273,193 +493,6 @@ impl<F: FieldExt> MPTTable<F> {
             new_value_2,
             old_value_2,
         }
-    }
-
-    pub fn bind_mpt_circuit(
-        &self,
-        meta: &mut ConstraintSystem<F>,
-        gadget_id: Column<Advice>,
-        ctrl_id: Column<Advice>,
-        address_index: Column<Advice>,
-        root_index: [Column<Advice>; 2],
-        old_value: [Column<Advice>; 2],
-        new_value: [Column<Advice>; 2],
-        key: [Column<Advice>; 2],
-        proof_type: Column<Advice>,
-    ) {
-        let config = &self.config;
-
-        let build_entry_lookup_common =
-            |meta: &mut VirtualCells<'_, F>, control_pair: (u64, u64)| {
-                [
-                    // positions
-                    (
-                        Expression::Constant(F::from(control_pair.0)),
-                        meta.query_advice(gadget_id, Rotation::cur()),
-                    ),
-                    (
-                        Expression::Constant(F::from(control_pair.1)),
-                        meta.query_advice(ctrl_id, Rotation::cur()),
-                    ),
-                    // indexs
-                    (
-                        meta.query_advice(config.address, Rotation::cur()),
-                        meta.query_advice(address_index, Rotation::cur()),
-                    ),
-                    (
-                        meta.query_advice(config.old_root, Rotation::cur()),
-                        meta.query_advice(root_index[0], Rotation::cur()),
-                    ),
-                    (
-                        meta.query_advice(config.new_root, Rotation::cur()),
-                        meta.query_advice(root_index[1], Rotation::cur()),
-                    ),
-                ]
-            };
-
-        let build_entry_lookup_value = |meta: &mut VirtualCells<'_, F>| {
-            [
-                // values
-                (
-                    meta.query_advice(config.old_value, Rotation::cur()),
-                    meta.query_advice(old_value[0], Rotation::cur()),
-                ),
-                (
-                    meta.query_advice(config.new_value, Rotation::cur()),
-                    meta.query_advice(new_value[0], Rotation::cur()),
-                ),
-            ]
-        };
-
-        let build_entry_lookup_rep_value = |meta: &mut VirtualCells<'_, F>| {
-            [
-                // values rep
-                (
-                    meta.query_advice(config.old_value_2.rep_hi, Rotation::cur()),
-                    meta.query_advice(old_value[0], Rotation::cur()),
-                ),
-                (
-                    meta.query_advice(config.old_value_2.rep_lo, Rotation::cur()),
-                    meta.query_advice(old_value[1], Rotation::cur()),
-                ),
-                (
-                    meta.query_advice(config.new_value_2.rep_hi, Rotation::cur()),
-                    meta.query_advice(new_value[0], Rotation::cur()),
-                ),
-                (
-                    meta.query_advice(config.new_value_2.rep_lo, Rotation::cur()),
-                    meta.query_advice(new_value[1], Rotation::cur()),
-                ),
-            ]
-        };
-
-        let build_entry_lookup_account_key = |meta: &mut VirtualCells<'_, F>| {
-            [(
-                Expression::Constant(F::one()),
-                meta.query_advice(proof_type, Rotation::cur()),
-            )]
-        };
-
-        let build_entry_lookup_storage_key = |meta: &mut VirtualCells<'_, F>| {
-            [
-                (
-                    meta.query_advice(config.storage_key_2.rep_hi, Rotation::cur()),
-                    meta.query_advice(key[0], Rotation::cur()),
-                ),
-                (
-                    meta.query_advice(config.storage_key_2.rep_lo, Rotation::cur()),
-                    meta.query_advice(key[1], Rotation::cur()),
-                ),
-            ]
-        };
-
-        let build_entry_lookup_not_exist = |meta: &mut VirtualCells<'_, F>| {
-            [
-                // it lookup the mpt gadget above target gadget (only the hash type of old trie is looked up,
-                // it is mpt_table's responsibiliy to ensure old_root == new_root here)
-                (
-                    Expression::Constant(F::from(super::HashType::Empty as u64)),
-                    meta.query_advice(ctrl_id, Rotation::prev()),
-                ),
-            ]
-        };
-
-        // all lookup into account fields raised for gadget id = OP_ACCOUNT (3)
-        meta.lookup_any("mpt nonce entry lookup", |meta| {
-            let s_enable = meta.query_advice(config.proof_sel[0], Rotation::cur());
-
-            build_entry_lookup_common(meta, (3, 0))
-                .into_iter()
-                .chain(build_entry_lookup_value(meta))
-                .chain(build_entry_lookup_account_key(meta))
-                .map(|(fst, snd)| (fst * s_enable.clone(), snd))
-                .collect()
-        });
-
-        meta.lookup_any("mpt balance entry lookup", |meta| {
-            let s_enable = meta.query_advice(config.proof_sel[1], Rotation::cur());
-
-            build_entry_lookup_common(meta, (3, 1))
-                .into_iter()
-                .chain(build_entry_lookup_value(meta))
-                .chain(build_entry_lookup_account_key(meta))
-                .map(|(fst, snd)| (fst * s_enable.clone(), snd))
-                .collect()
-        });
-
-        meta.lookup_any("mpt codehash entry lookup", |meta| {
-            let s_enable = meta.query_advice(config.proof_sel[2], Rotation::cur());
-
-            build_entry_lookup_common(meta, (3, 2))
-                .into_iter()
-                .chain(build_entry_lookup_rep_value(meta))
-                .chain(build_entry_lookup_account_key(meta))
-                .map(|(fst, snd)| (fst * s_enable.clone(), snd))
-                .collect()
-        });
-
-        meta.lookup_any("mpt account not exist entry lookup", |meta| {
-            let s_enable = meta.query_advice(config.proof_sel[3], Rotation::cur());
-
-            build_entry_lookup_common(meta, (3, 0))
-                .into_iter()
-                .chain(build_entry_lookup_not_exist(meta))
-                .map(|(fst, snd)| (fst * s_enable.clone(), snd))
-                .collect()
-        });
-
-        meta.lookup_any("mpt account destroy entry lookup", |meta| {
-            let s_enable = meta.query_advice(config.proof_sel[4], Rotation::cur());
-
-            // TODO: not handle AccountDestructed yet (this entry has no lookup: i.e. no verification)
-            build_entry_lookup_common(meta, (3, 2))
-                .into_iter()
-                .map(|(fst, snd)| (fst * s_enable.clone(), snd))
-                .collect()
-        });
-
-        // all lookup into storage raised for gadget id = OP_STORAGE (4)
-        meta.lookup_any("mpt storage entry lookup", |meta| {
-            let s_enable = meta.query_advice(config.proof_sel[5], Rotation::cur());
-
-            build_entry_lookup_common(meta, (4, 0))
-                .into_iter()
-                .chain(build_entry_lookup_rep_value(meta))
-                .chain(build_entry_lookup_storage_key(meta))
-                .map(|(fst, snd)| (fst * s_enable.clone(), snd))
-                .collect()
-        });
-
-        meta.lookup_any("mpt storage not exist entry lookup", |meta| {
-            let s_enable = meta.query_advice(config.proof_sel[6], Rotation::cur());
-
-            build_entry_lookup_common(meta, (4, 0))
-                .into_iter()
-                .chain(build_entry_lookup_storage_key(meta))
-                .chain(build_entry_lookup_not_exist(meta))
-                .map(|(fst, snd)| (fst * s_enable.clone(), snd))
-                .collect()
-        });
     }
 
     pub fn load(&self, layouter: &mut impl Layouter<F>) -> Result<(), Error> {
@@ -472,14 +505,13 @@ impl<F: FieldExt> MPTTable<F> {
             || "mpt table",
             |mut region| {
                 for (offset, entry) in self.entries.iter().enumerate() {
-                    config.sel.enable(&mut region, offset)?;
                     for (index, col) in config.proof_sel.as_slice().iter().copied().enumerate() {
                         region.assign_advice(
                             || format!("assign for proof type enabler {}", offset),
                             col,
                             offset,
                             || {
-                                Value::known(if F::from(index as u64 + 1) == entry.base[2] {
+                                Value::known(if index + 1 == entry.proof_type as usize {
                                     F::one()
                                 } else {
                                     F::zero()
@@ -488,24 +520,26 @@ impl<F: FieldExt> MPTTable<F> {
                         )?;
                     }
 
-                    for (val, col) in entry.base.as_slice().iter().zip(
-                        [
-                            config.address,
-                            config.storage_key,
-                            config.proof_type,
-                            config.new_root,
-                            config.old_root,
-                            config.new_value,
-                            config.old_value,
-                        ]
-                        .as_slice(),
-                    ) {
-                        region.assign_advice(
-                            || format!("assign for mpt table offset {}", offset),
-                            *col,
-                            offset,
-                            || Value::known(*val),
-                        )?;
+                    if let Some(base_entries) = entry.base {
+                        for (val, col) in base_entries.iter().zip(
+                            [
+                                config.address,
+                                config.storage_key,
+                                config.proof_type,
+                                config.new_root,
+                                config.old_root,
+                                config.new_value,
+                                config.old_value,
+                            ]
+                            .as_slice(),
+                        ) {
+                            region.assign_advice(
+                                || format!("assign for mpt table offset {}", offset),
+                                *col,
+                                offset,
+                                || Value::known(*val),
+                            )?;
+                        }
                     }
 
                     config.storage_key_2.assign(
@@ -590,6 +624,10 @@ impl<F: FieldExt> MPTTable<F> {
                     config.old_val_rep.flush(&mut region, row)?;
                 }
 
+                for offset in 0..self.rows {
+                    config.sel.enable(&mut region, offset)?;
+                }
+
                 Ok(())
             },
         )?;
@@ -623,7 +661,8 @@ mod test {
 
         fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
             let dummy_randomness = Expression::Constant(Fp::from(0x100u64));
-            MPTTable::<Fp>::configure(meta, dummy_randomness)
+            let base_tbl = [0; 7].map(|_| meta.advice_column());
+            MPTTable::<Fp>::configure(meta, base_tbl, dummy_randomness)
         }
 
         fn synthesize(
@@ -631,12 +670,90 @@ mod test {
             config: Self::Config,
             mut layouter: impl Layouter<Fp>,
         ) -> Result<(), Error> {
-            let mut mpt_table = MPTTable::construct(config, self.entries.len() + 1);
-            mpt_table.entries.append(&mut self.entries.clone());
+            let layout_range = self.entries.len() + 1;
+            let mpt_table = MPTTable::construct(config, self.entries.clone(), layout_range);
             mpt_table.load(&mut layouter)?;
-
             Ok(())
         }
+    }
+
+    #[test]
+    fn circuit_degrees() {
+        let mut cs: ConstraintSystem<Fp> = Default::default();
+        TestMPTTableCircuit::configure(&mut cs);
+
+        println!("mpt table circuit degree: {}", cs.degree());
+        //assert!(cs.degree() <= 9);
+    }
+
+    #[test]
+    fn mpt_entry_conv() {
+        use crate::operation::*;
+
+        let store_key = KeyValue::create_rand(mock_hash);
+        let store_before = KeyValue::create_rand(mock_hash);
+        let store_after = KeyValue::create_rand(mock_hash);
+
+        let state_trie = SingleOp::<Fp>::create_rand_op(
+            3,
+            Some((store_before.hash(), store_after.hash())),
+            Some(store_key.hash()),
+            mock_hash,
+        );
+
+        let account_before = Account::<Fp> {
+            balance: Fp::from(1000000u64),
+            nonce: Fp::from(42u64),
+            codehash: (rand_fp(), rand_fp()),
+            state_root: state_trie.start_root(),
+            ..Default::default()
+        };
+
+        let account_after = Account::<Fp> {
+            state_root: state_trie.new_root(),
+            ..account_before.clone()
+        };
+
+        let account_before = account_before.complete(mock_hash);
+        let account_after = account_after.complete(mock_hash);
+
+        let address_rep = KeyValue::create_base((Fp::from(0x1234u64), Fp::from(0x5678u64)));
+        let address = address_rep.limb_0() * Fp::from(0x100000000u64)
+            + address_rep.limb_1()
+                * Fp::from_u128(0x1000000000000000000000000u128)
+                    .invert()
+                    .unwrap();
+
+        let acc_trie = SingleOp::<Fp>::create_rand_op(
+            4,
+            Some((account_before.account_hash(), account_after.account_hash())),
+            Some(address_rep.hash()),
+            mock_hash,
+        );
+
+        let op = AccountOp::<Fp> {
+            acc_trie,
+            state_trie: Some(state_trie),
+            account_after: Some(account_after),
+            account_before: Some(account_before),
+            address,
+            address_rep,
+            store_key: Some(store_key.clone()),
+            store_before: Some(store_before.clone()),
+            store_after: Some(store_after.clone()),
+            ..Default::default()
+        };
+
+        let randomness = Fp::from(0x10000u64);
+        let entry = MPTEntry::from_op(MPTProofType::StorageChanged, &op, randomness);
+        let base = entry.base.unwrap();
+
+        assert_eq!(base[0], address);
+        assert_eq!(base[1], store_key.u8_rlc(randomness));
+        assert_eq!(base[3], op.account_root());
+        assert_eq!(base[4], op.account_root_before());
+        assert_eq!(base[5], store_after.u8_rlc(randomness));
+        assert_eq!(base[6], store_before.u8_rlc(randomness));
     }
 
     #[test]
@@ -650,7 +767,8 @@ mod test {
         ));
 
         let entry1 = MPTEntry {
-            base: [
+            proof_type: MPTProofType::BalanceChanged,
+            base: Some([
                 address,
                 Fp::zero(),
                 Fp::from(MPTProofType::BalanceChanged as u64),
@@ -658,36 +776,44 @@ mod test {
                 rand_fp(),
                 Fp::from(123456789u64),
                 Fp::from(123456790u64),
-            ],
-            ..Default::default()
+            ]),
+            storage_key: Default::default(),
+            new_value: Default::default(),
+            old_value: Default::default(),
         };
 
+        let bit128 = Fp::from_u128(0x10000000000000000u128).square();
+
         let entry2 = MPTEntry {
-            base: [
+            proof_type: MPTProofType::StorageChanged,
+            base: Some([
                 address,
                 storage_key.u8_rlc(randomness),
                 Fp::from(MPTProofType::StorageChanged as u64),
                 rand_fp(),
-                entry1.base[4],
-                Fp::from(10u64),
-                Fp::from(1u64),
-            ],
+                entry1.base.unwrap()[4],
+                Fp::from(10u64) + (Fp::from(3u64) * bit128),
+                Fp::from(1u64) + (Fp::from(3u64) * bit128),
+            ]),
             storage_key: storage_key.clone(),
-            new_value: KeyValue::create_base((Fp::zero(), Fp::from(10u64))),
-            old_value: KeyValue::create_base((Fp::zero(), Fp::from(1u64))),
+            new_value: KeyValue::create_base((Fp::from(3u64), Fp::from(10u64))),
+            old_value: KeyValue::create_base((Fp::from(3u64), Fp::from(1u64))),
         };
 
         let entry3 = MPTEntry {
-            base: [
+            proof_type: MPTProofType::AccountDoesNotExist,
+            base: Some([
                 address + Fp::one(),
                 Fp::zero(),
                 Fp::from(MPTProofType::AccountDoesNotExist as u64),
-                entry2.base[4],
-                entry2.base[4],
+                entry2.base.unwrap()[4],
+                entry2.base.unwrap()[4],
                 Fp::zero(),
                 Fp::zero(),
-            ],
-            ..Default::default()
+            ]),
+            storage_key: Default::default(),
+            new_value: Default::default(),
+            old_value: Default::default(),
         };
 
         let circuit = TestMPTTableCircuit {

@@ -1007,7 +1007,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{rand_gen, Fp};
+    use crate::test_utils::{rand_bytes_array, rand_gen, Fp};
     use halo2_proofs::halo2curves::group::ff::{Field, PrimeField};
 
     impl<Fp: FieldExt> SingleOp<Fp> {
@@ -1035,8 +1035,8 @@ mod tests {
     impl<Fp: FieldExt> KeyValue<Fp> {
         /// create an fully random k/v
         pub fn create_rand(mut hasher: impl FnMut(&Fp, &Fp) -> Fp + Clone) -> Self {
-            let a = Fp::random(rand_gen([104u8; 32]));
-            let b = Fp::random(rand_gen([105u8; 32]));
+            let a = Fp::from_u128(u128::from_be_bytes(rand_bytes_array::<16>()));
+            let b = Fp::from_u128(u128::from_be_bytes(rand_bytes_array::<16>()));
             let h = hasher(&a, &b);
 
             Self { data: (a, b, h) }

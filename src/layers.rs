@@ -88,6 +88,10 @@ impl LayerGadget {
         self.address_index
     }
 
+    pub fn get_gadget_index(&self) -> Column<Advice> {
+        self.op_type
+    }
+
     pub fn public_sel(&self) -> Selector {
         self.sel
     }
