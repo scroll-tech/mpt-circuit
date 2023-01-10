@@ -34,7 +34,7 @@ async function main() {
     console.log('blk', blk.stateRoot)
 
     let {result: r} = await hre.web3.currentProvider.mySend({
-        method:"scroll_getBlockResultByNumberOrHash",
+        method:"scroll_getBlockTraceByNumberOrHash",
         params: [blk.hash],
         jsonrpc: "2.0",
         id: new Date().getTime(),
