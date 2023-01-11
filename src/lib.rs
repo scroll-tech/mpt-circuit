@@ -389,6 +389,36 @@ impl EthTrieConfig {
         lite_cfg
     }
 
+    /// synthesize the mpt table part, the randomness also specify
+    /// if the base part of mpt table should be assigned
+    pub fn load_mpt_table<'d, Fp: Hashable>(
+        &self,
+        layouter: &mut impl Layouter<Fp>,
+        randomness: Option<Fp>,
+        ops: impl IntoIterator<Item=&'d AccountOp<Fp>>,
+        tbl_tips: impl IntoIterator<Item=MPTProofType>,
+        rows: usize,        
+    ) -> Result<(), Error>{
+
+        let mpt_entries = tbl_tips.into_iter()
+            .zip(ops)
+            .map(|(proof_type, op)| 
+                if let Some(rand) = randomness {
+                    MPTEntry::from_op(proof_type, op, rand)
+                }else {
+                    MPTEntry::from_op_no_base(proof_type, op)
+                }
+            );
+
+        let mpt_tbl = MPTTable::construct(
+            self.mpt_tbl.clone().expect("only call under NON-LITE mode"),
+            mpt_entries,
+            rows,
+        );
+        mpt_tbl.load(layouter)
+
+    }
+
     /// synthesize core part (without mpt table), require a `Hashable` trait
     /// on the working field
     pub fn synthesize_core<Fp: Hashable>(
@@ -785,20 +815,13 @@ impl<Fp: Hashable, const LITE: bool> Circuit<Fp> for EthTrieCircuit<Fp, LITE> {
         if LITE {
             Ok(())
         } else {
-            let def_rand = Fp::from(get_rand_base());
-            let mpt_entries = self
-                .mpt_table
-                .iter()
-                .copied()
-                .zip(self.ops.as_slice())
-                .map(|(proof_type, op)| MPTEntry::from_op(proof_type, op, def_rand));
-
-            let mpt_tbl = MPTTable::construct(
-                config.mpt_tbl.expect("must exist in NON-LITE mode"),
-                mpt_entries,
+            config.load_mpt_table(
+                &mut layouter, 
+                Some(Fp::from(get_rand_base())), 
+                self.ops.as_slice(), 
+                self.mpt_table.iter().copied(), 
                 self.calcs,
-            );
-            mpt_tbl.load(&mut layouter)
+            )
         }
     }
 }
