@@ -423,21 +423,11 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
             let ctrl_type = meta.query_advice(ctrl_type, Rotation::cur());
             let enable_rows = Self::lagrange_polynomial_for_row::<2>(ctrl_type);
             let enable = enable_rows * s_enable;
+            let fst = meta.query_advice(acc_data_fields, Rotation::cur());
+            let snd = meta.query_advice(acc_data_fields_ext, Rotation::cur());
+            let hash = meta.query_advice(intermediate_1, Rotation::cur());
 
-            vec![
-                (
-                    enable.clone() * meta.query_advice(acc_data_fields, Rotation::cur()),
-                    meta.query_advice(hash_table.0, Rotation::cur()),
-                ),
-                (
-                    enable.clone() * meta.query_advice(acc_data_fields_ext, Rotation::cur()),
-                    meta.query_advice(hash_table.1, Rotation::cur()),
-                ),
-                (
-                    enable * meta.query_advice(intermediate_1, Rotation::cur()),
-                    meta.query_advice(hash_table.2, Rotation::cur()),
-                ),
-            ]
+            hash_table.build_lookup(meta, enable, fst, snd, hash)
         });
 
         // second hash lookup (Poseidon(hash1, Root) = hash2, Poseidon(hash3, hash2) = hash_final)
@@ -448,21 +438,11 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
             let enable_rows = Self::lagrange_polynomial_for_row::<1>(ctrl_type.clone())
                 + Self::lagrange_polynomial_for_row::<2>(ctrl_type);
             let enable = enable_rows * s_enable;
+            let fst = meta.query_advice(intermediate_1, Rotation::cur());
+            let snd = meta.query_advice(intermediate_2, Rotation::cur());
+            let hash = meta.query_advice(intermediate_2, Rotation::prev());
 
-            vec![
-                (
-                    enable.clone() * meta.query_advice(intermediate_1, Rotation::cur()),
-                    meta.query_advice(hash_table.0, Rotation::cur()),
-                ),
-                (
-                    enable.clone() * meta.query_advice(intermediate_2, Rotation::cur()),
-                    meta.query_advice(hash_table.1, Rotation::cur()),
-                ),
-                (
-                    enable * meta.query_advice(intermediate_2, Rotation::prev()),
-                    meta.query_advice(hash_table.2, Rotation::cur()),
-                ),
-            ]
+            hash_table.build_lookup(meta, enable, fst, snd, hash)
         });
 
         // third hash lookup (Poseidon(nonce, balance) = hash3)
@@ -473,20 +453,11 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
             let enable_rows = Self::lagrange_polynomial_for_row::<1>(ctrl_type);
             let enable = enable_rows * s_enable;
 
-            vec![
-                (
-                    enable.clone() * meta.query_advice(acc_data_fields, Rotation::prev()),
-                    meta.query_advice(hash_table.0, Rotation::cur()),
-                ),
-                (
-                    enable.clone() * meta.query_advice(acc_data_fields, Rotation::cur()),
-                    meta.query_advice(hash_table.1, Rotation::cur()),
-                ),
-                (
-                    enable * meta.query_advice(intermediate_1, Rotation::cur()),
-                    meta.query_advice(hash_table.2, Rotation::cur()),
-                ),
-            ]
+            let fst = meta.query_advice(acc_data_fields, Rotation::prev());
+            let snd = meta.query_advice(acc_data_fields, Rotation::cur());
+            let hash = meta.query_advice(intermediate_1, Rotation::cur());
+
+            hash_table.build_lookup(meta, enable, fst, snd, hash)
         });
 
         // equality constraint: hash_final and Root
@@ -602,20 +573,11 @@ impl<'d, Fp: FieldExt> StorageChip<'d, Fp> {
     ) -> StorageChipConfig {
         meta.lookup_any("value hash", |meta| {
             let enable = meta.query_advice(s_enable, Rotation::cur());
-            vec![
-                (
-                    enable.clone() * meta.query_advice(v_limbs[0], Rotation::cur()),
-                    meta.query_advice(hash_table.0, Rotation::cur()),
-                ),
-                (
-                    enable.clone() * meta.query_advice(v_limbs[1], Rotation::cur()),
-                    meta.query_advice(hash_table.1, Rotation::cur()),
-                ),
-                (
-                    enable * meta.query_advice(hash, Rotation::prev()),
-                    meta.query_advice(hash_table.2, Rotation::cur()),
-                ),
-            ]
+            let fst = meta.query_advice(v_limbs[0], Rotation::cur());
+            let snd = meta.query_advice(v_limbs[1], Rotation::cur());
+            let hash = meta.query_advice(hash, Rotation::prev());
+
+            hash_table.build_lookup(meta, enable, fst, snd, hash)
         });
 
         StorageChipConfig { v_limbs }

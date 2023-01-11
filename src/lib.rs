@@ -288,10 +288,26 @@ pub struct EthTrieConfig {
 }
 
 impl EthTrieConfig {
+    /// the beginning of hash table index
+    pub fn hash_tbl_begin(&self) -> usize {
+        self.hash_tbl.commitment_index()[0]
+    }
+
+    /// the beginning of mpt table index
+    pub fn mpt_tbl_begin(&self) -> usize {
+        self.mpt_tbl
+            .as_ref()
+            .expect("only call for non-lite circuit")
+            .mpt_table_begin_index()
+    }
+
     /// configure for lite circuit (no mpt table included, for fast testing)
-    pub fn configure_lite<Fp: FieldExt>(meta: &mut ConstraintSystem<Fp>) -> Self {
+    pub fn configure_base<Fp: FieldExt>(
+        meta: &mut ConstraintSystem<Fp>,
+        hash_tbl: [Column<Advice>; 4],
+    ) -> Self {
         let tables = mpt::MPTOpTables::configure_create(meta);
-        let hash_tbl = mpt::HashTable::configure_create(meta);
+        let hash_tbl = mpt::HashTable::configure_assign(&hash_tbl);
 
         let layer = LayerGadget::configure(
             meta,
@@ -360,13 +376,20 @@ impl EthTrieConfig {
         }
     }
 
+    /// configure for lite circuit (no mpt table included, for fast testing)
+    pub fn configure_lite<Fp: FieldExt>(meta: &mut ConstraintSystem<Fp>) -> Self {
+        let hash_tbl = [0; 4].map(|_| meta.advice_column());
+        Self::configure_base(meta, hash_tbl)
+    }
+
     /// configure for full circuit
     pub fn configure_sub<Fp: FieldExt>(
         meta: &mut ConstraintSystem<Fp>,
         mpt_tbl: [Column<Advice>; 7],
+        hash_tbl: [Column<Advice>; 4],
         randomness: Expression<Fp>,
     ) -> Self {
-        let mut lite_cfg = Self::configure_lite(meta);
+        let mut lite_cfg = Self::configure_base(meta, hash_tbl);
         let mpt_tbl = MPTTable::configure(meta, mpt_tbl, randomness);
         let layer = &lite_cfg.layer;
         let layer_exported = layer.exported_cols(0);
@@ -717,17 +740,17 @@ pub struct CommitmentIndexs([usize; 3], [usize; 3], Option<usize>);
 impl CommitmentIndexs {
     /// the hash col's pos
     pub fn hash_pos(&self) -> (usize, usize) {
-        (self.0[2], self.1[0])
+        (self.0[0], self.1[0])
     }
 
     /// the first input col's pos
     pub fn left_pos(&self) -> (usize, usize) {
-        (self.0[0], self.1[1])
+        (self.0[1], self.1[1])
     }
 
     /// the second input col's pos
     pub fn right_pos(&self) -> (usize, usize) {
-        (self.0[1], self.1[2])
+        (self.0[2], self.1[2])
     }
 
     /// the beginning of mpt table index
@@ -748,7 +771,7 @@ impl CommitmentIndexs {
         let hash_circuit_indexs = config.commitment_index();
 
         Self(
-            trie_circuit_indexs,
+            trie_circuit_indexs[0..3].try_into().unwrap(),
             hash_circuit_indexs[0..3].try_into().unwrap(),
             None,
         )
@@ -771,7 +794,7 @@ impl CommitmentIndexs {
         let hash_circuit_indexs = config.commitment_index();
 
         Self(
-            trie_circuit_indexs,
+            trie_circuit_indexs[0..3].try_into().unwrap(),
             hash_circuit_indexs[0..3].try_into().unwrap(),
             Some(mpt_table_start),
         )
@@ -797,8 +820,9 @@ impl<Fp: Hashable, const LITE: bool> Circuit<Fp> for EthTrieCircuit<Fp, LITE> {
             EthTrieConfig::configure_lite(meta)
         } else {
             let base = [0; 7].map(|_| meta.advice_column());
+            let hash_tbl = [0; 4].map(|_| meta.advice_column());
             let randomness = Expression::Constant(Fp::from(get_rand_base()));
-            EthTrieConfig::configure_sub(meta, base, randomness)
+            EthTrieConfig::configure_sub(meta, base, hash_tbl, randomness)
         }
     }
 
