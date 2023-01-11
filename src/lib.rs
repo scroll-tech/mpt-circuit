@@ -395,20 +395,17 @@ impl EthTrieConfig {
         &self,
         layouter: &mut impl Layouter<Fp>,
         randomness: Option<Fp>,
-        ops: impl IntoIterator<Item=&'d AccountOp<Fp>>,
-        tbl_tips: impl IntoIterator<Item=MPTProofType>,
-        rows: usize,        
-    ) -> Result<(), Error>{
-
-        let mpt_entries = tbl_tips.into_iter()
-            .zip(ops)
-            .map(|(proof_type, op)| 
-                if let Some(rand) = randomness {
-                    MPTEntry::from_op(proof_type, op, rand)
-                }else {
-                    MPTEntry::from_op_no_base(proof_type, op)
-                }
-            );
+        ops: impl IntoIterator<Item = &'d AccountOp<Fp>>,
+        tbl_tips: impl IntoIterator<Item = MPTProofType>,
+        rows: usize,
+    ) -> Result<(), Error> {
+        let mpt_entries = tbl_tips.into_iter().zip(ops).map(|(proof_type, op)| {
+            if let Some(rand) = randomness {
+                MPTEntry::from_op(proof_type, op, rand)
+            } else {
+                MPTEntry::from_op_no_base(proof_type, op)
+            }
+        });
 
         let mpt_tbl = MPTTable::construct(
             self.mpt_tbl.clone().expect("only call under NON-LITE mode"),
@@ -416,7 +413,6 @@ impl EthTrieConfig {
             rows,
         );
         mpt_tbl.load(layouter)
-
     }
 
     /// synthesize core part (without mpt table), require a `Hashable` trait
@@ -816,10 +812,10 @@ impl<Fp: Hashable, const LITE: bool> Circuit<Fp> for EthTrieCircuit<Fp, LITE> {
             Ok(())
         } else {
             config.load_mpt_table(
-                &mut layouter, 
-                Some(Fp::from(get_rand_base())), 
-                self.ops.as_slice(), 
-                self.mpt_table.iter().copied(), 
+                &mut layouter,
+                Some(Fp::from(get_rand_base())),
+                self.ops.as_slice(),
+                self.mpt_table.iter().copied(),
                 self.calcs,
             )
         }
