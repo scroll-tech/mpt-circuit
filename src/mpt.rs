@@ -177,23 +177,19 @@ impl MPTOpTables {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct HashTable(pub Column<Advice>, pub Column<Advice>, pub Column<Advice>);
+pub(crate) struct HashTable(pub [Column<Advice>; 4]);
 
 impl HashTable {
     pub fn configure_create<Fp: Field>(meta: &mut ConstraintSystem<Fp>) -> Self {
-        Self(
-            meta.advice_column(),
-            meta.advice_column(),
-            meta.advice_column(),
-        )
+        Self([0; 4].map(|_| meta.advice_column()))
     }
 
-    fn configure_assign(cols: &[Column<Advice>]) -> Self {
-        Self(cols[0], cols[1], cols[2])
+    pub fn configure_assign(cols: &[Column<Advice>]) -> Self {
+        Self([cols[0], cols[1], cols[2], cols[3]])
     }
 
-    pub fn commitment_index(&self) -> [usize; 3] {
-        [self.0.index(), self.1.index(), self.2.index()]
+    pub fn commitment_index(&self) -> [usize; 4] {
+        self.0.map(|col| col.index())
     }
 
     pub fn build_lookup<'d, Fp: FieldExt>(
@@ -206,14 +202,18 @@ impl HashTable {
     ) -> Vec<(Expression<Fp>, Expression<Fp>)> {
         vec![
             (
-                enable.clone() * fst,
-                meta.query_advice(self.0, Rotation::cur()),
+                enable.clone() * hash,
+                meta.query_advice(self.0[0], Rotation::cur()),
             ),
             (
-                enable.clone() * snd,
-                meta.query_advice(self.1, Rotation::cur()),
+                enable.clone() * fst,
+                meta.query_advice(self.0[1], Rotation::cur()),
             ),
-            (enable * hash, meta.query_advice(self.2, Rotation::cur())),
+            (enable * snd, meta.query_advice(self.0[2], Rotation::cur())),
+            (
+                Expression::Constant(Fp::zero()),
+                meta.query_advice(self.0[3], Rotation::cur()),
+            ),
         ]
     }
 
@@ -247,9 +247,9 @@ impl HashTable {
             || "hash table",
             |mut table| {
                 // default: 0, 0, 0
-                table.assign_advice(|| "default", self.0, 0, || Value::known(Fp::zero()))?;
-                table.assign_advice(|| "default", self.1, 0, || Value::known(Fp::zero()))?;
-                table.assign_advice(|| "default", self.2, 0, || Value::known(Fp::zero()))?;
+                for col in self.0 {
+                    table.assign_advice(|| "default", col, 0, || Value::known(Fp::zero()))?;
+                }
 
                 hashing_records
                     .clone()
@@ -258,11 +258,18 @@ impl HashTable {
                         let (lh, rh, h) = val;
                         let offset = offset + 1;
 
-                        table.assign_advice(|| "left", self.0, offset, || Value::known(*lh))?;
+                        table.assign_advice(|| "result", self.0[0], offset, || Value::known(*h))?;
 
-                        table.assign_advice(|| "right", self.1, offset, || Value::known(*rh))?;
+                        table.assign_advice(|| "left", self.0[1], offset, || Value::known(*lh))?;
 
-                        table.assign_advice(|| "result", self.2, offset, || Value::known(*h))?;
+                        table.assign_advice(|| "right", self.0[2], offset, || Value::known(*rh))?;
+
+                        table.assign_advice(
+                            || "ctrl_pad",
+                            self.0[3],
+                            offset,
+                            || Value::known(Fp::zero()),
+                        )?;
 
                         Ok(())
                     })
