@@ -438,16 +438,37 @@ impl EthTrieConfig {
         mpt_tbl.load(layouter)
     }
 
-    /// synthesize core part (without mpt table), require a `Hashable` trait
-    /// on the working field
-    pub fn synthesize_core<Fp: Hashable>(
+    /// synthesize the hash table part, the randomness also specify
+    /// if the base part of mpt table should be assigned
+    pub fn load_hash_table<'d, Fp: Hashable>(
         &self,
         layouter: &mut impl Layouter<Fp>,
-        ops: &[AccountOp<Fp>],
+        hash_traces: impl Iterator<Item = &'d (Fp, Fp, Fp)> + Clone,
+        rows: usize,
+    ) -> Result<(), Error> {
+        self.hash_tbl.fill_with_paddings(
+            layouter,
+            HashTracesSrc::from(hash_traces),
+            (
+                Fp::zero(),
+                Fp::zero(),
+                Hashable::hash([Fp::zero(), Fp::zero()]),
+            ),
+            rows,
+        )
+    }
+
+    /// synthesize core part without advice tables (hash and mpt table),
+    /// require a `Hashable` trait on the working field
+    pub fn synthesize_core<'d, Fp: Hashable>(
+        &self,
+        layouter: &mut impl Layouter<Fp>,
+        ops: impl Iterator<Item = &'d AccountOp<Fp>> + Clone,
         rows: usize,
     ) -> Result<(), Error> {
         let start_root = ops
-            .first()
+            .clone()
+            .next()
             .map(|op| op.account_root_before())
             .unwrap_or_else(Fp::zero);
 
@@ -459,7 +480,7 @@ impl EthTrieConfig {
                 let mut start = self.layer.assign(&mut region, rows, start_root)?;
 
                 let empty_account = Default::default();
-                for op in ops {
+                for op in ops.clone() {
                     let block_start = start;
                     self.layer.pace_op(
                         &mut region,
@@ -526,18 +547,6 @@ impl EthTrieConfig {
 
                 Ok(())
             },
-        )?;
-
-        let hash_traces_i = ops.iter().flat_map(|op| op.hash_traces());
-        self.hash_tbl.fill_with_paddings(
-            layouter,
-            HashTracesSrc::from(hash_traces_i),
-            (
-                Fp::zero(),
-                Fp::zero(),
-                Hashable::hash([Fp::zero(), Fp::zero()]),
-            ),
-            rows,
         )?;
 
         self.tables.fill_constant(
@@ -659,33 +668,40 @@ impl<Fp: Hashable> EthTrieCircuit<Fp, false> {
     }
 }
 
-use hash::HashCircuit as PoseidonHashCircuit;
-/// the reform hash circuit
-pub struct HashCircuit<F: Hashable>(PoseidonHashCircuit<F, 32>);
+/// hash circuit as the companion of mpt hashes
+pub struct HashCircuit<F: Hashable>(hash::PoseidonHashTable<F>, usize);
 
 impl<Fp: Hashable> HashCircuit<Fp> {
     /// re-warped, all-in-one creation
     pub fn new(calcs: usize, input_with_check: &[&(Fp, Fp, Fp)]) -> Self {
-        let mut cr = PoseidonHashCircuit::<Fp, 32>::new(calcs);
-        cr.constant_inputs_with_check(input_with_check.iter().copied());
-        Self(cr)
+        let mut tbl = hash::PoseidonHashTable::default();
+        tbl.constant_inputs_with_check(input_with_check.iter().copied());
+        Self(tbl, calcs)
     }
 }
 
 impl<Fp: Hashable> Circuit<Fp> for HashCircuit<Fp> {
-    type Config = <PoseidonHashCircuit<Fp, 32> as Circuit<Fp>>::Config;
-    type FloorPlanner = <PoseidonHashCircuit<Fp, 32> as Circuit<Fp>>::FloorPlanner;
+    type Config = hash::PoseidonHashConfig<Fp>;
+    type FloorPlanner = SimpleFloorPlanner;
 
     fn without_witnesses(&self) -> Self {
-        Self(self.0.without_witnesses())
+        Self(Default::default(), self.1)
     }
 
     fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
-        <PoseidonHashCircuit<Fp, 32> as Circuit<Fp>>::configure(meta)
+        let hash_tbl = [0; 4].map(|_| meta.advice_column());
+        hash::PoseidonHashConfig::configure_sub(meta, hash_tbl, hash_circuit::DEFAULT_STEP)
     }
 
-    fn synthesize(&self, config: Self::Config, layouter: impl Layouter<Fp>) -> Result<(), Error> {
-        self.0.synthesize(config, layouter)
+    fn synthesize(
+        &self,
+        config: Self::Config,
+        mut layouter: impl Layouter<Fp>,
+    ) -> Result<(), Error> {
+        let chip = hash::PoseidonHashChip::<Fp, { hash_circuit::DEFAULT_STEP }>::construct(
+            config, &self.0, self.1,
+        );
+        chip.load(&mut layouter)
     }
 }
 
@@ -831,7 +847,12 @@ impl<Fp: Hashable, const LITE: bool> Circuit<Fp> for EthTrieCircuit<Fp, LITE> {
         config: Self::Config,
         mut layouter: impl Layouter<Fp>,
     ) -> Result<(), Error> {
-        config.synthesize_core(&mut layouter, self.ops.as_slice(), self.calcs)?;
+        config.load_hash_table(
+            &mut layouter,
+            self.ops.iter().flat_map(|op| op.hash_traces()),
+            self.calcs,
+        )?;
+        config.synthesize_core(&mut layouter, self.ops.iter(), self.calcs)?;
         if LITE {
             Ok(())
         } else {
