@@ -72,7 +72,10 @@ use halo2_proofs::{
 use lazy_static::lazy_static;
 
 #[derive(Clone, Debug)]
-pub(crate) struct MPTOpTables(pub TableColumn, pub TableColumn, pub TableColumn);
+pub(crate) struct MPTOpTables(
+    TableColumn, // op mark 
+    [TableColumn; 3], // op rules
+);
 
 lazy_static! {
     static ref OPMAP : Vec<(HashType, HashType)> = {
@@ -115,9 +118,23 @@ impl MPTOpTables {
     pub fn configure_create<Fp: Field>(meta: &mut ConstraintSystem<Fp>) -> Self {
         Self(
             meta.lookup_table_column(),
-            meta.lookup_table_column(),
-            meta.lookup_table_column(),
+            [0;3].map(|_|meta.lookup_table_column()),
         )
+    }
+
+    pub fn build_lookup_any<Fp: FieldExt>(
+        &self,
+        enable: Expression<Fp>,
+        rules: impl IntoIterator<Item = Expression<Fp>>,
+        mark: u64,
+    ) -> Vec<(Expression<Fp>, TableColumn)> {
+        let mut ret : Vec<_> = rules
+            .into_iter()
+            .map(|exp|enable.clone() * exp)
+            .zip(self.1)
+            .collect();
+        ret.push((enable * Expression::Constant(Fp::from(mark)), self.0));
+        ret
     }
 
     pub fn build_lookup<Fp: FieldExt>(
@@ -127,47 +144,39 @@ impl MPTOpTables {
         new: Expression<Fp>,
         mark: u64,
     ) -> Vec<(Expression<Fp>, TableColumn)> {
-        vec![
-            (enable.clone() * old, self.0),
-            (enable.clone() * new, self.1),
-            (enable * Expression::Constant(Fp::from(mark)), self.2),
-        ]
+        self.build_lookup_any(enable, [old, new], mark)
     }
 
     pub fn fill_constant<Fp: FieldExt>(
         &self,
         layouter: &mut impl Layouter<Fp>,
-        rules: impl Iterator<Item = (u32, u32, u32)> + Clone,
+        rules: impl Iterator<Item = ([u32;3], u32)> + Clone,
     ) -> Result<(), Error> {
         layouter.assign_table(
             || "op table",
             |mut table| {
-                // default: 0, 0, 0
-                table.assign_cell(|| "default", self.0, 0, || Value::known(Fp::zero()))?;
-                table.assign_cell(|| "default", self.1, 0, || Value::known(Fp::zero()))?;
-                table.assign_cell(|| "default", self.2, 0, || Value::known(Fp::zero()))?;
+                // default line
+                table.assign_cell(|| "default mark", self.0, 0, || Value::known(Fp::zero()))?;
+                for i in 0..3 {
+                    table.assign_cell(|| "default rule", self.1[i], 0, || Value::known(Fp::zero()))?;
+                }
 
-                for (offset, item) in rules.clone().enumerate() {
+                for (offset, (items, mark)) in rules.clone().enumerate() {
                     let offset = offset + 1;
-                    table.assign_cell(
-                        || "cur",
-                        self.0,
-                        offset,
-                        || Value::known(Fp::from(item.0 as u64)),
-                    )?;
-
-                    table.assign_cell(
-                        || "next",
-                        self.1,
-                        offset,
-                        || Value::known(Fp::from(item.1 as u64)),
-                    )?;
+                    for (rule, col) in items.into_iter().zip(self.1) {
+                        table.assign_cell(
+                            || "rule item",
+                            col,
+                            offset,
+                            || Value::known(Fp::from(rule as u64)),
+                        )?;    
+                    }
 
                     table.assign_cell(
                         || "mark",
-                        self.2,
+                        self.0,
                         offset,
-                        || Value::known(Fp::from(item.2 as u64)),
+                        || Value::known(Fp::from(mark as u64)),
                     )?;
                 }
                 Ok(())
@@ -404,15 +413,15 @@ impl MPTOpGadget {
         }
     }
 
-    pub fn transition_rules() -> impl Iterator<Item = (u32, u32, u32)> + Clone {
+    pub fn transition_rules() -> impl Iterator<Item = ([u32; 3], u32)> + Clone {
         let i1 = TRANSMAP
             .iter()
             .copied()
-            .map(|(a, b)| (a as u32, b as u32, CtrlTransitionKind::Mpt as u32));
+            .map(|(a, b)| ([a as u32, b as u32, 0], CtrlTransitionKind::Mpt as u32));
         let i2 = OPMAP
             .iter()
             .copied()
-            .map(|(a, b)| (a as u32, b as u32, CtrlTransitionKind::Operation as u32));
+            .map(|(a, b)| ([a as u32, b as u32, 0], CtrlTransitionKind::Operation as u32));
         i1.chain(i2)
     }
 
@@ -1186,7 +1195,7 @@ mod test {
                 &mut layouter,
                 TRANSMAP
                     .iter()
-                    .map(|(a, b)| (*a as u32, *b as u32, CtrlTransitionKind::Mpt as u32)),
+                    .map(|(a, b)| ([*a as u32, *b as u32, 0], CtrlTransitionKind::Mpt as u32)),
             )?;
 
             config
@@ -1373,8 +1382,7 @@ mod test {
                 &mut layouter,
                 OPMAP
                     .iter()
-                    .map(|(a, b)| (*a as u32, *b as u32, CtrlTransitionKind::Operation as u32))
-                    .chain(Some((0, 0, CtrlTransitionKind::Operation as u32))),
+                    .map(|(a, b)| ([*a as u32, *b as u32, 0], CtrlTransitionKind::Operation as u32)),
             )?;
 
             // op chip now need hash table (for key hash lookup)

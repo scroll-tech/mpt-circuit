@@ -242,11 +242,11 @@ impl AccountGadget {
         }
     }
 
-    pub fn transition_rules() -> impl Iterator<Item = (u32, u32, u32)> + Clone {
+    pub fn transition_rules() -> impl Iterator<Item = ([u32; 3], u32)> + Clone {
         TRANSMAP
             .iter()
             .copied()
-            .map(|(a, b)| (a, b, CtrlTransitionKind::Account as u32))
+            .map(|(a, b)| ([a, b, 0], CtrlTransitionKind::Account as u32))
     }
 
     /// assign data and enable flag for account circuit
