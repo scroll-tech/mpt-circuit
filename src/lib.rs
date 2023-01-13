@@ -158,16 +158,21 @@ impl<Fp: FieldExt> Circuit<Fp> for SimpleTrie<Fp> {
     }
 
     fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
-        let layer = LayerGadget::configure(meta, 2, MPTOpGadget::min_free_cols());
+        let layer = LayerGadget::configure(meta, 2, 
+            MPTOpGadget::min_free_cols(),
+            MPTOpGadget::min_ctrl_types(),
+        );
         let padding = PaddingGadget::configure(
             meta,
             layer.public_sel(),
             layer.exported_cols(OP_PADDING).as_slice(),
+            layer.get_ctrl_type_flags(),
         );
         let mpt = MPTOpGadget::configure_simple(
             meta,
             layer.public_sel(),
             layer.exported_cols(OP_MPT).as_slice(),
+            layer.get_ctrl_type_flags(),
             layer.get_free_cols(),
             Some(layer.get_root_indexs()),
         );
@@ -319,16 +324,25 @@ impl EthTrieConfig {
                     StorageGadget::min_free_cols(),
                 ),
             ),
+            std::cmp::max(
+                MPTOpGadget::min_ctrl_types(),
+                std::cmp::max(
+                    AccountGadget::min_ctrl_types(),
+                    StorageGadget::min_ctrl_types(),
+                ),
+            ),
         );
         let padding = PaddingGadget::configure(
             meta,
             layer.public_sel(),
             layer.exported_cols(OP_PADDING).as_slice(),
+            layer.get_ctrl_type_flags(),
         );
         let account_trie = MPTOpGadget::configure(
             meta,
             layer.public_sel(),
             layer.exported_cols(OP_TRIE_ACCOUNT).as_slice(),
+            layer.get_ctrl_type_flags(),
             layer.get_free_cols(),
             Some(layer.get_root_indexs()),
             tables.clone(),
@@ -338,6 +352,7 @@ impl EthTrieConfig {
             meta,
             layer.public_sel(),
             layer.exported_cols(OP_TRIE_STATE).as_slice(),
+            layer.get_ctrl_type_flags(),
             layer.get_free_cols(),
             None,
             tables.clone(),
@@ -347,6 +362,7 @@ impl EthTrieConfig {
             meta,
             layer.public_sel(),
             layer.exported_cols(OP_ACCOUNT).as_slice(),
+            layer.get_ctrl_type_flags(),
             layer.get_free_cols(),
             Some(layer.get_address_index()),
             tables.clone(),
@@ -356,6 +372,7 @@ impl EthTrieConfig {
             meta,
             layer.public_sel(),
             layer.exported_cols(OP_STORAGE).as_slice(),
+            layer.get_ctrl_type_flags(),
             layer.get_free_cols(),
             hash_tbl.clone(),
         );

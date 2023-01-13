@@ -78,20 +78,20 @@ pub(crate) struct MPTOpTables(
 );
 
 lazy_static! {
-    static ref OPMAP : Vec<(HashType, HashType)> = {
+    static ref OPMAP : Vec<(HashType, HashType, HashType)> = {
         vec![
-            (HashType::Start, HashType::Start),
-            (HashType::Empty, HashType::Empty),
-            (HashType::Empty, HashType::Leaf),
-            (HashType::Leaf, HashType::Empty),
-            (HashType::Leaf, HashType::Leaf),
-            (HashType::Middle, HashType::Middle),
-            (HashType::LeafExt, HashType::Middle),
-            (HashType::LeafExt, HashType::LeafExt),
-            (HashType::LeafExtFinal, HashType::Middle),
-            (HashType::LeafExtFinal, HashType::LeafExtFinal),
-            (HashType::Middle, HashType::LeafExt),
-            (HashType::Middle, HashType::LeafExtFinal),
+            (HashType::Start, HashType::Start, HashType::Start),
+            (HashType::Empty, HashType::Empty, HashType::Empty),
+            (HashType::Empty, HashType::Leaf, HashType::Leaf),
+            (HashType::Leaf, HashType::Empty, HashType::Leaf),
+            (HashType::Leaf, HashType::Leaf, HashType::Leaf),
+            (HashType::Middle, HashType::Middle, HashType::Middle),
+            (HashType::LeafExt, HashType::Middle, HashType::LeafExt),
+            (HashType::LeafExt, HashType::LeafExt, HashType::LeafExt),
+            (HashType::LeafExtFinal, HashType::Middle, HashType::LeafExtFinal),
+            (HashType::LeafExtFinal, HashType::LeafExtFinal, HashType::LeafExtFinal),
+            (HashType::Middle, HashType::LeafExt, HashType::LeafExt),
+            (HashType::Middle, HashType::LeafExtFinal, HashType::LeafExtFinal),
         ]
     };
     static ref TRANSMAP : Vec<(HashType, HashType)> = {
@@ -295,6 +295,8 @@ struct MPTOpConfig {
     s_enable: Column<Advice>,
     s_path: Column<Advice>,
     depth: Column<Advice>,
+    ctrl_type: Column<Advice>,
+    s_ctrl_type: [Column<Advice>; 6],
     old_hash_type: Column<Advice>,
     new_hash_type: Column<Advice>,
     sibling: Column<Advice>,
@@ -324,35 +326,42 @@ impl MPTOpGadget {
         8
     }
 
+    pub fn min_ctrl_types() -> usize {
+        6
+    }
+
     /// if the gadget would be used only once, this entry is more easy
     pub fn configure_simple<Fp: FieldExt>(
         meta: &mut ConstraintSystem<Fp>,
         sel: Selector,
         exported: &[Column<Advice>],
+        s_ctrl_type: &[Column<Advice>],
         free: &[Column<Advice>],
         root_index: Option<(Column<Advice>, Column<Advice>)>,
     ) -> Self {
         let tables = MPTOpTables::configure_create(meta);
         let hash_tbls = HashTable::configure_create(meta);
 
-        Self::configure(meta, sel, exported, free, root_index, tables, hash_tbls)
+        Self::configure(meta, sel, exported, s_ctrl_type, free, root_index, tables, hash_tbls)
     }
 
     /// create gadget from assigned cols, we need:
     /// + circuit selector * 1
     /// + exported col * 4 (MUST by following sequence: layout_flag, s_enable, old_val, new_val)
+    /// + s_op_flags * 6 (corresponding 6 ctrl_types)
     /// + free col * 8
     /// notice the gadget has bi-direction exporting (on top it exporting mpt root and bottom exporting leaf)
     pub fn configure<Fp: FieldExt>(
         meta: &mut ConstraintSystem<Fp>,
         sel: Selector,
         exported: &[Column<Advice>],
+        s_ctrl_type: &[Column<Advice>],
         free: &[Column<Advice>],
         root_index: Option<(Column<Advice>, Column<Advice>)>,
         tables: MPTOpTables,
         hash_tbl: HashTable,
     ) -> Self {
-        assert!(free.len() >= 8, "require at least 6 free cols");
+        assert!(free.len() >= 8, "require at least 8 free cols");
 
         let g_config = MPTOpConfig {
             tables,
@@ -360,14 +369,16 @@ impl MPTOpGadget {
             s_path: free[0],
             depth: free[1],
             new_hash_type: free[2],
-            sibling: free[3],
-            path: free[4],
-            key_aux: free[5],
-            old_hash_type: exported[0],
+            old_hash_type: free[3],
+            sibling: free[4],
+            path: free[5],
+            key_aux: free[6],
+            ctrl_type: exported[0],
             s_enable: exported[1],
             old_val: exported[2],
             new_val: exported[3],
             acc_key: exported[4],
+            s_ctrl_type: s_ctrl_type[0..6].try_into().expect("same size"),
             hash_table: hash_tbl,
         };
 
@@ -421,7 +432,7 @@ impl MPTOpGadget {
         let i2 = OPMAP
             .iter()
             .copied()
-            .map(|(a, b)| ([a as u32, b as u32, 0], CtrlTransitionKind::Operation as u32));
+            .map(|(a, b, c)| ([a as u32, b as u32, c as u32], CtrlTransitionKind::Operation as u32));
         i1.chain(i2)
     }
 
@@ -718,6 +729,8 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
 
 #[derive(Clone, Debug)]
 struct OpChipConfig {
+    ctrl_type: Column<Advice>,
+    s_ctrl_type: [Column<Advice>;6],
     sibling: Column<Advice>,
     path: Column<Advice>,
     depth: Column<Advice>,
@@ -758,6 +771,8 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
         let sibling = g_config.sibling;
         let depth_aux = g_config.depth;
         let key_aux = g_config.key_aux;
+        let ctrl_type = g_config.ctrl_type;
+        let s_ctrl_type = g_config.s_ctrl_type;
 
         let s_row = g_config.s_row;
         let s_enable = g_config.s_enable;
@@ -849,6 +864,8 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
         });
 
         OpChipConfig {
+            ctrl_type,
+            s_ctrl_type,
             path,
             sibling,
             depth: depth_aux,
@@ -899,6 +916,27 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
             offset,
             || Value::known(Fp::zero()),
         )?;
+        let ctrl_type_head_row = self.data.ctrl_type(0);
+        region.assign_advice(
+            || "op type start",
+            config.ctrl_type,
+            offset,
+            || Value::known(Fp::from(ctrl_type_head_row)),
+        )?;
+        region.assign_advice(
+            || "enabling s_op",
+            config.s_ctrl_type[ctrl_type_head_row as usize],
+            offset,
+            || Value::known(Fp::one()),
+        )?;
+
+        region.assign_advice(
+            || "sibling padding",
+            config.sibling,
+            offset,
+            || Value::known(Fp::zero()),
+        )?;
+
         offset += 1;
 
         let mut cur_depth = Fp::one();
@@ -906,17 +944,27 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
 
         let extend_proof = self.data.extended_proof();
 
-        for (path, sibling) in paths.iter().zip(siblings.iter()) {
+        for (index, (path, sibling)) in paths.iter().zip(siblings.iter()).enumerate() {
             acc_key = *path * cur_depth + acc_key;
 
-            region.assign_advice(|| "path", config.path, offset, || Value::known(*path))?;
+            region.assign_advice(
+                || "path", 
+                config.path, 
+                offset, 
+                || Value::known(*path)
+            )?;
             region.assign_advice(
                 || "acckey",
                 config.acc_key,
                 offset,
                 || Value::known(acc_key),
             )?;
-            region.assign_advice(|| "depth", config.depth, offset, || Value::known(cur_depth))?;
+            region.assign_advice(
+                || "depth", 
+                config.depth, 
+                offset, 
+                || Value::known(cur_depth)
+            )?;
             region.assign_advice(
                 || "sibling",
                 config.sibling,
@@ -930,12 +978,38 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
                 offset,
                 || Value::known(extend_proof.map(|pf| pf.1).unwrap_or_default()),
             )?;
+            let ctrl_type = self.data.ctrl_type(index + 1);
+            region.assign_advice(
+                || "op type",
+                config.ctrl_type,
+                offset,
+                || Value::known(Fp::from(ctrl_type)),
+            )?;
+            region.assign_advice(
+                || "enabling s_op",
+                config.s_ctrl_type[ctrl_type as usize],
+                offset,
+                || Value::known(Fp::one()),
+            )?;
 
             cur_depth = cur_depth.double();
             offset += 1;
         }
 
         // final line
+        let ctrl_type = self.data.ctrl_type(paths.len() + 1);
+        region.assign_advice(
+            || "op type",
+            config.ctrl_type,
+            offset,
+            || Value::known(Fp::from(ctrl_type)),
+        )?;
+        region.assign_advice(
+            || "enabling s_op",
+            config.s_ctrl_type[ctrl_type as usize],
+            offset,
+            || Value::known(Fp::one()),
+        )?;        
         region.assign_advice(
             || "path",
             config.path,
@@ -954,7 +1028,12 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
             offset,
             || Value::known(self.data.key_immediate),
         )?;
-        region.assign_advice(|| "depth", config.depth, offset, || Value::known(cur_depth))?;
+        region.assign_advice(
+            || "depth", 
+            config.depth, 
+            offset, 
+            || Value::known(cur_depth)
+        )?;
         region.assign_advice(
             || "sibling last (key for extended or padding)",
             config.sibling,
@@ -987,6 +1066,8 @@ mod test {
             Self {
                 s_row: meta.complex_selector(),
                 s_enable: meta.advice_column(),
+                ctrl_type: meta.advice_column(),
+                s_ctrl_type: [meta.advice_column();6],//notice we just need one col as dummy array here
                 s_path: meta.advice_column(),
                 sibling: meta.advice_column(),
                 depth: meta.advice_column(),
@@ -1016,6 +1097,18 @@ mod test {
                 offset,
                 || Value::known(rand_fp()),
             )?;
+            region.assign_advice(
+                || "flushing",
+                self.ctrl_type,
+                offset,
+                || Value::known(rand_fp()),
+            )?;
+            region.assign_advice(
+                || "flushing",
+                self.s_ctrl_type[0],
+                offset,
+                || Value::known(rand_fp()),
+            )?;                        
             region.assign_advice(
                 || "flushing",
                 self.depth,
@@ -1293,8 +1386,6 @@ mod test {
     #[derive(Clone)]
     struct TestOpCircuit {
         data: SingleOp<Fp>,
-        old_hash_types: Vec<HashType>,
-        new_hash_types: Vec<HashType>,
     }
 
     impl Circuit<Fp> for TestOpCircuit {
@@ -1328,7 +1419,7 @@ mod test {
                 |mut region| {
                     let config = &config.global;
                     config.flush_row(&mut region, 0)?;
-                    let next_offset = offset + self.old_hash_types.len();
+                    let next_offset = offset + self.data.old.hash_types.len();
                     //need to fill some other cols
                     for (index, offset) in (offset..next_offset).enumerate() {
                         config.s_row.enable(&mut region, offset)?;
@@ -1343,7 +1434,7 @@ mod test {
                             config.s_path,
                             offset,
                             || {
-                                Value::known(match self.old_hash_types[index] {
+                                Value::known(match self.data.old.hash_types[index] {
                                     HashType::Empty | HashType::Leaf | HashType::Start => {
                                         Fp::zero()
                                     }
@@ -1355,13 +1446,13 @@ mod test {
                             || "old hash_type",
                             config.old_hash_type,
                             offset,
-                            || Value::known(Fp::from(self.old_hash_types[index] as u64)),
+                            || Value::known(Fp::from(self.data.old.hash_types[index] as u64)),
                         )?;
                         region.assign_advice(
                             || "new hash_type",
                             config.new_hash_type,
                             offset,
-                            || Value::known(Fp::from(self.new_hash_types[index] as u64)),
+                            || Value::known(Fp::from(self.data.new.hash_types[index] as u64)),
                         )?;
                     }
 
@@ -1382,7 +1473,7 @@ mod test {
                 &mut layouter,
                 OPMAP
                     .iter()
-                    .map(|(a, b)| ([*a as u32, *b as u32, 0], CtrlTransitionKind::Operation as u32)),
+                    .map(|(a, b, c)| ([*a as u32, *b as u32, *c as u32], CtrlTransitionKind::Operation as u32)),
             )?;
 
             // op chip now need hash table (for key hash lookup)
@@ -1398,13 +1489,7 @@ mod test {
     impl TestOpCircuit {
         fn from_op(op: SingleOp<Fp>) -> Self {
             Self {
-                old_hash_types: op.old.hash_types,
-                new_hash_types: op.new.hash_types,
-                data: SingleOp::<Fp> {
-                    path: op.path,
-                    siblings: op.siblings,
-                    ..Default::default()
-                },
+                data: op,
             }
         }
     }
@@ -1429,12 +1514,15 @@ mod test {
                     key_residual: Fp::from(4u64),
                     old: MPTPath::<Fp>{
                         hash_traces: vec![(Fp::one(), Fp::from(4u64), Fp::zero())],
+                        hash_types: vec![HashType::Start, HashType::Empty],
+                        ..Default::default()
+                    },
+                    new: MPTPath::<Fp> {
+                        hash_types: vec![HashType::Start, HashType::Leaf],
                         ..Default::default()
                     },
                     ..Default::default()
                 },
-                old_hash_types: vec![HashType::Start, HashType::Empty],
-                new_hash_types: vec![HashType::Start, HashType::Leaf],
             }
         };
 
@@ -1447,12 +1535,15 @@ mod test {
                     key_residual: Fp::from(8u64),
                     old: MPTPath::<Fp>{
                         hash_traces: vec![(Fp::one(), Fp::from(9u64), Fp::zero())],
+                        hash_types: vec![HashType::Start, HashType::LeafExtFinal, HashType::Empty],
                         ..Default::default()
                     },
+                    new: MPTPath::<Fp> {
+                        hash_types: vec![HashType::Start, HashType::Middle, HashType::Leaf],
+                        ..Default::default()
+                    },                    
                     ..Default::default()
                 },
-                old_hash_types: vec![HashType::Start, HashType::LeafExtFinal, HashType::Empty],
-                new_hash_types: vec![HashType::Start, HashType::Middle, HashType::Leaf],
             }
         };
 
@@ -1465,24 +1556,27 @@ mod test {
                     key_residual: Fp::from(5u64),
                     old: MPTPath::<Fp>{
                         hash_traces: vec![(Fp::one(), Fp::from(45u64), Fp::zero())],
+                        hash_types: vec![
+                            HashType::Start,
+                            HashType::Middle,
+                            HashType::LeafExt,
+                            HashType::LeafExtFinal,
+                            HashType::Empty,
+                        ],
                         ..Default::default()
                     },
+                    new: MPTPath::<Fp> {
+                        hash_types: vec![
+                            HashType::Start,
+                            HashType::Middle,
+                            HashType::Middle,
+                            HashType::Middle,
+                            HashType::Leaf,
+                        ],
+                        ..Default::default()
+                    },                    
                     ..Default::default()
                 },
-                old_hash_types: vec![
-                    HashType::Start,
-                    HashType::Middle,
-                    HashType::LeafExt,
-                    HashType::LeafExtFinal,
-                    HashType::Empty,
-                ],
-                new_hash_types: vec![
-                    HashType::Start,
-                    HashType::Middle,
-                    HashType::Middle,
-                    HashType::Middle,
-                    HashType::Leaf,
-                ],
             }
         };
     }
@@ -1510,8 +1604,6 @@ mod test {
 
         let k = 5;
         let circuit = TestOpCircuit {
-            old_hash_types: op.old.hash_types.clone(),
-            new_hash_types: op.new.hash_types.clone(),
             data: op,
         };
         let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
@@ -1542,22 +1634,16 @@ mod test {
         fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
             let sel = meta.complex_selector();
             let free_cols = [(); 16].map(|_| meta.advice_column());
-            let exported_cols = [
-                free_cols[0],
-                free_cols[1],
-                free_cols[2],
-                free_cols[3],
-                free_cols[4],
-                free_cols[5],
-                free_cols[6],
-                free_cols[7],
-            ];
+            let exported_cols : [_; 8] = free_cols[0..8].try_into().unwrap();
+            let op_flag_cols : Vec<_> = (0..MPTOpGadget::min_ctrl_types())
+                .map(|_|meta.advice_column()).collect();
 
             GadgetTestConfig {
                 gadget: MPTOpGadget::configure_simple(
                     meta,
                     sel,
                     &exported_cols[..],
+                    op_flag_cols.as_slice(),
                     &free_cols[8..],
                     None,
                 ),

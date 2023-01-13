@@ -60,6 +60,7 @@ pub(crate) struct AccountGadget {
     new_state: AccountChipConfig,
     s_enable: Column<Advice>,
     ctrl_type: Column<Advice>,
+    s_ctrl_type: [Column<Advice>;4],
 
     state_change_key: Column<Advice>,
     state_change_aux: [Column<Advice>; 2],
@@ -70,6 +71,10 @@ impl AccountGadget {
         6
     }
 
+    pub fn min_ctrl_types() -> usize {
+        4
+    }
+
     /// create gadget from assigned cols, we need:
     /// + circuit selector * 1
     /// + exported col * 8 (MUST by following sequence: layout_flag, s_enable, old_val, new_val, key_val and 3 ext field for old/new/key_val)
@@ -78,6 +83,7 @@ impl AccountGadget {
         meta: &mut ConstraintSystem<Fp>,
         sel: Selector,
         exported: &[Column<Advice>],
+        s_ctrl_type: &[Column<Advice>],
         free: &[Column<Advice>],
         address_index: Option<Column<Advice>>,
         tables: mpt::MPTOpTables,
@@ -91,6 +97,7 @@ impl AccountGadget {
         let data_key = exported[4];
         let data_old_ext = exported[5];
         let data_new_ext = exported[6];
+        let s_ctrl_type = s_ctrl_type[0..4].try_into().expect("same size");
         let state_change_key = data_key;
 
         let old_state = AccountChip::configure(
@@ -235,6 +242,7 @@ impl AccountGadget {
         Self {
             s_enable,
             ctrl_type,
+            s_ctrl_type,
             old_state,
             new_state,
             state_change_key,
@@ -306,6 +314,12 @@ impl AccountGadget {
                 offset,
                 || Value::known(Fp::from(index as u64)),
             )?;
+            region.assign_advice(
+                || "enable s_ctrl",
+                self.s_ctrl_type[index as usize],
+                offset,
+                || Value::known(Fp::one()),
+            )?;            
             if index == LAST_ROW {
                 region.assign_advice(
                     || "padding last row",
@@ -611,11 +625,16 @@ pub(crate) struct StorageGadget {
     key: StorageChipConfig,
     s_enable: Column<Advice>,
     ctrl_type: Column<Advice>,
+    s_ctrl_type: Column<Advice>,
 }
 
 impl StorageGadget {
     pub fn min_free_cols() -> usize {
         6
+    }
+
+    pub fn min_ctrl_types() -> usize {
+        1
     }
 
     /// create gadget from assigned cols, we need:
@@ -626,6 +645,7 @@ impl StorageGadget {
         meta: &mut ConstraintSystem<Fp>,
         sel: Selector,
         exported: &[Column<Advice>],
+        s_ctrl_type: &[Column<Advice>],
         _free: &[Column<Advice>],
         hash_tbl: mpt::HashTable,
     ) -> Self {
@@ -634,6 +654,7 @@ impl StorageGadget {
         let s_hash = exported[2];
         let e_hash = exported[3];
         let k_hash = exported[4];
+        let s_ctrl_type = s_ctrl_type[0];
         let s_val_limbs = [exported[2], exported[5]];
         let e_val_limbs = [exported[3], exported[6]];
         let k_val_limbs = [exported[4], exported[7]];
@@ -649,6 +670,7 @@ impl StorageGadget {
         Self {
             s_enable,
             ctrl_type,
+            s_ctrl_type,
             key,
             s_value,
             e_value,
@@ -678,6 +700,13 @@ impl StorageGadget {
             self.ctrl_type,
             offset,
             || Value::known(Fp::zero()),
+        )?;
+
+        region.assign_advice(
+            || "enable s_ctrl",
+            self.s_ctrl_type,
+            offset,
+            || Value::known(Fp::one()),
         )?;
 
         for (config, value) in [
@@ -736,6 +765,7 @@ mod test {
         fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
             let sel = meta.selector();
             let free_cols = [(); 14].map(|_| meta.advice_column());
+            let dummy_s_ctrl = [meta.advice_column();4];
             let exported_cols = [
                 free_cols[0],
                 free_cols[1],
@@ -753,6 +783,7 @@ mod test {
                 meta,
                 sel,
                 exported_cols.as_slice(),
+                dummy_s_ctrl.as_slice(),
                 &free_cols[8..],
                 None,
                 op_tabl.clone(),

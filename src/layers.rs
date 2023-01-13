@@ -37,6 +37,10 @@ pub(crate) struct LayerGadget {
     // its flag when assigned
     s_stepflags: Vec<Column<Advice>>,
     ctrl_type: Column<Advice>,
+    // the s_ctrl_type is supposed to be a series of integers start from 0 and each of the number
+    // is represented the corresponding items in s_ctrl_type array in which the number is just
+    // its index
+    s_ctrl_type: Vec<Column<Advice>>,    
     // the 3 exported value now can be represented by 2-field and the additional
     // field is marked as "ext" (most value still use 1 field only)
     data_0: Column<Advice>,
@@ -74,6 +78,10 @@ impl LayerGadget {
         ]
     }
 
+    pub fn get_ctrl_type_flags(&self) -> &[Column<Advice>] {
+        &self.s_ctrl_type
+    }
+
     pub fn get_free_cols(&self) -> &[Column<Advice>] {
         &self.free_cols
     }
@@ -100,9 +108,13 @@ impl LayerGadget {
         meta: &mut ConstraintSystem<Fp>,
         steps: usize,
         required_cols: usize,
+        minium_ctrl_types: usize,
     ) -> Self {
-        let s_stepflags: Vec<Column<Advice>> = (0..steps).map(|_| meta.advice_column()).collect();
-        let free_cols = (0..required_cols).map(|_| meta.advice_column()).collect();
+        assert!(steps > 0, "at least one step is required");
+        assert!(minium_ctrl_types > 0, "at least one ctrl type is required");
+        let s_stepflags: Vec<_> = (0..steps).map(|_| meta.advice_column()).collect();
+        let free_cols: Vec<_> = (0..required_cols).map(|_| meta.advice_column()).collect();
+        let s_ctrl_type: Vec<_> = (0..minium_ctrl_types).map(|_| meta.advice_column()).collect();
         let sel = meta.complex_selector();
         let series = meta.advice_column();
         let op_type = meta.advice_column();
@@ -142,6 +154,36 @@ impl LayerGadget {
                 sel * (Expression::Constant(Fp::one()) - op_delta_aux * op_delta.clone())
                     * op_delta,
             ]
+        });
+
+        meta.create_gate("s_ctrl flags", |meta| {
+            let sel = meta.query_selector(sel);
+            // setting op flags:
+            // all flags is boolean
+            // one and at most one flag must be enabled
+            // the enabled flas must match with op_type
+            let s_ctrl : Vec<_> = s_ctrl_type.iter().copied().map(|col|meta.query_advice(col, Rotation::cur())).collect();
+
+            let bool_cond = s_ctrl.clone().into_iter()
+                .map(|col_exp|{
+                    sel.clone() * col_exp.clone() * (Expression::Constant(Fp::one()) - col_exp)
+                });
+
+            let one_flag_cond = s_ctrl.clone().into_iter()
+                .reduce(|exp, col_exp|exp + col_exp)
+                .map(|sum_exp|sel.clone() * (Expression::Constant(Fp::one()) - sum_exp));
+            
+            let ctrl_type_cond = s_ctrl.into_iter().enumerate()
+                .map(|(idx, col_exp)|Expression::Constant(Fp::from(idx as u64))*col_exp)
+                .reduce(|exp, col_exp_with_idx|exp + col_exp_with_idx)
+                .map(|w_sum_exp|sel.clone() * (meta.query_advice(ctrl_type, Rotation::cur()) - w_sum_exp));
+
+            let constraints = bool_cond.chain(one_flag_cond).chain(ctrl_type_cond).collect::<Vec<_>>();
+            if constraints.is_empty() {
+                vec![sel * Expression::Constant(Fp::zero())]
+            }else {
+                constraints
+            }
         });
 
         meta.create_gate("index identical", |meta| {
@@ -241,6 +283,7 @@ impl LayerGadget {
             sel,
             series,
             s_stepflags,
+            s_ctrl_type,
             op_type,
             ctrl_type,
             data_0,
@@ -379,6 +422,17 @@ impl LayerGadget {
                     )
                     .map(|_| ())
             })?;
+            // flush all cols to avoid unassigned error
+            self.s_ctrl_type.iter().try_for_each(|col| {
+                region
+                    .assign_advice(
+                        || "flushing op type flag",
+                        *col,
+                        offset,
+                        || Value::known(Fp::zero()),
+                    )
+                    .map(|_| ())
+            })?;            
             [
                 self.data_0,
                 self.data_1,
@@ -656,6 +710,7 @@ impl LayerGadget {
 pub(crate) struct PaddingGadget {
     s_enable: Column<Advice>,
     ctrl_type: Column<Advice>,
+    s_ctrl_type: Column<Advice>,
 }
 
 impl PaddingGadget {
@@ -663,10 +718,12 @@ impl PaddingGadget {
         _meta: &mut ConstraintSystem<Fp>,
         _sel: Selector,
         exported: &[Column<Advice>],
+        s_ctrl_type: &[Column<Advice>],
     ) -> Self {
         Self {
             ctrl_type: exported[0],
             s_enable: exported[1],
+            s_ctrl_type: s_ctrl_type[0],
         }
     }
 
@@ -683,6 +740,12 @@ impl PaddingGadget {
                 offset,
                 || Value::known(Fp::zero()),
             )?;
+            region.assign_advice(
+                || "enable s_ctrl",
+                self.s_ctrl_type,
+                offset,
+                || Value::known(Fp::one()),
+            )?;            
             region.assign_advice(
                 || "enable padding",
                 self.s_enable,
@@ -727,9 +790,14 @@ mod test {
         }
 
         fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
-            let layer = LayerGadget::configure(meta, 1, 3);
+            let layer = LayerGadget::configure(meta, 1, 3, 1);
             let padding =
-                PaddingGadget::configure(meta, layer.sel, layer.exported_cols(0).as_slice());
+                PaddingGadget::configure(
+                    meta, 
+                    layer.sel, 
+                    layer.exported_cols(0).as_slice(),
+                    layer.get_ctrl_type_flags(),
+                );
 
             let cst = meta.fixed_column();
             meta.enable_constant(cst);
@@ -822,11 +890,21 @@ mod test {
         }
 
         fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
-            let layer = LayerGadget::configure(meta, 3, 2);
+            let layer = LayerGadget::configure(meta, 3, 2, 1);
             let padding0 =
-                PaddingGadget::configure(meta, layer.sel, layer.exported_cols(0).as_slice());
+                PaddingGadget::configure(
+                    meta, 
+                    layer.sel, 
+                    layer.exported_cols(0).as_slice(), 
+                    layer.get_ctrl_type_flags(),
+                );
             let padding1 =
-                PaddingGadget::configure(meta, layer.sel, layer.exported_cols(2).as_slice());
+                PaddingGadget::configure(
+                    meta, 
+                    layer.sel, 
+                    layer.exported_cols(2).as_slice(), 
+                    layer.get_ctrl_type_flags(),
+                );
 
             let cst = meta.fixed_column();
             meta.enable_constant(cst);
