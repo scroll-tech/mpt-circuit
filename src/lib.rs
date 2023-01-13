@@ -310,6 +310,16 @@ impl<Fp: Hashable> EthTrie<Fp> {
             HashCircuit::new(rows, &hashes),
         )
     }
+
+    /// Create all associated circuit objects
+    pub fn circuits2(&self, rows: (usize, usize)) -> (EthTrieCircuit<Fp>, HashCircuit<Fp>) {
+        let hashes: Vec<_> =
+            HashTracesSrc::from(self.ops.iter().flat_map(|op| op.hash_traces())).collect();
+        (
+            EthTrieCircuit(self.ops.clone(), rows.0),
+            HashCircuit::new(rows.1, &hashes),
+        )
+    }
 }
 
 /// index for hash table's commitments
