@@ -625,7 +625,7 @@ impl<Fp: FieldExt> EthTrie<Fp> {
 }
 
 /// the mpt circuit type
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct EthTrieCircuit<F: FieldExt, const LITE: bool> {
     /// the maxium records in circuits (would affect vk)
     pub calcs: usize,
