@@ -396,10 +396,9 @@ impl MPTOpGadget {
         if let Some((old_root_index, new_root_index)) = root_index {
             meta.create_gate("root index", |meta| {
                 let s_row = meta.query_selector(g_config.s_row);
-                let hash_type = meta.query_advice(g_config.old_hash_type, Rotation::cur());
                 let s_enable = s_row
                     * meta.query_advice(g_config.s_enable, Rotation::cur())
-                    * lagrange_polynomial_for_hashtype::<_, 0>(hash_type); //Start;
+                    * meta.query_advice(g_config.s_ctrl_type[HashType::Start as usize], Rotation::cur());
                                                                            // constraint root index:
                                                                            // the old root in heading row (START) equal to the new_root_index_prev
                                                                            // the old root in heading row (START) also equal to the old_root_index_cur
@@ -478,11 +477,13 @@ impl MPTOpGadget {
     }
 }
 
+/* 
 fn lagrange_polynomial_for_hashtype<Fp: FieldExt, const T: usize>(
     ref_n: Expression<Fp>,
 ) -> Expression<Fp> {
     super::lagrange_polynomial::<Fp, T, 5 /* last Type: Leaf */>(ref_n)
 }
+*/
 
 const HASH_TYPE_CNT : usize = 6;
 
@@ -583,8 +584,7 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
         meta.lookup_any("mpt node hash", |meta| {
             let s_hash_type_not_match = Expression::Constant(Fp::one()) - 
                 meta.query_advice(s_match_ctrl_type, Rotation::cur());
-            let s_path = meta.query_selector(s_row)
-                * meta.query_advice(s_enable, Rotation::cur())
+            let s_path = meta.query_advice(s_enable, Rotation::cur())
                 * (
                     meta.query_advice(s_hash_type[HashType::Middle as usize], Rotation::cur())
                     + s_hash_type_not_match.clone() * meta.query_advice(s_hash_type[HashType::LeafExt as usize], Rotation::cur())
@@ -666,10 +666,9 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
 
         // prove the silbing is really a leaf when extended
         meta.lookup_any("extended sibling proof 1", |meta| {
-            let s_last_extended = meta.query_advice(s_enable, Rotation::cur())
-                * lagrange_polynomial_for_hashtype::<_, 4>(
-                    meta.query_advice(hash_type, Rotation::cur()),
-                ); //LeafExtFinal
+            let s_last_extended = meta.query_advice(s_enable, Rotation::cur()) *
+                meta.query_advice(s_match_ctrl_type, Rotation::cur()) *
+                meta.query_advice(s_hash_type[HashType::LeafExtFinal as usize], Rotation::cur()); //(actually) LeafExtFinal
             let key_proof = meta.query_advice(sibling, Rotation::next()); //key is written here
             let key_proof_immediate = meta.query_advice(key_immediate, Rotation::cur());
 
@@ -683,10 +682,9 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
         });
 
         meta.lookup_any("extended sibling proof 2", |meta| {
-            let s_last_extended = meta.query_advice(s_enable, Rotation::cur())
-                * lagrange_polynomial_for_hashtype::<_, 4>(
-                    meta.query_advice(hash_type, Rotation::cur()),
-                ); //LeafExtFinal
+            let s_last_extended = meta.query_advice(s_enable, Rotation::cur()) *
+                meta.query_advice(s_match_ctrl_type, Rotation::cur()) *
+                meta.query_advice(s_hash_type[HashType::LeafExtFinal as usize], Rotation::cur()); //(actually) LeafExtFinal
             let extended_sibling = meta.query_advice(sibling, Rotation::cur());
             let key_proof_immediate = meta.query_advice(key_immediate, Rotation::cur());
             let key_proof_value = meta.query_advice(ext_sibling_val, Rotation::cur());
@@ -870,9 +868,7 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
 
         meta.create_gate("depth", |meta| {
             let enable = meta.query_selector(s_row) * meta.query_advice(s_enable, Rotation::cur());
-            let s_begin = lagrange_polynomial_for_hashtype::<_, 0>(
-                meta.query_advice(old_hash_type, Rotation::cur()),
-            ); //Start
+            let s_begin = meta.query_advice(s_ctrl_type[HashType::Start as usize], Rotation::cur()); //Start
             let path = meta.query_advice(path, Rotation::cur());
             let depth_aux_start = meta.query_advice(depth_aux, Rotation::cur())
                 - Expression::Constant(Fp::one().double().invert().unwrap());
@@ -898,9 +894,8 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
         });
 
         meta.lookup_any("mpt key pre calc", |meta| {
-            let hash_type = meta.query_advice(old_hash_type, Rotation::cur());
             let s_leaf = meta.query_advice(s_enable, Rotation::cur())
-                * lagrange_polynomial_for_hashtype::<_, 5>(hash_type); //Leaf
+                * meta.query_advice(s_ctrl_type[HashType::Leaf as usize], Rotation::cur()); //Leaf
 
             let key = meta.query_advice(acc_key, Rotation::cur());
             let key_immediate = meta.query_advice(key_aux, Rotation::cur());
@@ -1364,7 +1359,7 @@ mod test {
         TestPathCircuit::<true>::configure(&mut cs);
 
         println!("mpt path gadget degree: {}", cs.degree());
-        //assert!(cs.degree() <= 9);
+        assert!(cs.degree() <= 9);
     }
 
     #[test]
@@ -1494,7 +1489,10 @@ mod test {
             config
                 .global
                 .hash_table
-                .fill(&mut layouter, self.data.old.hash_traces.iter())?;
+                .fill(&mut layouter, 
+                    self.data.old.hash_traces.iter()
+                    .chain([(Fp::one(), self.data.key, Fp::zero())].iter()),//dummy for key calc
+                )?;
 
             Ok(())
         }
@@ -1514,7 +1512,7 @@ mod test {
         TestOpCircuit::configure(&mut cs);
 
         println!("mpt op gadget degree: {}", cs.degree());
-        //assert!(cs.degree() <= 9);
+        assert!(cs.degree() <= 9);
     }
 
     lazy_static! {
@@ -1720,7 +1718,7 @@ mod test {
         MPTTestCircuit::configure(&mut cs);
 
         println!("mpt full gadget degree: {}", cs.degree());
-        //assert!(cs.degree() <= 9);
+        assert!(cs.degree() <= 9);
     }
 
     #[test]

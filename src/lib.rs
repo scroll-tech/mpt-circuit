@@ -897,13 +897,13 @@ mod test {
         EthTrieCircuit::<_, false>::configure(&mut cs);
 
         println!("mpt circuit degree: {}", cs.degree());
-        //assert!(cs.degree() <= 9);
+        assert!(cs.degree() <= 9);
 
         let mut cs: ConstraintSystem<Fp> = Default::default();
         HashCircuit::configure(&mut cs);
 
         println!("hash circuit degree: {}", cs.degree());
-        //assert!(cs.degree() <= 9);
+        assert!(cs.degree() <= 9);
     }
 
     #[test]

@@ -859,7 +859,7 @@ mod test {
         AccountTestCircuit::configure(&mut cs);
 
         println!("account gadget degree: {}", cs.degree());
-        //assert!(cs.degree() <= 9);
+        assert!(cs.degree() <= 9);
     }
 
     #[test]

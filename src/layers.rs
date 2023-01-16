@@ -973,7 +973,7 @@ mod test {
         MultiOpCircuit::configure(&mut cs);
 
         println!("layer gadget degree: {}", cs.degree());
-        //assert!(cs.degree() <= 9);
+        assert!(cs.degree() <= 9);
     }
 
     #[test]
