@@ -683,7 +683,7 @@ mod test {
         TestMPTTableCircuit::configure(&mut cs);
 
         println!("mpt table circuit degree: {}", cs.degree());
-        //assert!(cs.degree() <= 9);
+        assert!(cs.degree() <= 9);
     }
 
     #[test]

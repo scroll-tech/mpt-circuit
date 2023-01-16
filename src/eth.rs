@@ -60,6 +60,7 @@ pub(crate) struct AccountGadget {
     new_state: AccountChipConfig,
     s_enable: Column<Advice>,
     ctrl_type: Column<Advice>,
+    s_ctrl_type: [Column<Advice>;4],
 
     state_change_key: Column<Advice>,
     state_change_aux: [Column<Advice>; 2],
@@ -70,6 +71,10 @@ impl AccountGadget {
         6
     }
 
+    pub fn min_ctrl_types() -> usize {
+        4
+    }
+
     /// create gadget from assigned cols, we need:
     /// + circuit selector * 1
     /// + exported col * 8 (MUST by following sequence: layout_flag, s_enable, old_val, new_val, key_val and 3 ext field for old/new/key_val)
@@ -78,6 +83,7 @@ impl AccountGadget {
         meta: &mut ConstraintSystem<Fp>,
         sel: Selector,
         exported: &[Column<Advice>],
+        s_ctrl_type: &[Column<Advice>],
         free: &[Column<Advice>],
         address_index: Option<Column<Advice>>,
         tables: mpt::MPTOpTables,
@@ -91,13 +97,14 @@ impl AccountGadget {
         let data_key = exported[4];
         let data_old_ext = exported[5];
         let data_new_ext = exported[6];
+        let s_ctrl_type = s_ctrl_type[0..4].try_into().expect("same size");
         let state_change_key = data_key;
 
         let old_state = AccountChip::configure(
             meta,
             sel,
             s_enable,
-            ctrl_type,
+            s_ctrl_type,
             data_old,
             data_old_ext,
             &free[0..2],
@@ -107,7 +114,7 @@ impl AccountGadget {
             meta,
             sel,
             s_enable,
-            ctrl_type,
+            s_ctrl_type,
             data_new,
             data_new_ext,
             &free[2..4],
@@ -120,9 +127,7 @@ impl AccountGadget {
         meta.lookup("account row trans", |meta| {
             let s_enable = meta.query_advice(s_enable, Rotation::cur())
                 * (Expression::Constant(Fp::one())
-                    - AccountChip::<'_, Fp>::lagrange_polynomial_for_row::<0>(
-                        meta.query_advice(ctrl_type, Rotation::cur()),
-                    ));
+                    - meta.query_advice(s_ctrl_type[0], Rotation::cur()));
 
             tables.build_lookup(
                 s_enable,
@@ -136,9 +141,7 @@ impl AccountGadget {
             meta.create_gate("address constraint", |meta| {
                 let s_enable =
                     meta.query_selector(sel) * meta.query_advice(s_enable, Rotation::cur());
-                let row0 = AccountChip::<'_, Fp>::lagrange_polynomial_for_row::<0>(
-                    meta.query_advice(ctrl_type, Rotation::cur()),
-                );
+                let row0 = meta.query_advice(s_ctrl_type[0], Rotation::cur());
                 let address_limb_0 = meta.query_advice(old_state.intermediate_1, Rotation::cur());
                 let address_limb_1 = meta.query_advice(new_state.intermediate_1, Rotation::cur());
 
@@ -158,9 +161,7 @@ impl AccountGadget {
 
             meta.lookup_any("address hash", |meta| {
                 let s_enable = meta.query_advice(s_enable, Rotation::cur())
-                    * AccountChip::<'_, Fp>::lagrange_polynomial_for_row::<0>(
-                        meta.query_advice(ctrl_type, Rotation::cur()),
-                    );
+                    * meta.query_advice(s_ctrl_type[0], Rotation::cur());
 
                 let address_limb_0 = meta.query_advice(old_state.intermediate_1, Rotation::cur());
                 let address_limb_1 = meta.query_advice(new_state.intermediate_1, Rotation::cur());
@@ -223,9 +224,7 @@ impl AccountGadget {
         //additional row
         meta.create_gate("padding row", |meta| {
             let s_enable = meta.query_selector(sel) * meta.query_advice(s_enable, Rotation::cur());
-            let row3 = AccountChip::<'_, Fp>::lagrange_polynomial_for_row::<3>(
-                meta.query_advice(ctrl_type, Rotation::cur()),
-            );
+            let row3 = meta.query_advice(s_ctrl_type[3], Rotation::cur());
             let old_root = meta.query_advice(data_old, Rotation::cur());
             let new_root = meta.query_advice(data_new, Rotation::cur());
 
@@ -235,6 +234,7 @@ impl AccountGadget {
         Self {
             s_enable,
             ctrl_type,
+            s_ctrl_type,
             old_state,
             new_state,
             state_change_key,
@@ -242,11 +242,11 @@ impl AccountGadget {
         }
     }
 
-    pub fn transition_rules() -> impl Iterator<Item = (u32, u32, u32)> + Clone {
+    pub fn transition_rules() -> impl Iterator<Item = ([u32; 3], u32)> + Clone {
         TRANSMAP
             .iter()
             .copied()
-            .map(|(a, b)| (a, b, CtrlTransitionKind::Account as u32))
+            .map(|(a, b)| ([a, b, 0], CtrlTransitionKind::Account as u32))
     }
 
     /// assign data and enable flag for account circuit
@@ -306,6 +306,12 @@ impl AccountGadget {
                 offset,
                 || Value::known(Fp::from(index as u64)),
             )?;
+            region.assign_advice(
+                || "enable s_ctrl",
+                self.s_ctrl_type[index as usize],
+                offset,
+                || Value::known(Fp::one()),
+            )?;            
             if index == LAST_ROW {
                 region.assign_advice(
                     || "padding last row",
@@ -407,7 +413,7 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
         meta: &mut ConstraintSystem<Fp>,
         sel: Selector,
         s_enable: Column<Advice>,
-        ctrl_type: Column<Advice>,
+        s_ctrl_type: [Column<Advice>;4],
         acc_data_fields: Column<Advice>,
         acc_data_fields_ext: Column<Advice>,
         free_cols: &[Column<Advice>],
@@ -420,8 +426,7 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
         meta.lookup_any("account hash1 calc", |meta| {
             // only enable on row 2
             let s_enable = meta.query_advice(s_enable, Rotation::cur());
-            let ctrl_type = meta.query_advice(ctrl_type, Rotation::cur());
-            let enable_rows = Self::lagrange_polynomial_for_row::<2>(ctrl_type);
+            let enable_rows = meta.query_advice(s_ctrl_type[2], Rotation::cur());
             let enable = enable_rows * s_enable;
             let fst = meta.query_advice(acc_data_fields, Rotation::cur());
             let snd = meta.query_advice(acc_data_fields_ext, Rotation::cur());
@@ -434,9 +439,8 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
         meta.lookup_any("account hash2 and hash_final calc", |meta| {
             // only enable on row 1 and 2
             let s_enable = meta.query_advice(s_enable, Rotation::cur());
-            let ctrl_type = meta.query_advice(ctrl_type, Rotation::cur());
-            let enable_rows = Self::lagrange_polynomial_for_row::<1>(ctrl_type.clone())
-                + Self::lagrange_polynomial_for_row::<2>(ctrl_type);
+            let enable_rows = meta.query_advice(s_ctrl_type[1], Rotation::cur())
+                + meta.query_advice(s_ctrl_type[2], Rotation::cur());
             let enable = enable_rows * s_enable;
             let fst = meta.query_advice(intermediate_1, Rotation::cur());
             let snd = meta.query_advice(intermediate_2, Rotation::cur());
@@ -449,8 +453,7 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
         meta.lookup_any("account hash3 calc", |meta| {
             // only enable on row 1
             let s_enable = meta.query_advice(s_enable, Rotation::cur());
-            let ctrl_type = meta.query_advice(ctrl_type, Rotation::cur());
-            let enable_rows = Self::lagrange_polynomial_for_row::<1>(ctrl_type);
+            let enable_rows = meta.query_advice(s_ctrl_type[1], Rotation::cur());
             let enable = enable_rows * s_enable;
 
             let fst = meta.query_advice(acc_data_fields, Rotation::prev());
@@ -463,7 +466,6 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
         // equality constraint: hash_final and Root
         meta.create_gate("account calc equalities", |meta| {
             let s_enable = meta.query_selector(sel) * meta.query_advice(s_enable, Rotation::cur());
-            let ctrl_type = meta.query_advice(ctrl_type, Rotation::cur());
             let exported_equal1 = meta.query_advice(intermediate_2, Rotation::cur())
                 - meta.query_advice(acc_data_fields, Rotation::prev());
             let exported_equal2 = meta.query_advice(intermediate_2, Rotation::cur())
@@ -472,9 +474,9 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
             // equalities in the circuit
             vec![
                 s_enable.clone()
-                    * Self::lagrange_polynomial_for_row::<0>(ctrl_type.clone())
+                    * meta.query_advice(s_ctrl_type[0], Rotation::cur())
                     * exported_equal1, // equality of hash_final
-                s_enable * Self::lagrange_polynomial_for_row::<2>(ctrl_type) * exported_equal2, // equality of state trie root
+                s_enable * meta.query_advice(s_ctrl_type[2], Rotation::cur()) * exported_equal2, // equality of state trie root
             ]
         });
 
@@ -611,11 +613,16 @@ pub(crate) struct StorageGadget {
     key: StorageChipConfig,
     s_enable: Column<Advice>,
     ctrl_type: Column<Advice>,
+    s_ctrl_type: Column<Advice>,
 }
 
 impl StorageGadget {
     pub fn min_free_cols() -> usize {
         6
+    }
+
+    pub fn min_ctrl_types() -> usize {
+        1
     }
 
     /// create gadget from assigned cols, we need:
@@ -626,6 +633,7 @@ impl StorageGadget {
         meta: &mut ConstraintSystem<Fp>,
         sel: Selector,
         exported: &[Column<Advice>],
+        s_ctrl_type: &[Column<Advice>],
         _free: &[Column<Advice>],
         hash_tbl: mpt::HashTable,
     ) -> Self {
@@ -634,6 +642,7 @@ impl StorageGadget {
         let s_hash = exported[2];
         let e_hash = exported[3];
         let k_hash = exported[4];
+        let s_ctrl_type = s_ctrl_type[0];
         let s_val_limbs = [exported[2], exported[5]];
         let e_val_limbs = [exported[3], exported[6]];
         let k_val_limbs = [exported[4], exported[7]];
@@ -649,6 +658,7 @@ impl StorageGadget {
         Self {
             s_enable,
             ctrl_type,
+            s_ctrl_type,
             key,
             s_value,
             e_value,
@@ -678,6 +688,13 @@ impl StorageGadget {
             self.ctrl_type,
             offset,
             || Value::known(Fp::zero()),
+        )?;
+
+        region.assign_advice(
+            || "enable s_ctrl",
+            self.s_ctrl_type,
+            offset,
+            || Value::known(Fp::one()),
         )?;
 
         for (config, value) in [
@@ -715,6 +732,7 @@ mod test {
         gadget: AccountGadget,
         sel: Selector,
         free_cols: [Column<Advice>; 14],
+        s_ctrl_cols: [Column<Advice>; 4],
         op_tabl: mpt::MPTOpTables,
         hash_tabl: mpt::HashTable,
     }
@@ -736,6 +754,7 @@ mod test {
         fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
             let sel = meta.selector();
             let free_cols = [(); 14].map(|_| meta.advice_column());
+            let s_ctrl_cols = [(); 4].map(|_| meta.advice_column());
             let exported_cols = [
                 free_cols[0],
                 free_cols[1],
@@ -753,6 +772,7 @@ mod test {
                 meta,
                 sel,
                 exported_cols.as_slice(),
+                s_ctrl_cols.as_slice(),
                 &free_cols[8..],
                 None,
                 op_tabl.clone(),
@@ -763,6 +783,7 @@ mod test {
                 gadget,
                 sel,
                 free_cols,
+                s_ctrl_cols,
                 op_tabl,
                 hash_tabl,
             }
@@ -797,6 +818,17 @@ mod test {
                         )?;
                     }
 
+                    for offset in 1..=CIRCUIT_ROW {
+                        for col in config.s_ctrl_cols {
+                            region.assign_advice(
+                                || "flush s_ctrl",
+                                col,
+                                offset,
+                                || Value::known(Fp::zero()),
+                            )?;
+                        }                        
+                    }
+
                     let till = config.gadget.assign(
                         &mut region,
                         1,
@@ -827,7 +859,7 @@ mod test {
         AccountTestCircuit::configure(&mut cs);
 
         println!("account gadget degree: {}", cs.degree());
-        //assert!(cs.degree() <= 9);
+        assert!(cs.degree() <= 9);
     }
 
     #[test]
