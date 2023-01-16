@@ -242,19 +242,22 @@ impl<Fp: FieldExt> SingleOp<Fp> {
         self.siblings.len() + 2
     }
 
-    /// calculate the ctrl_type in one row base on the two hash type of MPTPath
-    pub fn ctrl_type(&self, row_ind: usize) -> u64 {
-        let type_pair = (self.old.hash_types[row_ind], self.new.hash_types[row_ind]);
-        match type_pair {
-            (old, new) if old == new => old as u64,
-            (HashType::Middle, HashType::LeafExt) |
-            (HashType::LeafExt, HashType::Middle) => HashType::LeafExt as u64,
-            (HashType::Middle, HashType::LeafExtFinal) |
-            (HashType::LeafExtFinal, HashType::Middle) => HashType::LeafExtFinal as u64,
-            (HashType::Empty, HashType::Leaf) |
-            (HashType::Leaf, HashType::Empty) => HashType::Leaf as u64,
-            _ => unreachable!("invalid hash type pair: {:?}, {:?}", type_pair.0, type_pair.1),
-        }
+    /// calculate the ctrl_type base on the two hash type of MPTPath
+    pub fn ctrl_type(&self) -> Vec<HashType> {
+        self.old.hash_types.iter().copied().zip(self.new.hash_types.clone())
+        .map(|type_pair|{
+            match type_pair {
+                (old, new) if old == new => old,
+                (HashType::Middle, HashType::LeafExt) |
+                (HashType::LeafExt, HashType::Middle) => HashType::LeafExt,
+                (HashType::Middle, HashType::LeafExtFinal) |
+                (HashType::LeafExtFinal, HashType::Middle) => HashType::LeafExtFinal,
+                (HashType::Empty, HashType::Leaf) |
+                (HashType::Leaf, HashType::Empty) => HashType::Leaf,
+                _ => unreachable!("invalid hash type pair: {:?}, {:?}", type_pair.0, type_pair.1),
+            }
+        }).collect()
+
     }
 
     /// the root of MPT before operation
