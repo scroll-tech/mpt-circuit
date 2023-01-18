@@ -893,12 +893,8 @@ impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTTrace> for AccountOp<Fp> {
             None => Fp::zero(),
         };
 
-        // TODO: currently we just check if it is creation (no checking for deletion)
-        let account_before = if let Some(account_data) = &trace.account_update[0] {
-            let leaf = acc_trie
-                .old
-                .leaf()
-                .expect("leaf should exist when there is account data");
+        let account_before = if let Some(leaf) = acc_trie.old.leaf() {
+            let account_data = trace.account_update[0].as_ref().expect("account should exist when there is leaf");
             let old_state_root = state_trie
                 .as_ref()
                 .map(|s| s.start_root())
@@ -912,11 +908,8 @@ impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTTrace> for AccountOp<Fp> {
             None
         };
 
-        let account_after = if let Some(account_data) = &trace.account_update[1] {
-            let leaf = acc_trie
-                .new
-                .leaf()
-                .expect("leaf should exist when there is account data");
+        let account_after = if let Some(leaf) = acc_trie.new.leaf() {
+            let account_data = trace.account_update[1].as_ref().expect("account should exist when there is leaf");
             let new_state_root = state_trie
                 .as_ref()
                 .map(|s| s.new_root())
