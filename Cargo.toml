@@ -26,6 +26,10 @@ plotters = "0.3"
 bencher = "0.1"
 subtle = "2"
 
+[patch.crates-io]
+# temporary solution to funty@1.2.0 being yanked, tracking issue: https://github.com/ferrilab/funty/issues/7
+funty = { git = "https://github.com/ferrilab/funty/", rev = "7ef0d890fbcd8b3def1635ac1a877fc298488446" }
+
 [[bin]]
 name = "integration-test"
 path = "integration-tests/src/main.rs"
