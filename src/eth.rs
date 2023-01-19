@@ -94,11 +94,12 @@ impl AccountGadget {
         let ctrl_type = exported[0];
         let data_old = exported[2];
         let data_new = exported[3];
-        let data_key = exported[4];
+        let data_key = exported[4]; //the mpt gadget above it use the col as 'data key'
+        let state_change_key = data_key; //while we use it as 'state_change_key'
         let data_old_ext = exported[5];
         let data_new_ext = exported[6];
         let s_ctrl_type = s_ctrl_type[0..4].try_into().expect("same size");
-        let state_change_key = data_key;
+
 
         let old_state = AccountChip::configure(
             meta,
@@ -172,7 +173,7 @@ impl AccountGadget {
         }
 
         // this gate constraint each gadget handle at most one change in account data
-        meta.create_gate("single update for account data", |meta| {
+/*         meta.create_gate("single update for account data", |meta| {
             let enable = meta.query_selector(sel) * meta.query_advice(s_enable, Rotation::cur());
             let data_diff = meta.query_advice(data_old, Rotation::cur())
                 - meta.query_advice(data_new, Rotation::cur());
@@ -182,7 +183,7 @@ impl AccountGadget {
             let is_diff_boolean =
                 data_diff.clone() * meta.query_advice(state_change_aux[0], Rotation::cur());
             let is_diff_ext_boolean =
-                data_ext_diff.clone() * meta.query_advice(state_change_aux[0], Rotation::cur());
+                data_ext_diff.clone() * meta.query_advice(state_change_aux[1], Rotation::cur());
 
             let one = Expression::Constant(Fp::one());
             // switch A || B to ! (!A ^ !B)
@@ -191,17 +192,17 @@ impl AccountGadget {
                     * (one.clone() - is_diff_ext_boolean.clone());
             let diff_acc = has_diff
                 + meta.query_advice(s_enable, Rotation::prev())
-                    * meta.query_advice(data_key, Rotation::prev());
-            let data_key = meta.query_advice(data_key, Rotation::cur());
+                    * meta.query_advice(state_change_key, Rotation::prev());
+            let state_change_key = meta.query_advice(state_change_key, Rotation::cur());
 
             vec![
                 enable.clone() * data_diff * (one.clone() - is_diff_boolean),
                 enable.clone() * data_ext_diff * (one.clone() - is_diff_ext_boolean),
-                enable.clone() * (data_key.clone() - diff_acc),
-                enable * data_key.clone() * (one - data_key),
+                enable.clone() * (state_change_key.clone() - diff_acc),
+                enable * state_change_key.clone() * (one - state_change_key),
             ]
         });
-
+*/
         //additional row
         // TODO: nonce now can increase more than 1, we should constraint it with lookup table (better than a compare circuit)
         // BUT: this constraint should also exist in state circui so do we really need it?
