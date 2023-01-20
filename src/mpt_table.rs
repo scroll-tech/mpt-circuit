@@ -502,7 +502,7 @@ impl<F: FieldExt> MPTTable<F> {
         RangeCheckChip::construct(config.range_check_u8.clone()).load(layouter)?;
 
         layouter.assign_region(
-            || "mpt table",
+            || "mpt table inside",
             |mut region| {
                 for (offset, entry) in self.entries.iter().enumerate() {
                     for (index, col) in config.proof_sel.as_slice().iter().copied().enumerate() {
@@ -520,26 +520,29 @@ impl<F: FieldExt> MPTTable<F> {
                         )?;
                     }
 
-                    if let Some(base_entries) = entry.base {
-                        for (val, col) in base_entries.iter().zip(
-                            [
-                                config.address,
-                                config.storage_key,
-                                config.proof_type,
-                                config.new_root,
-                                config.old_root,
-                                config.new_value,
-                                config.old_value,
-                            ]
-                            .as_slice(),
-                        ) {
-                            region.assign_advice(
-                                || format!("assign for mpt table offset {}", offset),
-                                *col,
-                                offset,
-                                || Value::known(*val),
-                            )?;
-                        }
+                    let values = match entry.base {
+                        Some(base_entries) => base_entries.map(|x| Value::known(x)),
+                        None => [Value::unknown(); 7],
+                    };
+
+                    for (val, col) in values.iter().zip(
+                        [
+                            config.address,
+                            config.storage_key,
+                            config.proof_type,
+                            config.new_root,
+                            config.old_root,
+                            config.new_value,
+                            config.old_value,
+                        ]
+                        .as_slice(),
+                    ) {
+                        region.assign_advice(
+                            || format!("assign for mpt table offset {}", offset),
+                            *col,
+                            offset,
+                            || *val,
+                        )?;
                     }
 
                     config.storage_key_2.assign(

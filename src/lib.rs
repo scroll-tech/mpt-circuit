@@ -158,7 +158,9 @@ impl<Fp: FieldExt> Circuit<Fp> for SimpleTrie<Fp> {
     }
 
     fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
-        let layer = LayerGadget::configure(meta, 2, 
+        let layer = LayerGadget::configure(
+            meta,
+            2,
             MPTOpGadget::min_free_cols(),
             MPTOpGadget::min_ctrl_types(),
         );
@@ -440,11 +442,12 @@ impl EthTrieConfig {
         rows: usize,
     ) -> Result<(), Error> {
         let mpt_entries = tbl_tips.into_iter().zip(ops).map(|(proof_type, op)| {
-            if let Some(rand) = randomness {
-                MPTEntry::from_op(proof_type, op, rand)
-            } else {
-                MPTEntry::from_op_no_base(proof_type, op)
-            }
+            MPTEntry::from_op(proof_type, op, randomness.unwrap_or_default())
+            //if let Some(rand) = randomness {
+            //    MPTEntry::from_op(proof_type, op, rand)
+            //} else {
+            //    MPTEntry::from_op_no_base(proof_type, op)
+            //}
         });
 
         let mpt_tbl = MPTTable::construct(
