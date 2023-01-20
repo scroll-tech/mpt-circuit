@@ -244,20 +244,27 @@ impl<Fp: FieldExt> SingleOp<Fp> {
 
     /// calculate the ctrl_type base on the two hash type of MPTPath
     pub fn ctrl_type(&self) -> Vec<HashType> {
-        self.old.hash_types.iter().copied().zip(self.new.hash_types.clone())
-        .map(|type_pair|{
-            match type_pair {
+        self.old
+            .hash_types
+            .iter()
+            .copied()
+            .zip(self.new.hash_types.clone())
+            .map(|type_pair| match type_pair {
                 (old, new) if old == new => old,
-                (HashType::Middle, HashType::LeafExt) |
-                (HashType::LeafExt, HashType::Middle) => HashType::LeafExt,
-                (HashType::Middle, HashType::LeafExtFinal) |
-                (HashType::LeafExtFinal, HashType::Middle) => HashType::LeafExtFinal,
-                (HashType::Empty, HashType::Leaf) |
-                (HashType::Leaf, HashType::Empty) => HashType::Leaf,
-                _ => unreachable!("invalid hash type pair: {:?}, {:?}", type_pair.0, type_pair.1),
-            }
-        }).collect()
-
+                (HashType::Middle, HashType::LeafExt) | (HashType::LeafExt, HashType::Middle) => {
+                    HashType::LeafExt
+                }
+                (HashType::Middle, HashType::LeafExtFinal)
+                | (HashType::LeafExtFinal, HashType::Middle) => HashType::LeafExtFinal,
+                (HashType::Empty, HashType::Leaf) | (HashType::Leaf, HashType::Empty) => {
+                    HashType::Leaf
+                }
+                _ => unreachable!(
+                    "invalid hash type pair: {:?}, {:?}",
+                    type_pair.0, type_pair.1
+                ),
+            })
+            .collect()
     }
 
     /// the root of MPT before operation
@@ -894,7 +901,9 @@ impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTTrace> for AccountOp<Fp> {
         };
 
         let account_before = if let Some(leaf) = acc_trie.old.leaf() {
-            let account_data = trace.account_update[0].as_ref().expect("account should exist when there is leaf");
+            let account_data = trace.account_update[0]
+                .as_ref()
+                .expect("account should exist when there is leaf");
             let old_state_root = state_trie
                 .as_ref()
                 .map(|s| s.start_root())
@@ -909,7 +918,9 @@ impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTTrace> for AccountOp<Fp> {
         };
 
         let account_after = if let Some(leaf) = acc_trie.new.leaf() {
-            let account_data = trace.account_update[1].as_ref().expect("account should exist when there is leaf");
+            let account_data = trace.account_update[1]
+                .as_ref()
+                .expect("account should exist when there is leaf");
             let new_state_root = state_trie
                 .as_ref()
                 .map(|s| s.new_root())

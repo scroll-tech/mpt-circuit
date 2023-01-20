@@ -15,6 +15,7 @@ serde_json = "1.0"
 num-bigint = "0.4"
 hex = "0.4"
 thiserror = "1.0"
+log = "0.4"
 
 [features]
 # printout the layout of circuits for demo and some unittests
