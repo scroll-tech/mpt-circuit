@@ -158,7 +158,9 @@ impl<Fp: FieldExt> Circuit<Fp> for SimpleTrie<Fp> {
     }
 
     fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
-        let layer = LayerGadget::configure(meta, 2, 
+        let layer = LayerGadget::configure(
+            meta,
+            2,
             MPTOpGadget::min_free_cols(),
             MPTOpGadget::min_ctrl_types(),
         );

@@ -60,7 +60,7 @@ pub(crate) struct AccountGadget {
     new_state: AccountChipConfig,
     s_enable: Column<Advice>,
     ctrl_type: Column<Advice>,
-    s_ctrl_type: [Column<Advice>;4],
+    s_ctrl_type: [Column<Advice>; 4],
 
     state_change_key: Column<Advice>,
     state_change_aux: [Column<Advice>; 2],
@@ -311,7 +311,7 @@ impl AccountGadget {
                 self.s_ctrl_type[index as usize],
                 offset,
                 || Value::known(Fp::one()),
-            )?;            
+            )?;
             if index == LAST_ROW {
                 region.assign_advice(
                     || "padding last row",
@@ -413,7 +413,7 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
         meta: &mut ConstraintSystem<Fp>,
         sel: Selector,
         s_enable: Column<Advice>,
-        s_ctrl_type: [Column<Advice>;4],
+        s_ctrl_type: [Column<Advice>; 4],
         acc_data_fields: Column<Advice>,
         acc_data_fields_ext: Column<Advice>,
         free_cols: &[Column<Advice>],
@@ -826,7 +826,7 @@ mod test {
                                 offset,
                                 || Value::known(Fp::zero()),
                             )?;
-                        }                        
+                        }
                     }
 
                     let till = config.gadget.assign(
