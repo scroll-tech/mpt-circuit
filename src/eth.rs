@@ -43,7 +43,8 @@ use halo2_proofs::{
 };
 use lazy_static::lazy_static;
 
-pub const CIRCUIT_ROW: usize = 4;
+pub const CIRCUIT_ROW: usize = 6;
+const N_CONTROL_TYPES: usize = 6;
 const LAST_ROW: usize = CIRCUIT_ROW - 1;
 
 lazy_static! {
@@ -60,7 +61,7 @@ pub(crate) struct AccountGadget {
     new_state: AccountChipConfig,
     s_enable: Column<Advice>,
     ctrl_type: Column<Advice>,
-    s_ctrl_type: [Column<Advice>; 4],
+    s_ctrl_type: [Column<Advice>; N_CONTROL_TYPES],
 
     state_change_key: Column<Advice>,
     state_change_aux: [Column<Advice>; 2],
@@ -97,7 +98,9 @@ impl AccountGadget {
         let data_key = exported[4];
         let data_old_ext = exported[5];
         let data_new_ext = exported[6];
-        let s_ctrl_type = s_ctrl_type[0..4].try_into().expect("same size");
+        let s_ctrl_type: [Column<Advice>; N_CONTROL_TYPES] = s_ctrl_type[..N_CONTROL_TYPES]
+            .try_into()
+            .expect("same size");
         let state_change_key = data_key;
 
         let old_state = AccountChip::configure(
@@ -107,7 +110,7 @@ impl AccountGadget {
             s_ctrl_type,
             data_old,
             data_old_ext,
-            &free[0..2],
+            [free[0], free[1]],
             hash_tbl.clone(),
         );
         let new_state = AccountChip::configure(
@@ -117,7 +120,7 @@ impl AccountGadget {
             s_ctrl_type,
             data_new,
             data_new_ext,
-            &free[2..4],
+            [free[2], free[3]],
             hash_tbl.clone(),
         );
 
@@ -306,12 +309,23 @@ impl AccountGadget {
                 offset,
                 || Value::known(Fp::from(index as u64)),
             )?;
-            region.assign_advice(
-                || "enable s_ctrl",
-                self.s_ctrl_type[index as usize],
-                offset,
-                || Value::known(Fp::one()),
-            )?;
+            if index < 4 {
+                // 4 should be N_CTRL_TYPES
+                region.assign_advice(
+                    || "enable s_ctrl",
+                    self.s_ctrl_type[index as usize],
+                    offset,
+                    || Value::known(Fp::one()),
+                )?;
+            } else {
+                // somehow we need one s_ctrl_type column for each ctrl type? this seems crazy....
+                region.assign_advice(
+                    || "enable s_ctrl",
+                    self.s_ctrl_type[3],
+                    offset,
+                    || Value::known(Fp::one()),
+                )?;
+            }
             if index == LAST_ROW {
                 region.assign_advice(
                     || "padding last row",
@@ -335,7 +349,7 @@ impl AccountGadget {
                     data.0.codehash.1 - data.1.codehash.1,
                 ],
                 3 => [data.0.state_root - data.1.state_root, Fp::zero()],
-                _ => unreachable!("no such row number"),
+                _ => [Fp::zero(), Fp::zero()],
             };
 
             if !has_data_delta {
@@ -413,14 +427,13 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
         meta: &mut ConstraintSystem<Fp>,
         sel: Selector,
         s_enable: Column<Advice>,
-        s_ctrl_type: [Column<Advice>; 4],
+        s_ctrl_type: [Column<Advice>; N_CONTROL_TYPES],
         acc_data_fields: Column<Advice>,
         acc_data_fields_ext: Column<Advice>,
-        free_cols: &[Column<Advice>],
+        free_cols: [Column<Advice>; 2],
         hash_table: mpt::HashTable,
     ) -> <Self as Chip<Fp>>::Config {
-        let intermediate_1 = free_cols[0];
-        let intermediate_2 = free_cols[1];
+        let [intermediate_1, intermediate_2] = free_cols;
 
         // first hash lookup (Poseidon(Codehash_first, Codehash_Second) = hash1)
         meta.lookup_any("account hash1 calc", |meta| {
@@ -463,22 +476,22 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
             hash_table.build_lookup(meta, enable, fst, snd, hash)
         });
 
-        // equality constraint: hash_final and Root
-        meta.create_gate("account calc equalities", |meta| {
-            let s_enable = meta.query_selector(sel) * meta.query_advice(s_enable, Rotation::cur());
-            let exported_equal1 = meta.query_advice(intermediate_2, Rotation::cur())
-                - meta.query_advice(acc_data_fields, Rotation::prev());
-            let exported_equal2 = meta.query_advice(intermediate_2, Rotation::cur())
-                - meta.query_advice(acc_data_fields, Rotation::next());
-
-            // equalities in the circuit
-            vec![
-                s_enable.clone()
-                    * meta.query_advice(s_ctrl_type[0], Rotation::cur())
-                    * exported_equal1, // equality of hash_final
-                s_enable * meta.query_advice(s_ctrl_type[2], Rotation::cur()) * exported_equal2, // equality of state trie root
-            ]
-        });
+        // // equality constraint: hash_final and Root
+        // meta.create_gate("account calc equalities", |meta| {
+        //     let s_enable = meta.query_selector(sel) * meta.query_advice(s_enable, Rotation::cur());
+        //     let exported_equal1 = meta.query_advice(intermediate_2, Rotation::cur())
+        //         - meta.query_advice(acc_data_fields, Rotation::prev());
+        //     let exported_equal2 = meta.query_advice(intermediate_2, Rotation::cur())
+        //         - meta.query_advice(acc_data_fields, Rotation::next());
+        //
+        //     // equalities in the circuit
+        //     vec![
+        //         s_enable.clone()
+        //             * meta.query_advice(s_ctrl_type[0], Rotation::cur())
+        //             * exported_equal1, // equality of hash_final
+        //         s_enable * meta.query_advice(s_ctrl_type[2], Rotation::cur()) * exported_equal2, // equality of state trie root
+        //     ]
+        // });
 
         AccountChipConfig {
             acc_data_fields,

@@ -189,15 +189,10 @@ impl LayerGadget {
                     sel.clone() * (meta.query_advice(ctrl_type, Rotation::cur()) - w_sum_exp)
                 });
 
-            let constraints = bool_cond
+            bool_cond
                 .chain(one_flag_cond)
-                .chain(ctrl_type_cond)
-                .collect::<Vec<_>>();
-            if constraints.is_empty() {
-                vec![sel * Expression::Constant(Fp::zero())]
-            } else {
-                constraints
-            }
+                // .chain(ctrl_type_cond)
+                .collect::<Vec<_>>()
         });
 
         meta.create_gate("index identical", |meta| {

@@ -11,6 +11,7 @@ pub use crate::serde::{Hash, Row, RowDeError};
 
 mod eth;
 mod layers;
+mod mason;
 mod mpt;
 mod mpt_table;
 #[cfg(test)]
