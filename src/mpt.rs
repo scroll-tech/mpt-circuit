@@ -73,7 +73,7 @@ use lazy_static::lazy_static;
 
 #[derive(Clone, Debug)]
 pub(crate) struct MPTOpTables(
-    TableColumn, // op mark 
+    TableColumn,      // op mark
     [TableColumn; 3], // op rules
 );
 
@@ -118,7 +118,7 @@ impl MPTOpTables {
     pub fn configure_create<Fp: Field>(meta: &mut ConstraintSystem<Fp>) -> Self {
         Self(
             meta.lookup_table_column(),
-            [0;3].map(|_|meta.lookup_table_column()),
+            [0; 3].map(|_| meta.lookup_table_column()),
         )
     }
 
@@ -128,9 +128,9 @@ impl MPTOpTables {
         rules: impl IntoIterator<Item = Expression<Fp>>,
         mark: u64,
     ) -> Vec<(Expression<Fp>, TableColumn)> {
-        let mut ret : Vec<_> = rules
+        let mut ret: Vec<_> = rules
             .into_iter()
-            .map(|exp|enable.clone() * exp)
+            .map(|exp| enable.clone() * exp)
             .zip(self.1)
             .collect();
         ret.push((enable * Expression::Constant(Fp::from(mark)), self.0));
@@ -150,7 +150,7 @@ impl MPTOpTables {
     pub fn fill_constant<Fp: FieldExt>(
         &self,
         layouter: &mut impl Layouter<Fp>,
-        rules: impl Iterator<Item = ([u32;3], u32)> + Clone,
+        rules: impl Iterator<Item = ([u32; 3], u32)> + Clone,
     ) -> Result<(), Error> {
         layouter.assign_table(
             || "op table",
@@ -158,7 +158,12 @@ impl MPTOpTables {
                 // default line
                 table.assign_cell(|| "default mark", self.0, 0, || Value::known(Fp::zero()))?;
                 for i in 0..3 {
-                    table.assign_cell(|| "default rule", self.1[i], 0, || Value::known(Fp::zero()))?;
+                    table.assign_cell(
+                        || "default rule",
+                        self.1[i],
+                        0,
+                        || Value::known(Fp::zero()),
+                    )?;
                 }
 
                 for (offset, (items, mark)) in rules.clone().enumerate() {
@@ -169,7 +174,7 @@ impl MPTOpTables {
                             col,
                             offset,
                             || Value::known(Fp::from(rule as u64)),
-                        )?;    
+                        )?;
                     }
 
                     table.assign_cell(
@@ -344,7 +349,16 @@ impl MPTOpGadget {
         let tables = MPTOpTables::configure_create(meta);
         let hash_tbls = HashTable::configure_create(meta);
 
-        Self::configure(meta, sel, exported, s_ctrl_type, free, root_index, tables, hash_tbls)
+        Self::configure(
+            meta,
+            sel,
+            exported,
+            s_ctrl_type,
+            free,
+            root_index,
+            tables,
+            hash_tbls,
+        )
     }
 
     /// create gadget from assigned cols, we need:
@@ -398,11 +412,14 @@ impl MPTOpGadget {
                 let s_row = meta.query_selector(g_config.s_row);
                 let s_enable = s_row
                     * meta.query_advice(g_config.s_enable, Rotation::cur())
-                    * meta.query_advice(g_config.s_ctrl_type[HashType::Start as usize], Rotation::cur());
-                                                                           // constraint root index:
-                                                                           // the old root in heading row (START) equal to the new_root_index_prev
-                                                                           // the old root in heading row (START) also equal to the old_root_index_cur
-                                                                           // the new root in heading row (START) equal must be equal to new_root_index_cur
+                    * meta.query_advice(
+                        g_config.s_ctrl_type[HashType::Start as usize],
+                        Rotation::cur(),
+                    );
+                // constraint root index:
+                // the old root in heading row (START) equal to the new_root_index_prev
+                // the old root in heading row (START) also equal to the old_root_index_cur
+                // the new root in heading row (START) equal must be equal to new_root_index_cur
                 vec![
                     s_enable.clone()
                         * (meta.query_advice(g_config.old_val, Rotation::cur())
@@ -432,10 +449,12 @@ impl MPTOpGadget {
             .iter()
             .copied()
             .map(|(a, b)| ([a as u32, b as u32, 0], CtrlTransitionKind::Mpt as u32));
-        let i2 = OPMAP
-            .iter()
-            .copied()
-            .map(|(a, b, c)| ([a as u32, b as u32, c as u32], CtrlTransitionKind::Operation as u32));
+        let i2 = OPMAP.iter().copied().map(|(a, b, c)| {
+            (
+                [a as u32, b as u32, c as u32],
+                CtrlTransitionKind::Operation as u32,
+            )
+        });
         i1.chain(i2)
     }
 
@@ -452,8 +471,10 @@ impl MPTOpGadget {
         data: &SingleOp<Fp>,
     ) -> Result<usize, Error> {
         let ctrl_type = data.ctrl_type();
-        let old_path_chip = PathChip::<Fp>::construct(self.old_path.clone(), offset, &data.old, Some(&ctrl_type));
-        let new_path_chip = PathChip::<Fp>::construct(self.new_path.clone(), offset, &data.new, Some(&ctrl_type));
+        let old_path_chip =
+            PathChip::<Fp>::construct(self.old_path.clone(), offset, &data.old, Some(&ctrl_type));
+        let new_path_chip =
+            PathChip::<Fp>::construct(self.new_path.clone(), offset, &data.new, Some(&ctrl_type));
         let op_chip = OpChip::<Fp>::construct(self.op.clone(), offset, data);
 
         // caution: we made double assignations on key cell so sequence is important
@@ -477,7 +498,7 @@ impl MPTOpGadget {
     }
 }
 
-/* 
+/*
 fn lagrange_polynomial_for_hashtype<Fp: FieldExt, const T: usize>(
     ref_n: Expression<Fp>,
 ) -> Expression<Fp> {
@@ -485,13 +506,13 @@ fn lagrange_polynomial_for_hashtype<Fp: FieldExt, const T: usize>(
 }
 */
 
-const HASH_TYPE_CNT : usize = 6;
+const HASH_TYPE_CNT: usize = 6;
 
 #[derive(Clone, Debug)]
 struct PathChipConfig {
     s_path: Column<Advice>,
     hash_type: Column<Advice>,
-    s_hash_type: [Column<Advice>;HASH_TYPE_CNT],
+    s_hash_type: [Column<Advice>; HASH_TYPE_CNT],
     s_match_ctrl_type: Column<Advice>,
     s_match_ctrl_aux: Column<Advice>,
     val: Column<Advice>,
@@ -582,14 +603,20 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
         //
         // from table formed by (left, right, hash)
         meta.lookup_any("mpt node hash", |meta| {
-            let s_hash_type_not_match = Expression::Constant(Fp::one()) - 
-                meta.query_advice(s_match_ctrl_type, Rotation::cur());
+            let s_hash_type_not_match = Expression::Constant(Fp::one())
+                - meta.query_advice(s_match_ctrl_type, Rotation::cur());
             let s_path = meta.query_advice(s_enable, Rotation::cur())
-                * (
-                    meta.query_advice(s_hash_type[HashType::Middle as usize], Rotation::cur())
-                    + s_hash_type_not_match.clone() * meta.query_advice(s_hash_type[HashType::LeafExt as usize], Rotation::cur())
-                    + s_hash_type_not_match * meta.query_advice(s_hash_type[HashType::LeafExtFinal as usize], Rotation::cur())
-                ); //hash type is Middle: i.e ctrl type is Middle or (Ext and ExtFinal and not match)
+                * (meta.query_advice(s_hash_type[HashType::Middle as usize], Rotation::cur())
+                    + s_hash_type_not_match.clone()
+                        * meta.query_advice(
+                            s_hash_type[HashType::LeafExt as usize],
+                            Rotation::cur(),
+                        )
+                    + s_hash_type_not_match
+                        * meta.query_advice(
+                            s_hash_type[HashType::LeafExtFinal as usize],
+                            Rotation::cur(),
+                        )); //hash type is Middle: i.e ctrl type is Middle or (Ext and ExtFinal and not match)
 
             let path_bit = meta.query_advice(path, Rotation::cur());
             let val_col = meta.query_advice(val, Rotation::cur());
@@ -607,7 +634,7 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
 
         // calculate part of the leaf hash: hash(key_immediate, val) = hash_of_key_node
         meta.lookup_any("mpt leaf hash", |meta| {
-            let s_leaf = meta.query_advice(s_enable, Rotation::cur()) 
+            let s_leaf = meta.query_advice(s_enable, Rotation::cur())
                 * meta.query_advice(s_match_ctrl_type, Rotation::cur())
                 * meta.query_advice(s_hash_type[HashType::Leaf as usize], Rotation::cur()); //(actually) Leaf
 
@@ -652,7 +679,10 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
         meta.create_gate("last leaf extended", |meta| {
             let enable = meta.query_selector(s_row) * meta.query_advice(s_enable, Rotation::cur());
             let s_last_extended = meta.query_advice(s_match_ctrl_type, Rotation::cur())
-                * meta.query_advice(s_hash_type[HashType::LeafExtFinal as usize], Rotation::cur()); //(actually) LeafExtFinal
+                * meta.query_advice(
+                    s_hash_type[HashType::LeafExtFinal as usize],
+                    Rotation::cur(),
+                ); //(actually) LeafExtFinal
 
             // + sibling must be previous value of val when hash_type is leaf extended final
             // (notice the value for leafExtendedFinal can be omitted)
@@ -666,9 +696,12 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
 
         // prove the silbing is really a leaf when extended
         meta.lookup_any("extended sibling proof 1", |meta| {
-            let s_last_extended = meta.query_advice(s_enable, Rotation::cur()) *
-                meta.query_advice(s_match_ctrl_type, Rotation::cur()) *
-                meta.query_advice(s_hash_type[HashType::LeafExtFinal as usize], Rotation::cur()); //(actually) LeafExtFinal
+            let s_last_extended = meta.query_advice(s_enable, Rotation::cur())
+                * meta.query_advice(s_match_ctrl_type, Rotation::cur())
+                * meta.query_advice(
+                    s_hash_type[HashType::LeafExtFinal as usize],
+                    Rotation::cur(),
+                ); //(actually) LeafExtFinal
             let key_proof = meta.query_advice(sibling, Rotation::next()); //key is written here
             let key_proof_immediate = meta.query_advice(key_immediate, Rotation::cur());
 
@@ -682,9 +715,12 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
         });
 
         meta.lookup_any("extended sibling proof 2", |meta| {
-            let s_last_extended = meta.query_advice(s_enable, Rotation::cur()) *
-                meta.query_advice(s_match_ctrl_type, Rotation::cur()) *
-                meta.query_advice(s_hash_type[HashType::LeafExtFinal as usize], Rotation::cur()); //(actually) LeafExtFinal
+            let s_last_extended = meta.query_advice(s_enable, Rotation::cur())
+                * meta.query_advice(s_match_ctrl_type, Rotation::cur())
+                * meta.query_advice(
+                    s_hash_type[HashType::LeafExtFinal as usize],
+                    Rotation::cur(),
+                ); //(actually) LeafExtFinal
             let extended_sibling = meta.query_advice(sibling, Rotation::cur());
             let key_proof_immediate = meta.query_advice(key_immediate, Rotation::cur());
             let key_proof_value = meta.query_advice(ext_sibling_val, Rotation::cur());
@@ -730,11 +766,12 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
         assert_eq!(hash_types.len(), vals.len());
 
         for (index, (hash_type, val)) in hash_types.iter().copied().zip(vals.iter()).enumerate() {
+            region.assign_advice(|| "val", config.val, offset + index, || Value::known(*val))?;
             region.assign_advice(
-                || "val", 
-                config.val, 
-                offset + index, 
-                || Value::known(*val),
+                || format!("hash_type {}", hash_type as u32),
+                config.hash_type,
+                offset + index,
+                || Value::known(Fp::from(hash_type as u64)),
             )?;
             region.assign_advice(
                 || format!("hash_type {}", hash_type as u32),
@@ -755,20 +792,38 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
             )?;
         }
 
-        let ref_ctrl_type = self.ref_ctrl_type.unwrap_or(&self.data.hash_types).iter().copied();
-        for (index, (hash_type, ref_type)) in hash_types.iter().copied().zip(ref_ctrl_type).enumerate() {
+        let ref_ctrl_type = self
+            .ref_ctrl_type
+            .unwrap_or(&self.data.hash_types)
+            .iter()
+            .copied();
+        for (index, (hash_type, ref_type)) in
+            hash_types.iter().copied().zip(ref_ctrl_type).enumerate()
+        {
             region.assign_advice(
-                || "hash_type match aux", 
-                config.s_match_ctrl_aux, 
-                offset + index, 
-                || Value::known(Fp::from(ref_type as u64 - hash_type as u64).invert().unwrap_or_else(Fp::zero)),
+                || "hash_type match aux",
+                config.s_match_ctrl_aux,
+                offset + index,
+                || {
+                    Value::known(
+                        Fp::from(ref_type as u64 - hash_type as u64)
+                            .invert()
+                            .unwrap_or_else(Fp::zero),
+                    )
+                },
             )?;
             region.assign_advice(
-                || "hash_type match", 
-                config.s_match_ctrl_type, 
-                offset + index, 
-                || Value::known(if hash_type == ref_type {Fp::one()} else {Fp::zero()}),
-            )?;            
+                || "hash_type match",
+                config.s_match_ctrl_type,
+                offset + index,
+                || {
+                    Value::known(if hash_type == ref_type {
+                        Fp::one()
+                    } else {
+                        Fp::zero()
+                    })
+                },
+            )?;
         }
 
         Ok(offset + hash_types.len())
@@ -778,7 +833,7 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
 #[derive(Clone, Debug)]
 struct OpChipConfig {
     ctrl_type: Column<Advice>,
-    s_ctrl_type: [Column<Advice>;HASH_TYPE_CNT],
+    s_ctrl_type: [Column<Advice>; HASH_TYPE_CNT],
     sibling: Column<Advice>,
     path: Column<Advice>,
     depth: Column<Advice>,
@@ -1053,7 +1108,7 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
             config.s_ctrl_type[ctrl_type as usize],
             offset,
             || Value::known(Fp::one()),
-        )?;        
+        )?;
         region.assign_advice(
             || "path",
             config.path,
@@ -1111,9 +1166,9 @@ mod test {
                 s_row: meta.complex_selector(),
                 s_enable: meta.advice_column(),
                 ctrl_type: meta.advice_column(),
-                s_ctrl_type: [();HASH_TYPE_CNT].map(|_|meta.advice_column()),
-                s_hash_match_ctrl: [();2].map(|_|meta.advice_column()),
-                s_hash_match_ctrl_aux: [();2].map(|_|meta.advice_column()),
+                s_ctrl_type: [(); HASH_TYPE_CNT].map(|_| meta.advice_column()),
+                s_hash_match_ctrl: [(); 2].map(|_| meta.advice_column()),
+                s_hash_match_ctrl_aux: [(); 2].map(|_| meta.advice_column()),
                 s_path: meta.advice_column(),
                 sibling: meta.advice_column(),
                 depth: meta.advice_column(),
@@ -1131,7 +1186,6 @@ mod test {
 
         /// simply flush a row with 0 value to avoid gate poisoned / cell error in debug prover,
         pub fn flush_row(&self, region: &mut Region<'_, Fp>, offset: usize) -> Result<(), Error> {
-
             for rand_flush_col in [
                 self.s_path,
                 self.ctrl_type,
@@ -1150,21 +1204,21 @@ mod test {
                     rand_flush_col,
                     offset,
                     || Value::known(rand_fp()),
-                )?;                
+                )?;
             }
 
-            for zero_flush_col in [
-                self.s_enable,
-            ].into_iter()
-            .chain(self.s_ctrl_type)
-            .chain(self.s_hash_match_ctrl)
-            .chain(self.s_hash_match_ctrl_aux) {
+            for zero_flush_col in [self.s_enable]
+                .into_iter()
+                .chain(self.s_ctrl_type)
+                .chain(self.s_hash_match_ctrl)
+                .chain(self.s_hash_match_ctrl_aux)
+            {
                 region.assign_advice(
                     || "zero flushing",
                     zero_flush_col,
                     offset,
                     || Value::known(Fp::zero()),
-                )?;                
+                )?;
             }
 
             Ok(())
@@ -1228,7 +1282,7 @@ mod test {
                             config.s_ctrl_type[hash_type as usize],
                             working_offset + index,
                             || Value::known(Fp::one()),
-                        )?;   
+                        )?;
                     }
                     region.assign_advice(
                         || "enable",
@@ -1266,13 +1320,8 @@ mod test {
                         (config.path, self.key_residue, "path"),
                         (config.sibling, Fp::zero(), "sibling"),
                         (config.key_aux, self.key_immediate, "key"),
-                    ]{
-                        region.assign_advice(
-                            || tip,
-                            col,
-                            next_offset,
-                            || Value::known(val),
-                        )?;
+                    ] {
+                        region.assign_advice(|| tip, col, next_offset, || Value::known(val))?;
                     }
 
                     let next_offset = next_offset + 1;
@@ -1426,7 +1475,7 @@ mod test {
                     let next_offset = offset + self.data.old.hash_types.len();
                     //flush working region and ctrl flags
                     for offset in 0..next_offset {
-                        config.flush_row(&mut region, offset)?;   
+                        config.flush_row(&mut region, offset)?;
                     }
 
                     //need to fill some other cols
@@ -1480,19 +1529,23 @@ mod test {
 
             config.global.tables.fill_constant(
                 &mut layouter,
-                OPMAP
-                    .iter()
-                    .map(|(a, b, c)| ([*a as u32, *b as u32, *c as u32], CtrlTransitionKind::Operation as u32)),
+                OPMAP.iter().map(|(a, b, c)| {
+                    (
+                        [*a as u32, *b as u32, *c as u32],
+                        CtrlTransitionKind::Operation as u32,
+                    )
+                }),
             )?;
 
             // op chip now need hash table (for key hash lookup)
-            config
-                .global
-                .hash_table
-                .fill(&mut layouter, 
-                    self.data.old.hash_traces.iter()
-                    .chain([(Fp::one(), self.data.key, Fp::zero())].iter()),//dummy for key calc
-                )?;
+            config.global.hash_table.fill(
+                &mut layouter,
+                self.data
+                    .old
+                    .hash_traces
+                    .iter()
+                    .chain([(Fp::one(), self.data.key, Fp::zero())].iter()), //dummy for key calc
+            )?;
 
             Ok(())
         }
@@ -1500,9 +1553,7 @@ mod test {
 
     impl TestOpCircuit {
         fn from_op(op: SingleOp<Fp>) -> Self {
-            Self {
-                data: op,
-            }
+            Self { data: op }
         }
     }
 
@@ -1553,7 +1604,7 @@ mod test {
                     new: MPTPath::<Fp> {
                         hash_types: vec![HashType::Start, HashType::Middle, HashType::Leaf],
                         ..Default::default()
-                    },                    
+                    },               
                     ..Default::default()
                 },
             }
@@ -1586,7 +1637,7 @@ mod test {
                             HashType::Leaf,
                         ],
                         ..Default::default()
-                    },                    
+                    },             
                     ..Default::default()
                 },
             }
@@ -1615,9 +1666,7 @@ mod test {
         let op = SingleOp::<Fp>::create_rand_op(3, None, None, mock_hash);
 
         let k = 5;
-        let circuit = TestOpCircuit {
-            data: op,
-        };
+        let circuit = TestOpCircuit { data: op };
         let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
     }
@@ -1645,13 +1694,13 @@ mod test {
 
         fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
             let sel = meta.complex_selector();
-            let free_cols : Vec<_> = (0..(
-                8 + //exported
+            let free_cols: Vec<_> = (0..(8 + //exported
                 MPTOpGadget::min_ctrl_types() +
-                MPTOpGadget::min_free_cols()
-            )).map(|_| meta.advice_column()).collect();
+                MPTOpGadget::min_free_cols()))
+                .map(|_| meta.advice_column())
+                .collect();
             let exported_cols = &free_cols[0..8];
-            let op_flag_cols = &free_cols[8..8+MPTOpGadget::min_ctrl_types()];
+            let op_flag_cols = &free_cols[8..8 + MPTOpGadget::min_ctrl_types()];
 
             GadgetTestConfig {
                 gadget: MPTOpGadget::configure_simple(
@@ -1659,7 +1708,7 @@ mod test {
                     sel,
                     exported_cols,
                     op_flag_cols,
-                    &free_cols[8+MPTOpGadget::min_ctrl_types()..],
+                    &free_cols[8 + MPTOpGadget::min_ctrl_types()..],
                     None,
                 ),
                 free_cols,
@@ -1685,12 +1734,17 @@ mod test {
                 || "mpt",
                 |mut region| {
                     //flush all row required by data, just avoid Cell error ...
-                    for offset in 0..(1+self.data.use_rows()){
+                    for offset in 0..(1 + self.data.use_rows()) {
                         config.free_cols.iter().try_for_each(|col| {
                             region
-                                .assign_advice(|| "flushing", *col, offset, || Value::known(Fp::zero()))
+                                .assign_advice(
+                                    || "flushing",
+                                    *col,
+                                    offset,
+                                    || Value::known(Fp::zero()),
+                                )
                                 .map(|_| ())
-                        })?;                            
+                        })?;
                     }
 
                     let end = config.gadget.assign(&mut region, 1, &self.data)?;

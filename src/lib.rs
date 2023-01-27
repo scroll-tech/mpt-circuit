@@ -158,7 +158,9 @@ impl<Fp: FieldExt> Circuit<Fp> for SimpleTrie<Fp> {
     }
 
     fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
-        let layer = LayerGadget::configure(meta, 2, 
+        let layer = LayerGadget::configure(
+            meta,
+            2,
             MPTOpGadget::min_free_cols(),
             MPTOpGadget::min_ctrl_types(),
         );
@@ -680,7 +682,7 @@ impl<Fp: Hashable> EthTrieCircuit<Fp, false> {
         EthTrieCircuit::<Fp, true> {
             calcs: self.calcs,
             ops: self.ops,
-            mpt_table: self.mpt_table,
+            mpt_table: Vec::new(),
         }
     }
 }
@@ -756,7 +758,7 @@ impl<Fp: Hashable> EthTrie<Fp> {
         tips: &[MPTProofType],
     ) -> (EthTrieCircuit<Fp, false>, HashCircuit<Fp>) {
         let (hash_rows, mpt_rows) = rows;
-        let mpt_rows = mpt_rows.unwrap_or(hash_rows * 3);
+        let mpt_rows = mpt_rows.unwrap_or(hash_rows);
         let hashes: Vec<_> =
             HashTracesSrc::from(self.ops.iter().flat_map(|op| op.hash_traces())).collect();
         let hash_circuit = HashCircuit::new(hash_rows, &hashes);

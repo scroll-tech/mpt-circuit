@@ -60,7 +60,7 @@ pub(crate) struct AccountGadget {
     new_state: AccountChipConfig,
     s_enable: Column<Advice>,
     ctrl_type: Column<Advice>,
-    s_ctrl_type: [Column<Advice>;4],
+    s_ctrl_type: [Column<Advice>; 4],
 
     state_change_key: Column<Advice>,
     state_change_aux: [Column<Advice>; 2],
@@ -94,11 +94,11 @@ impl AccountGadget {
         let ctrl_type = exported[0];
         let data_old = exported[2];
         let data_new = exported[3];
-        let data_key = exported[4];
+        let data_key = exported[4]; //the mpt gadget above it use the col as 'data key'
+        let state_change_key = data_key; //while we use it as 'state_change_key'
         let data_old_ext = exported[5];
         let data_new_ext = exported[6];
         let s_ctrl_type = s_ctrl_type[0..4].try_into().expect("same size");
-        let state_change_key = data_key;
 
         let old_state = AccountChip::configure(
             meta,
@@ -182,7 +182,7 @@ impl AccountGadget {
             let is_diff_boolean =
                 data_diff.clone() * meta.query_advice(state_change_aux[0], Rotation::cur());
             let is_diff_ext_boolean =
-                data_ext_diff.clone() * meta.query_advice(state_change_aux[0], Rotation::cur());
+                data_ext_diff.clone() * meta.query_advice(state_change_aux[1], Rotation::cur());
 
             let one = Expression::Constant(Fp::one());
             // switch A || B to ! (!A ^ !B)
@@ -191,17 +191,17 @@ impl AccountGadget {
                     * (one.clone() - is_diff_ext_boolean.clone());
             let diff_acc = has_diff
                 + meta.query_advice(s_enable, Rotation::prev())
-                    * meta.query_advice(data_key, Rotation::prev());
-            let data_key = meta.query_advice(data_key, Rotation::cur());
+                    * meta.query_advice(state_change_key, Rotation::prev());
+            let state_change_key = meta.query_advice(state_change_key, Rotation::cur());
 
             vec![
                 enable.clone() * data_diff * (one.clone() - is_diff_boolean),
                 enable.clone() * data_ext_diff * (one.clone() - is_diff_ext_boolean),
-                enable.clone() * (data_key.clone() - diff_acc),
-                enable * data_key.clone() * (one - data_key),
+                enable.clone() * (state_change_key.clone() - diff_acc),
+                enable * state_change_key.clone() * (one - state_change_key),
             ]
         });
-
+        
         //additional row
         // TODO: nonce now can increase more than 1, we should constraint it with lookup table (better than a compare circuit)
         // BUT: this constraint should also exist in state circui so do we really need it?
@@ -311,7 +311,7 @@ impl AccountGadget {
                 self.s_ctrl_type[index as usize],
                 offset,
                 || Value::known(Fp::one()),
-            )?;            
+            )?;
             if index == LAST_ROW {
                 region.assign_advice(
                     || "padding last row",
@@ -413,7 +413,7 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
         meta: &mut ConstraintSystem<Fp>,
         sel: Selector,
         s_enable: Column<Advice>,
-        s_ctrl_type: [Column<Advice>;4],
+        s_ctrl_type: [Column<Advice>; 4],
         acc_data_fields: Column<Advice>,
         acc_data_fields_ext: Column<Advice>,
         free_cols: &[Column<Advice>],
@@ -826,7 +826,7 @@ mod test {
                                 offset,
                                 || Value::known(Fp::zero()),
                             )?;
-                        }                        
+                        }
                     }
 
                     let till = config.gadget.assign(

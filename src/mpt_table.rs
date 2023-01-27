@@ -246,7 +246,7 @@ pub enum MPTProofType {
 #[derive(Clone, Debug)]
 pub(crate) struct MPTEntry<F: Field> {
     proof_type: MPTProofType,
-    base: Option<[F; 7]>,
+    base: [Option<F>; 7],
     storage_key: KeyValue<F>,
     new_value: KeyValue<F>,
     old_value: KeyValue<F>,
@@ -304,7 +304,15 @@ impl<F: FieldExt> MPTEntry<F> {
 
         Self {
             proof_type,
-            base: None,
+            base: [
+                Some(op.address),
+                None,
+                Some(F::from(proof_type as u64)),
+                None,
+                None,
+                None,
+                None,
+            ],
             storage_key,
             new_value,
             old_value,
@@ -342,15 +350,15 @@ impl<F: FieldExt> MPTEntry<F> {
             _ => (F::zero(), F::zero()),
         };
 
-        ret.base.replace([
-            op.address,
-            ret.storage_key.u8_rlc(randomness),
-            F::from(proof_type as u64),
-            op.account_root(),
-            op.account_root_before(),
-            new_value_f,
-            old_value_f,
-        ]);
+        ret.base = [
+            ret.base[0],
+            Some(ret.storage_key.u8_rlc(randomness)),
+            ret.base[2],
+            Some(op.account_root()),
+            Some(op.account_root_before()),
+            Some(new_value_f),
+            Some(old_value_f),
+        ];
 
         ret
     }
@@ -365,15 +373,15 @@ impl<F: FieldExt> MPTEntry<F> {
     ) -> Self {
         let mut ret = Self::from_op_no_base(proof_type, op);
 
-        ret.base.replace([
-            op.address,
-            store_key.unwrap_or_default(),
-            F::from(proof_type as u64),
-            op.account_root(),
-            op.account_root_before(),
-            new_value_f,
-            old_value_f,
-        ]);
+        ret.base = [
+            ret.base[0],
+            store_key,
+            ret.base[1],
+            Some(op.account_root()),
+            Some(op.account_root_before()),
+            Some(new_value_f),
+            Some(old_value_f),
+        ];
 
         ret
     }
@@ -520,26 +528,25 @@ impl<F: FieldExt> MPTTable<F> {
                         )?;
                     }
 
-                    if let Some(base_entries) = entry.base {
-                        for (val, col) in base_entries.iter().zip(
-                            [
-                                config.address,
-                                config.storage_key,
-                                config.proof_type,
-                                config.new_root,
-                                config.old_root,
-                                config.new_value,
-                                config.old_value,
-                            ]
-                            .as_slice(),
-                        ) {
-                            region.assign_advice(
-                                || format!("assign for mpt table offset {}", offset),
-                                *col,
-                                offset,
-                                || Value::known(*val),
-                            )?;
-                        }
+                    let base_entries = entry
+                        .base
+                        .map(|entry| entry.map(Value::known).unwrap_or_else(Value::unknown));
+
+                    for (val, col) in base_entries.into_iter().zip([
+                        config.address,
+                        config.storage_key,
+                        config.proof_type,
+                        config.new_root,
+                        config.old_root,
+                        config.new_value,
+                        config.old_value,
+                    ]) {
+                        region.assign_advice(
+                            || format!("assign for mpt table offset {}", offset),
+                            col,
+                            offset,
+                            || val,
+                        )?;
                     }
 
                     config.storage_key_2.assign(
@@ -746,7 +753,7 @@ mod test {
 
         let randomness = Fp::from(0x10000u64);
         let entry = MPTEntry::from_op(MPTProofType::StorageChanged, &op, randomness);
-        let base = entry.base.unwrap();
+        let base = entry.base.map(|v| v.unwrap());
 
         assert_eq!(base[0], address);
         assert_eq!(base[1], store_key.u8_rlc(randomness));
@@ -768,7 +775,7 @@ mod test {
 
         let entry1 = MPTEntry {
             proof_type: MPTProofType::BalanceChanged,
-            base: Some([
+            base: [
                 address,
                 Fp::zero(),
                 Fp::from(MPTProofType::BalanceChanged as u64),
@@ -776,7 +783,8 @@ mod test {
                 rand_fp(),
                 Fp::from(123456789u64),
                 Fp::from(123456790u64),
-            ]),
+            ]
+            .map(Some),
             storage_key: Default::default(),
             new_value: Default::default(),
             old_value: Default::default(),
@@ -786,15 +794,16 @@ mod test {
 
         let entry2 = MPTEntry {
             proof_type: MPTProofType::StorageChanged,
-            base: Some([
+            base: [
                 address,
                 storage_key.u8_rlc(randomness),
                 Fp::from(MPTProofType::StorageChanged as u64),
                 rand_fp(),
-                entry1.base.unwrap()[4],
+                entry1.base[4].unwrap(),
                 Fp::from(10u64) + (Fp::from(3u64) * bit128),
                 Fp::from(1u64) + (Fp::from(3u64) * bit128),
-            ]),
+            ]
+            .map(Some),
             storage_key: storage_key.clone(),
             new_value: KeyValue::create_base((Fp::from(3u64), Fp::from(10u64))),
             old_value: KeyValue::create_base((Fp::from(3u64), Fp::from(1u64))),
@@ -802,15 +811,16 @@ mod test {
 
         let entry3 = MPTEntry {
             proof_type: MPTProofType::AccountDoesNotExist,
-            base: Some([
+            base: [
                 address + Fp::one(),
                 Fp::zero(),
                 Fp::from(MPTProofType::AccountDoesNotExist as u64),
-                entry2.base.unwrap()[4],
-                entry2.base.unwrap()[4],
+                entry2.base[4].unwrap(),
+                entry2.base[4].unwrap(),
                 Fp::zero(),
                 Fp::zero(),
-            ]),
+            ]
+            .map(Some),
             storage_key: Default::default(),
             new_value: Default::default(),
             old_value: Default::default(),

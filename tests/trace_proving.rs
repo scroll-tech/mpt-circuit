@@ -80,7 +80,7 @@ fn trace_to_eth_trie() {
 
 #[test]
 fn vk_validity() {
-    let params = Params::<Bn256>::unsafe_setup(8);
+    let params = Params::<Bn256>::unsafe_setup(10);
     let data: Vec<serde::SMTTrace> = serde_json::from_str(TEST_TRACE_SMALL).unwrap();
     let ops: Vec<AccountOp<Fp>> = data
         .into_iter()
@@ -89,7 +89,7 @@ fn vk_validity() {
 
     let mut data: EthTrie<Fp> = Default::default();
     data.add_ops(ops);
-    let (circuit, _) = data.circuits(200);
+    let (circuit, _) = data.to_circuits((200, None), &[]);
 
     let vk1 = keygen_vk(&params, &circuit).unwrap();
 
@@ -97,7 +97,7 @@ fn vk_validity() {
     vk1.write(&mut vk1_buf).unwrap();
 
     let data: EthTrie<Fp> = Default::default();
-    let (circuit, _) = data.circuits(200);
+    let (circuit, _) = data.to_circuits((200, None), &[]);
     let vk2 = keygen_vk(&params, &circuit).unwrap();
 
     let mut vk2_buf: Vec<u8> = Vec::new();
@@ -114,7 +114,7 @@ fn proof_and_verify() {
         .map(|tr| (&tr).try_into().unwrap())
         .collect();
 
-    let k = 8;
+    let k = 10;
 
     let params = Params::<Bn256>::unsafe_setup(k);
     let os_rng = ChaCha8Rng::from_seed([101u8; 32]);
@@ -122,7 +122,7 @@ fn proof_and_verify() {
 
     let mut data: EthTrie<Fp> = Default::default();
     data.add_ops(ops);
-    let (circuit, _) = data.circuits(200);
+    let (circuit, _) = data.to_circuits((200, None), &[]);
 
     let prover = MockProver::run(k, &circuit, vec![]).unwrap();
     assert_eq!(prover.verify(), Ok(()));
@@ -146,7 +146,7 @@ fn proof_and_verify() {
     let strategy = SingleStrategy::new(&params);
 
     let data: EthTrie<Fp> = Default::default();
-    let (circuit, _) = data.circuits(200);
+    let (circuit, _) = data.to_circuits((200, None), &[]);
     let vk = keygen_vk(&params, &circuit).unwrap();
 
     verify_proof::<KZGCommitmentScheme<Bn256>, VerifierSHPLONK<'_, Bn256>, _, _, _>(
