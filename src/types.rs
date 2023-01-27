@@ -1,6 +1,7 @@
 use ethers_core::types::{Address, U256};
 use halo2_proofs::{arithmetic::FieldExt, halo2curves::bn256::Fr};
 use num_bigint::BigUint;
+use num_traits::identities::Zero;
 
 use crate::{
     operation::SMTPathParse,
@@ -19,7 +20,10 @@ struct Claim {
 #[derive(Clone, Copy, Debug)]
 enum ClaimKind {
     Read(Value),
-    Write { old: Value, new: Value },
+    Write {
+        old: Option<Value>,
+        new: Option<Value>,
+    },
     IsEmpty(Option<U256>),
 }
 
@@ -39,13 +43,39 @@ struct Proof {
     hash_traces: Vec<(NodeKind, (Fr, Fr, Fr), (Fr, Fr, Fr))>,
 }
 
-struct NodeKind {
+#[derive(Clone, Copy, Debug)]
+enum NodeKind {
     AddressPrefix(bool),
     AddressTail(Address),
     CodeHashHighLow,
     NonceBalance,
     StorageKeyPrefix(bool),
     StorageKeyTail(U256),
+}
+
+impl From<&SMTTrace> for ClaimKind {
+    fn from(trace: &SMTTrace) -> Self {
+        match &trace.account_update {
+            [None, None] => ClaimKind::IsEmpty(None),
+            [None, Some(new)] => {
+                let old = None;
+                let new = match (
+                    !new.nonce.is_zero(),
+                    !new.balance.is_zero(),
+                    !new.code_hash.is_zero(),
+                ) {
+                    (true, false, false) => Value::Nonce(new.nonce.into()),
+                    (false, true, false) => Value::Balance(u256(&new.balance)),
+                    (false, false, true) => Value::CodeHash(u256(&new.code_hash)),
+                    (false, false, false) => unimplemented!("storage key update"),
+                    _ => unreachable!("at most one account field change expected"),
+                };
+                ClaimKind::Write { old, new: Some(new) }
+            }
+            [Some(old), None] => unimplemented!("SELFDESTRUCT"),
+            [Some(old), Some(new)] => unimplemented!(),
+        }
+    }
 }
 
 impl From<SMTTrace> for Proof {
@@ -109,6 +139,10 @@ fn fr(x: HexBytes<32>) -> Fr {
     Fr::from_bytes(&x.0).unwrap()
 }
 
+fn u256(x: &BigUint) -> U256 {
+    U256::from_big_endian(&x.to_bytes_be())
+}
+
 fn hash(x: Fr, y: Fr) -> Fr {
     Hashable::hash([x, y])
 }
@@ -149,6 +183,7 @@ mod test {
             let traces: Vec<SMTTrace> = serde_json::from_str::<Vec<_>>(s).unwrap();
             for trace in traces {
                 let proof = Proof::from(trace);
+                // proof.check();
             }
         }
     }
@@ -266,32 +301,5 @@ mod test {
         bits.resize(len, false);
         bits.reverse();
         bits
-    }
-
-    fn fr(x: HexBytes<32>) -> Fr {
-        Fr::from_bytes(&x.0).unwrap()
-    }
-
-    fn hash(x: Fr, y: Fr) -> Fr {
-        Hashable::hash([x, y])
-    }
-
-    fn balance_convert(balance: BigUint) -> Fr {
-        balance
-            .to_u64_digits()
-            .iter()
-            .rev() // to_u64_digits has least significant digit is first
-            .fold(Fr::zero(), |a, b| {
-                a * Fr::from(1 << 32).square() + Fr::from(*b)
-            })
-    }
-
-    fn hi_lo(x: BigUint) -> (Fr, Fr) {
-        let mut u64_digits = x.to_u64_digits();
-        u64_digits.resize(4, 0);
-        (
-            Fr::from_u128((u128::from(u64_digits[3]) << 64) + u128::from(u64_digits[2])),
-            Fr::from_u128((u128::from(u64_digits[1]) << 64) + u128::from(u64_digits[0])),
-        )
     }
 }
