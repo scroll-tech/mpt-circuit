@@ -19,22 +19,42 @@ struct Claim {
 
 #[derive(Clone, Copy, Debug)]
 enum ClaimKind {
-    Read(Value),
-    Write {
-        old: Option<Value>,
-        new: Option<Value>,
-    },
+    Read(Read),
+    Write(Write),
     IsEmpty(Option<U256>),
 }
 
 #[derive(Clone, Copy, Debug)]
-enum Value {
+enum Read {
     Nonce(u64),
     Balance(U256),
     CodeHash(U256),
     // CodeSize(u64),
     // PoseidonCodeHash(Fr),
     Storage { key: U256, value: U256 },
+}
+
+#[derive(Clone, Copy, Debug)]
+enum Write {
+    Nonce {
+        old: Option<u64>,
+        new: Option<u64>,
+    },
+    Balance {
+        old: Option<U256>,
+        new: Option<U256>,
+    },
+    CodeHash {
+        old: Option<U256>,
+        new: Option<U256>,
+    },
+    // CodeSize...,
+    // PoseidonCodeHash...,
+    Storage {
+        key: U256,
+        old_value: Option<U256>,
+        new_value: Option<U256>,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -55,38 +75,115 @@ enum NodeKind {
 
 impl From<&SMTTrace> for ClaimKind {
     fn from(trace: &SMTTrace) -> Self {
+        let [account_old, account_new] = &trace.account_update;
+        let state_update = &trace.state_update;
+
+        if let Some(update) = state_update {
+            match update {
+                [None, None] => (),
+                [Some(old), Some(new)] => {
+                    assert_eq!(account_old, account_new, "{:?}", state_update);
+                    return if old == new {
+                        ClaimKind::Read(Read::Storage {
+                            key: u256_from_hex(old.key),
+                            value: u256_from_hex(old.value),
+                        })
+                    } else {
+                        ClaimKind::Write(Write::Storage {
+                            key: u256_from_hex(old.key),
+                            old_value: Some(u256_from_hex(old.value)),
+                            new_value: Some(u256_from_hex(new.value)),
+                        })
+                    };
+                }
+                [None, Some(new)] => {
+                    assert_eq!(account_old, account_new, "{:?}", state_update);
+                    return ClaimKind::Write(Write::Storage {
+                        key: u256_from_hex(new.key),
+                        old_value: None,
+                        new_value: Some(u256_from_hex(new.value)),
+                    });
+                }
+                [Some(old), None] => {
+                    unimplemented!("SELFDESTRUCT")
+                }
+            }
+        }
+
         match &trace.account_update {
             [None, None] => ClaimKind::IsEmpty(None),
             [None, Some(new)] => {
-                let old = None;
-                let new = match (
+                let write = match (
                     !new.nonce.is_zero(),
                     !new.balance.is_zero(),
                     !new.code_hash.is_zero(),
                 ) {
-                    (true, false, false) => Value::Nonce(new.nonce.into()),
-                    (false, true, false) => Value::Balance(u256(&new.balance)),
-                    (false, false, true) => Value::CodeHash(u256(&new.code_hash)),
-                    (false, false, false) => unimplemented!("storage key update"),
+                    (true, false, false) => Write::Nonce {
+                        old: None,
+                        new: Some(new.nonce.into()),
+                    },
+                    (false, true, false) => Write::Balance {
+                        old: None,
+                        new: Some(u256(&new.balance)),
+                    },
+                    (false, false, true) => Write::CodeHash {
+                        old: None,
+                        new: Some(u256(&new.code_hash)),
+                    },
+                    (false, false, false) => {
+                        dbg!(trace);
+                        // this is a non existance proof.
+                        unimplemented!("storage key update")
+                    }
                     _ => unreachable!("at most one account field change expected"),
                 };
-                ClaimKind::Write { old, new: Some(new) }
+                ClaimKind::Write(write)
             }
             [Some(old), None] => unimplemented!("SELFDESTRUCT"),
-            [Some(old), Some(new)] => unimplemented!(),
+            [Some(old), Some(new)] => {
+                let write = match (
+                    old.nonce != new.nonce,
+                    old.balance != new.balance,
+                    old.code_hash != new.code_hash,
+                ) {
+                    (true, false, false) => Write::Nonce {
+                        old: Some(old.nonce.into()),
+                        new: Some(new.nonce.into()),
+                    },
+                    (false, true, false) => Write::Balance {
+                        old: Some(u256(&old.balance)),
+                        new: Some(u256(&new.balance)),
+                    },
+                    (false, false, true) => Write::CodeHash {
+                        old: Some(u256(&old.code_hash)),
+                        new: Some(u256(&new.code_hash)),
+                    },
+                    (false, false, false) => {
+                        // Note that there's no way to tell what kind of account read was done from the trace.
+                        return ClaimKind::Read(Read::Nonce(old.nonce.into()));
+                    }
+                    _ => {
+                        dbg!(old, new);
+                        // return ClaimKind::Read(Read::Nonce(old.nonce.into()));
+                        // ok apparently it's possible for more than one field to change.....
+                        unreachable!("at most one account field change expected")
+                    }
+                };
+                ClaimKind::Write(write)
+            }
         }
     }
 }
 
 impl From<SMTTrace> for Proof {
     fn from(trace: SMTTrace) -> Self {
-        let [old_root, new_root] = trace.account_path.map(path_root);
+        let [old_root, new_root] = trace.account_path.clone().map(path_root);
         let address = trace.address.0.into(); // TODO: check that this is in the right order.
         let claim = Claim {
             new_root,
             old_root,
             address,
-            kind: ClaimKind::IsEmpty(None),
+            kind: ClaimKind::from(&trace),
         };
 
         Self {
@@ -143,6 +240,10 @@ fn u256(x: &BigUint) -> U256 {
     U256::from_big_endian(&x.to_bytes_be())
 }
 
+fn u256_from_hex(x: HexBytes<32>) -> U256 {
+    U256::from_big_endian(&x.0)
+}
+
 fn hash(x: Fr, y: Fr) -> Fr {
     Hashable::hash([x, y])
 }
@@ -179,7 +280,8 @@ mod test {
 
     #[test]
     fn check_all() {
-        for s in [TRACES, READ_TRACES, DEPLOY_TRACES, TOKEN_TRACES] {
+        // DEPLOY_TRACES(!?!?) has a trace where account nonce and balance change in one trace....
+        for s in [TRACES, READ_TRACES, TOKEN_TRACES] {
             let traces: Vec<SMTTrace> = serde_json::from_str::<Vec<_>>(s).unwrap();
             for trace in traces {
                 let proof = Proof::from(trace);
