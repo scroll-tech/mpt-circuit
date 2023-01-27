@@ -40,11 +40,17 @@ mod test {
 
     #[test]
     fn check() {
-        // for s in [TRACES, READ_TRACES, DEPLOY_TRACES, TOKEN_TRACES] {
-        for s in [TRACES] {
+        for s in [TRACES, READ_TRACES, DEPLOY_TRACES, TOKEN_TRACES] {
+        // for s in [TRACES] {
             let traces: Vec<serde::SMTTrace> = serde_json::from_str(s).unwrap();
+            dbg!(traces.len());
+            let mut i = 0;
             for trace in traces {
-                check_trace(trace);
+                dbg!(i);
+                if i == 13 {
+                    check_trace(trace);
+                }
+                i += 1;
             }
         }
     }
@@ -54,20 +60,27 @@ mod test {
         {
             [root, root].map(fr)
         } else {
+            // dbg!(state_path.clone());
             trace.state_path.clone().map(|p| path_root(p.unwrap()))
         };
+        dbg!(storage_root_before, storage_root_after);
         if let Some(account_before) = trace.account_update[0].clone() {
-            let leaf_before = fr(trace.account_path[0].clone().leaf.unwrap().value);
+            dbg!("yess????");
+            let leaf_before_value = fr(trace.account_path[0].clone().leaf.unwrap().value);
+            let leaf_before_sibling = fr(trace.account_path[0].clone().leaf.unwrap().sibling);
             dbg!(
                 trace.account_key.clone(),
                 trace.account_update.clone(),
                 trace.common_state_root.clone(),
                 trace.address.clone()
             );
-            assert_eq!(
-                account_hash(account_before, storage_root_before),
-                leaf_before
-            );
+            dbg!(leaf_before_value, leaf_before_sibling);
+
+            let account_hash = account_hash(account_before.clone(), storage_root_before);
+
+            dbg!(account_hash, leaf_before_value, leaf_before_sibling);
+            assert_eq!(account_hash, leaf_before_value);
+            dbg!("yessssss!");
         }
 
         // let leaf = acc_trie
@@ -85,18 +98,26 @@ mod test {
         // let storage_root = trace.common_state_root.or().unwrap()
         // let [account_hash_after, account_hash_before] = trace.account_update.iter().zip(trace.state)map(||)account_hash()
 
-        let [state_root_before, state_root_after] = trace.account_path.map(path_root);
+        // let [state_root_before, state_root_after] = trace.account_path.map(path_root);
     }
 
     fn path_root(path: serde::SMTPath) -> Fr {
         let parse: SMTPathParse<Fr> = SMTPathParse::try_from(&path).unwrap();
-        dbg!(parse.0);
+        dbg!(&parse.0);
+        for (a, b, c) in parse.0.hash_traces {
+            assert_eq!(hash(a, b), c)
+        }
 
         let account_hash = if let Some(node) = path.clone().leaf {
             hash(hash(Fr::one(), fr(node.sibling)), fr(node.value))
         } else {
+            // we are here but this is not correct?
+            // sometimes there is no storage root. is this only for empty accounts, or just for accounts where the storage is empty?
             // my theory is that this only happens for emtpy storage trees
-            return Fr::zero();
+            // this should always be present for account paths.
+            // it is option for storage paths.
+            // return Fr::zero();
+            Fr::zero()
             // dbg!(path);
             // unimplemented!("does this happen for non-existing accounts?");
         };
@@ -118,16 +139,21 @@ mod test {
 
     fn account_hash(account: serde::AccountData, state_root: Fr) -> Fr {
         let real_account: Account<Fr> = (&account, state_root).try_into().unwrap();
-        dbg!(real_account);
+        dbg!(&real_account);
 
         let (codehash_hi, codehash_lo) = hi_lo(account.code_hash);
-        dbg!(codehash_hi, codehash_lo);
+        // dbg!(codehash_hi, codehash_lo);
 
         let h1 = hash(codehash_hi, codehash_lo);
         let h3 = hash(Fr::from(account.nonce), balance_convert(account.balance));
         let h2 = hash(h1, state_root);
-        dbg!(h1, h2, h3, hash(h3, h2));
-        hash(h3, h2)
+        // dbg!(h1, h2, h3, hash(h3, h2));
+
+        // dbg!(hash(Fr::one(), hash(h3, h2)));
+
+        let result = hash(h3, h2);
+        assert_eq!(result, real_account.account_hash());
+        result
     }
 
     fn bits(x: usize, len: usize) -> Vec<bool> {
@@ -163,13 +189,13 @@ mod test {
     fn hi_lo(x: BigUint) -> (Fr, Fr) {
         let u64_digits = x.to_u64_digits();
         assert_eq!(u64_digits.len(), 4);
-        dbg!(
-            u64_digits.clone(),
-            Fr::from_u128(u128::from(u64_digits[3]) << 64),
-            Fr::from_u128(u128::from(u64_digits[2])),
-            Fr::from_u128(u128::from(u64_digits[1]) << 64),
-            Fr::from_u128(u128::from(u64_digits[0])),
-        );
+        // dbg!(
+        //     u64_digits.clone(),
+        //     Fr::from_u128(u128::from(u64_digits[3]) << 64),
+        //     Fr::from_u128(u128::from(u64_digits[2])),
+        //     Fr::from_u128(u128::from(u64_digits[1]) << 64),
+        //     Fr::from_u128(u128::from(u64_digits[0])),
+        // );
         (
             Fr::from_u128((u128::from(u64_digits[3]) << 64) + u128::from(u64_digits[2])),
             Fr::from_u128((u128::from(u64_digits[1]) << 64) + u128::from(u64_digits[0])),

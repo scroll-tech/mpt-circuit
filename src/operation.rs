@@ -151,15 +151,15 @@ impl<Fp: FieldExt> MPTPath<Fp> {
         mut hasher: impl FnMut(&Fp, &Fp) -> Fp,
     ) -> Self {
         assert_eq!(path.len(), siblings.len());
-        dbg!(path.clone());
+        // dbg!(path.clone());
 
         let (status, mut hashes, mut hash_types, mut hash_traces) = if let Some(fp) = leaf {
             let one = Fp::one();
             let key_immediate = hasher(&one, &key);
-            dbg!(key, key_immediate, fp);
+            // dbg!(key, key_immediate, fp);
 
             let leaf_hash = hasher(&key_immediate, &fp);
-            dbg!(leaf_hash);
+            // dbg!(leaf_hash);
             (
                 MPTPathStatus::Leaf((key, key_immediate)),
                 vec![fp, leaf_hash],
@@ -689,7 +689,7 @@ impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTPath> for SMTPathParse<Fp> {
         let mpt_path = MPTPath::create(&path_bits, &siblings, key, leaf);
         // sanity check
         let root = Fp::from_bytes_wide(&path_trace.root.cast());
-        dbg!(root, mpt_path.root());
+        // dbg!(root, mpt_path.root());
         assert_eq!(root, mpt_path.root()); // trying to recreate this logic....
 
         Ok(SMTPathParse(mpt_path, siblings, path))
@@ -914,6 +914,7 @@ impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTTrace> for AccountOp<Fp> {
                 .unwrap_or(comm_state_root);
             let account: Account<Fp> = (account_data, old_state_root).try_into()?;
             // sanity check
+            dbg!("try_from SMTTrace to Account", account.account_hash(), leaf);
             assert_eq!(account.account_hash(), leaf);
 
             Some(account)
