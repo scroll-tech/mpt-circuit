@@ -1,37 +1,142 @@
-// pub struct SMTTrace {
-//     /// Address for the trace
-//     pub address: Address,
-//     /// key of account (hash of address)
-//     pub account_key: Hash,
-//     /// SMTPath for account
-//     pub account_path: [SMTPath; 2],
-//     /// update on accountData
-//     pub account_update: [Option<AccountData>; 2],
-//     /// SMTPath for storage,
-//     pub state_path: [Option<SMTPath>; 2],
-//     /// common State Root, if no change on storage part
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub common_state_root: Option<Hash>,
-//     /// key of address (hash of storage address)
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub state_key: Option<Hash>,
-//     /// update on storage
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub state_update: Option<[Option<StateData>; 2]>,
-// }
+use ethers_core::types::{Address, U256};
+use halo2_proofs::{arithmetic::FieldExt, halo2curves::bn256::Fr};
+use num_bigint::BigUint;
 
-// 0xd = 00001101
-// 0xe = 00001110
+use crate::{
+    operation::SMTPathParse,
+    serde::{HexBytes, SMTPath, SMTTrace},
+    Hashable,
+};
+
+#[derive(Clone, Copy, Debug)]
+struct Claim {
+    old_root: Fr,
+    new_root: Fr,
+    address: Address,
+    kind: ClaimKind,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum ClaimKind {
+    Read(Value),
+    Write { old: Value, new: Value },
+    IsEmpty(Option<U256>),
+}
+
+#[derive(Clone, Copy, Debug)]
+enum Value {
+    Nonce(u64),
+    Balance(U256),
+    CodeHash(U256),
+    // CodeSize(u64),
+    // PoseidonCodeHash(Fr),
+    Storage { key: U256, value: U256 },
+}
+
+#[derive(Clone, Debug)]
+struct Proof {
+    claim: Claim,
+    hash_traces: Vec<(NodeKind, (Fr, Fr, Fr), (Fr, Fr, Fr))>,
+}
+
+struct NodeKind {
+    AddressPrefix(bool),
+    AddressTail(Address),
+    CodeHashHighLow,
+    NonceBalance,
+    StorageKeyPrefix(bool),
+    StorageKeyTail(U256),
+}
+
+impl From<SMTTrace> for Proof {
+    fn from(trace: SMTTrace) -> Self {
+        let [old_root, new_root] = trace.account_path.map(path_root);
+        let address = trace.address.0.into(); // TODO: check that this is in the right order.
+        let claim = Claim {
+            new_root,
+            old_root,
+            address,
+            kind: ClaimKind::IsEmpty(None),
+        };
+
+        Self {
+            claim,
+            hash_traces: vec![],
+        }
+    }
+}
+
+fn path_root(path: SMTPath) -> Fr {
+    let parse: SMTPathParse<Fr> = SMTPathParse::try_from(&path).unwrap();
+    dbg!(&parse.0);
+    for (a, b, c) in parse.0.hash_traces {
+        assert_eq!(hash(a, b), c)
+    }
+
+    let account_hash = if let Some(node) = path.clone().leaf {
+        hash(hash(Fr::one(), fr(node.sibling)), fr(node.value))
+    } else {
+        Fr::zero()
+    };
+
+    let directions = bits(path.path_part.clone().try_into().unwrap(), path.path.len());
+    let mut digest = account_hash;
+    for (&bit, node) in directions.iter().zip(path.path.iter().rev()) {
+        assert_eq!(digest, fr(node.value));
+        digest = if bit {
+            hash(fr(node.sibling), digest)
+        } else {
+            hash(digest, fr(node.sibling))
+        };
+    }
+    assert_eq!(digest, fr(path.root));
+    fr(path.root)
+}
+
+fn bits(x: usize, len: usize) -> Vec<bool> {
+    let mut bits = vec![];
+    let mut x = x;
+    while x != 0 {
+        bits.push(x % 2 == 1);
+        x /= 2;
+    }
+    bits.resize(len, false);
+    bits.reverse();
+    bits
+}
+
+fn fr(x: HexBytes<32>) -> Fr {
+    Fr::from_bytes(&x.0).unwrap()
+}
+
+fn hash(x: Fr, y: Fr) -> Fr {
+    Hashable::hash([x, y])
+}
+
+fn balance_convert(balance: BigUint) -> Fr {
+    balance
+        .to_u64_digits()
+        .iter()
+        .rev() // to_u64_digits has least significant digit is first
+        .fold(Fr::zero(), |a, b| {
+            a * Fr::from(1 << 32).square() + Fr::from(*b)
+        })
+}
+
+fn hi_lo(x: BigUint) -> (Fr, Fr) {
+    let mut u64_digits = x.to_u64_digits();
+    u64_digits.resize(4, 0);
+    (
+        Fr::from_u128((u128::from(u64_digits[3]) << 64) + u128::from(u64_digits[2])),
+        Fr::from_u128((u128::from(u64_digits[1]) << 64) + u128::from(u64_digits[0])),
+    )
+}
 
 #[cfg(test)]
 mod test {
-    use crate::hash::Hashable;
-    use crate::operation::{Account, MPTPath, SMTPathParse};
-    use crate::serde;
-    use crate::serde::HexBytes;
-    use halo2_proofs::arithmetic::FieldExt;
-    use halo2_proofs::halo2curves::bn256::Fr;
-    use num_bigint::BigUint;
+    use super::*;
+
+    use crate::{operation::Account, serde::AccountData};
 
     const TRACES: &str = include_str!("../tests/traces.json");
     const READ_TRACES: &str = include_str!("../tests/read_traces.json");
@@ -39,15 +144,16 @@ mod test {
     const TOKEN_TRACES: &str = include_str!("../tests/token_traces.json");
 
     #[test]
-    fn check() {
+    fn check_all() {
         for s in [TRACES, READ_TRACES, DEPLOY_TRACES, TOKEN_TRACES] {
-            for trace in serde_json::from_str::<Vec<_>>(s).unwrap() {
-                check_trace(trace);
+            let traces: Vec<SMTTrace> = serde_json::from_str::<Vec<_>>(s).unwrap();
+            for trace in traces {
+                let proof = Proof::from(trace);
             }
         }
     }
 
-    fn check_trace(trace: serde::SMTTrace) {
+    fn check_trace(trace: SMTTrace) {
         let [storage_root_before, storage_root_after] = storage_roots(&trace);
 
         if let Some(account_before) = trace.account_update[0].clone() {
@@ -87,7 +193,7 @@ mod test {
         let [state_root_before, state_root_after] = trace.account_path.map(path_root);
     }
 
-    fn storage_roots(trace: &serde::SMTTrace) -> [Fr; 2] {
+    fn storage_roots(trace: &SMTTrace) -> [Fr; 2] {
         if let Some(root) = trace.common_state_root {
             [root, root].map(fr)
         } else {
@@ -95,7 +201,7 @@ mod test {
         }
     }
 
-    fn path_root(path: serde::SMTPath) -> Fr {
+    fn path_root(path: SMTPath) -> Fr {
         let parse: SMTPathParse<Fr> = SMTPathParse::try_from(&path).unwrap();
         dbg!(&parse.0);
         for (a, b, c) in parse.0.hash_traces {
@@ -131,7 +237,7 @@ mod test {
         fr(path.root)
     }
 
-    fn account_hash(account: serde::AccountData, state_root: Fr) -> Fr {
+    fn account_hash(account: AccountData, state_root: Fr) -> Fr {
         let real_account: Account<Fr> = (&account, state_root).try_into().unwrap();
         dbg!(&real_account);
 

@@ -16,6 +16,7 @@ mod mpt;
 mod mpt_table;
 #[cfg(test)]
 mod test_utils;
+mod types;
 
 pub mod operation;
 pub mod serde;
