@@ -41,16 +41,8 @@ mod test {
     #[test]
     fn check() {
         for s in [TRACES, READ_TRACES, DEPLOY_TRACES, TOKEN_TRACES] {
-        // for s in [TRACES] {
-            let traces: Vec<serde::SMTTrace> = serde_json::from_str(s).unwrap();
-            dbg!(traces.len());
-            let mut i = 0;
-            for trace in traces {
-                dbg!(i);
-                if i == 13 {
-                    check_trace(trace);
-                }
-                i += 1;
+            for trace in serde_json::from_str::<Vec<_>>(s).unwrap() {
+                check_trace(trace);
             }
         }
     }
@@ -187,15 +179,8 @@ mod test {
     }
 
     fn hi_lo(x: BigUint) -> (Fr, Fr) {
-        let u64_digits = x.to_u64_digits();
-        assert_eq!(u64_digits.len(), 4);
-        // dbg!(
-        //     u64_digits.clone(),
-        //     Fr::from_u128(u128::from(u64_digits[3]) << 64),
-        //     Fr::from_u128(u128::from(u64_digits[2])),
-        //     Fr::from_u128(u128::from(u64_digits[1]) << 64),
-        //     Fr::from_u128(u128::from(u64_digits[0])),
-        // );
+        let mut u64_digits = x.to_u64_digits();
+        u64_digits.resize(4, 0);
         (
             Fr::from_u128((u128::from(u64_digits[3]) << 64) + u128::from(u64_digits[2])),
             Fr::from_u128((u128::from(u64_digits[1]) << 64) + u128::from(u64_digits[0])),
