@@ -132,8 +132,8 @@ impl From<&SMTTrace> for ClaimKind {
                     },
                     (false, false, false) => {
                         dbg!(trace);
-                        // this is a non existance proof.
-                        unimplemented!("storage key update")
+                        // this is a non existance proof? i think??? probably not since it's covered above.
+                        unimplemented!("non-existence proof?")
                     }
                     _ => unreachable!("at most one account field change expected"),
                 };
@@ -164,8 +164,7 @@ impl From<&SMTTrace> for ClaimKind {
                     }
                     _ => {
                         dbg!(old, new);
-                        // return ClaimKind::Read(Read::Nonce(old.nonce.into()));
-                        // ok apparently it's possible for more than one field to change.....
+                        // apparently it's possible for more than one field to change.....
                         unreachable!("at most one account field change expected")
                     }
                 };
@@ -186,9 +185,52 @@ impl From<SMTTrace> for Proof {
             kind: ClaimKind::from(&trace),
         };
 
-        Self {
-            claim,
-            hash_traces: vec![],
+        let mut hash_traces = vec![];
+
+        Self { claim, hash_traces }
+    }
+}
+
+impl Proof {
+    fn check(&self) {
+        // poseidon hashes are correct
+        for (_, open, close) in self.hash_traces {
+            for (left, right, output) in [open, close] {
+                assert_eq!(hash(left, right), output);
+            }
+        }
+
+        // mpt path matches address
+        let bits = bits(self.address);
+        let hash_traces = self.hash_traces.iter();
+        let hash_traces_next = self.hash_traces.iter();
+        hash_traces_next.next();
+        for ((bit, (_, open, close)), (_, open_next, close_next)) in
+            bits.zip(hash_traces_cur).zip(hash_traces_next)
+        {
+            for (current, next) in [(open, open_next), (close, close_next)] {
+                assert_eq!(current.2, if bit { next.0 } else { next.1 });
+            }
+        }
+
+        // mpt path matches account fields, if applicable.
+
+        // mpt path matches storage key, if applicable.
+
+        // old and new roots are correct
+        if let Some(_, open, close) = self.hash_traces.last {
+            assert_eq!(open.2, self.old_root);
+            assert_eq!(close.2, self.new_root);
+        } else {
+            panic!("no hash traces!!!!");
+        }
+
+        // inputs match claim kind
+        match self.claim.kind {
+            ClaimKind::Read(read) => (),
+            ClaimKind::Write(write) => {}
+            ClaimKind::IsEmpty(None) => {}
+            ClaimKind::IsEmpty(Some(key)) => {}
         }
     }
 }
