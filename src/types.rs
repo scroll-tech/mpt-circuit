@@ -60,7 +60,7 @@ enum Write {
 #[derive(Clone, Debug)]
 struct Proof {
     claim: Claim,
-    hash_traces: Vec<(NodeKind, (Fr, Fr, Fr), (Fr, Fr, Fr))>,
+    address_hash_traces: Vec<((Fr, Fr, Fr), (Fr, Fr, Fr))>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -185,31 +185,63 @@ impl From<SMTTrace> for Proof {
             kind: ClaimKind::from(&trace),
         };
 
-        let mut hash_traces = vec![];
+        let mut address_hash_traces = vec![];
+        let [open, close] = trace.account_path;
+        let open_parse: SMTPathParse<Fr> = SMTPathParse::try_from(&open).unwrap();
+        let close_parse: SMTPathParse<Fr> = SMTPathParse::try_from(&close).unwrap();
+        dbg!(
+            trace.address,
+            open.path_part,
+            close.path_part,
+            address.bit(0),
+            address.bit(1),
+            address.bit(2),
+            address.bit(3),
+            address.bit(4),
+            address.bit(5),
+        );
 
-        Self { claim, hash_traces }
+        for (i, (open_hash_trace, close_hash_trace)) in open_parse
+            .0
+            .hash_traces
+            .iter()
+            .zip(close_parse.0.hash_traces)
+            .enumerate()
+        {
+            // first one is hashing 1 with the account?
+            if i > 0 {
+                address_hash_traces.push((*open_hash_trace, close_hash_trace));
+            }
+        }
+
+        Self {
+            claim,
+            address_hash_traces,
+        }
     }
 }
 
 impl Proof {
     fn check(&self) {
         // poseidon hashes are correct
-        for (_, open, close) in self.hash_traces {
-            for (left, right, output) in [open, close] {
+        for (open, close) in self.address_hash_traces.iter() {
+            for (left, right, output) in [*open, *close] {
                 assert_eq!(hash(left, right), output);
             }
         }
 
         // mpt path matches address
-        let bits = bits(self.address);
-        let hash_traces = self.hash_traces.iter();
-        let hash_traces_next = self.hash_traces.iter();
+        // let bits = bits(self.claim.address);
+        let hash_traces = self.address_hash_traces.iter();
+        let mut hash_traces_next = self.address_hash_traces.iter();
         hash_traces_next.next();
-        for ((bit, (_, open, close)), (_, open_next, close_next)) in
-            bits.zip(hash_traces_cur).zip(hash_traces_next)
+        for (i, ((open, close), (open_next, close_next))) in
+            hash_traces.zip(hash_traces_next).enumerate()
         {
             for (current, next) in [(open, open_next), (close, close_next)] {
-                assert_eq!(current.2, if bit { next.0 } else { next.1 });
+                let bit = self.claim.address.bit(i);
+                dbg!(i, bit, current.2, next.0, next.1);
+                assert_eq!(current.2, if bit { next.1 } else { next.0 });
             }
         }
 
@@ -218,9 +250,9 @@ impl Proof {
         // mpt path matches storage key, if applicable.
 
         // old and new roots are correct
-        if let Some(_, open, close) = self.hash_traces.last {
-            assert_eq!(open.2, self.old_root);
-            assert_eq!(close.2, self.new_root);
+        if let Some((open, close)) = self.address_hash_traces.last() {
+            assert_eq!(open.2, self.claim.old_root);
+            assert_eq!(close.2, self.claim.new_root);
         } else {
             panic!("no hash traces!!!!");
         }
@@ -232,6 +264,8 @@ impl Proof {
             ClaimKind::IsEmpty(None) => {}
             ClaimKind::IsEmpty(Some(key)) => {}
         }
+
+        dbg!("ok!!!!");
     }
 }
 
@@ -309,6 +343,20 @@ fn hi_lo(x: BigUint) -> (Fr, Fr) {
     )
 }
 
+trait Bit {
+    fn bit(&self, i: usize) -> bool;
+}
+
+impl Bit for Address {
+    fn bit(&self, i: usize) -> bool {
+        // dbg!(self.0.get(19 - i / 8));
+        self.0
+            .get(19 - i / 8)
+            .map_or_else(|| false, |&byte| byte & (1 << (i % 8)) != 0)
+    }
+}
+// bit method is already defined for U256
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -321,13 +369,21 @@ mod test {
     const TOKEN_TRACES: &str = include_str!("../tests/token_traces.json");
 
     #[test]
+    fn bit_trait() {
+        assert_eq!(Address::repeat_byte(1).bit(0), true);
+        assert_eq!(Address::repeat_byte(1).bit(1), false);
+        assert_eq!(Address::repeat_byte(1).bit(9), false);
+        assert_eq!(Address::repeat_byte(1).bit(400), false);
+    }
+
+    #[test]
     fn check_all() {
         // DEPLOY_TRACES(!?!?) has a trace where account nonce and balance change in one trace....
         for s in [TRACES, READ_TRACES, TOKEN_TRACES] {
             let traces: Vec<SMTTrace> = serde_json::from_str::<Vec<_>>(s).unwrap();
             for trace in traces {
                 let proof = Proof::from(trace);
-                // proof.check();
+                proof.check();
             }
         }
     }
@@ -433,17 +489,5 @@ mod test {
         let result = hash(h3, h2);
         assert_eq!(result, real_account.account_hash());
         result
-    }
-
-    fn bits(x: usize, len: usize) -> Vec<bool> {
-        let mut bits = vec![];
-        let mut x = x;
-        while x != 0 {
-            bits.push(x % 2 == 1);
-            x /= 2;
-        }
-        bits.resize(len, false);
-        bits.reverse();
-        bits
     }
 }
