@@ -188,13 +188,15 @@ impl From<SMTTrace> for Proof {
             kind: ClaimKind::from(&trace),
         };
 
-        let account_key = account_key(address);
-        let mut address_hash_traces = vec![];
         let [open_hash_traces, close_hash_traces] = trace.account_path.map(|path| path.path);
         assert_eq!(open_hash_traces.len(), close_hash_traces.len());
         let path_length = open_hash_traces.len();
+
+        let account_key = account_key(address);
+        let mut address_hash_traces = vec![];
         for (i, (open, close)) in open_hash_traces
-            .iter().rev()
+            .iter()
+            .rev()
             .zip_eq(close_hash_traces.iter().rev())
             .enumerate()
         {
@@ -220,12 +222,9 @@ impl Proof {
         let current_address_hash_traces = self.address_hash_traces.iter();
         let mut next_address_hash_traces = self.address_hash_traces.iter();
         next_address_hash_traces.next();
-
         for ((direction, open, close, sibling), (_, next_open, next_close, _)) in
             current_address_hash_traces.zip(next_address_hash_traces)
         {
-            dbg!(open, sibling, hash(*open, *sibling), hash(*sibling, *open), *next_open);
-
             if *direction {
                 assert_eq!(hash(*sibling, *open), *next_open);
                 assert_eq!(hash(*sibling, *close), *next_close);
@@ -235,24 +234,14 @@ impl Proof {
             }
         }
 
-        // // mpt path matches account_key
-        // let account_key = account_key(self.claim.address);
-        //
-        // let path_length = self.address_hash_traces.len();
-        // let hash_traces = self.address_hash_traces.iter();
-        // let mut hash_traces_next = self.address_hash_traces.iter();
-        // hash_traces_next.next();
-        // for (direction, open_digest, close)
-        // for (i, ((open, close), (open_next, close_next))) in
-        //     hash_traces.zip(hash_traces_next).enumerate()
-        // {
-        //     dbg!(account_key);
-        //     for (current, next) in [(open, open_next), (close, close_next)] {
-        //         let bit = account_key.bit(path_length - i);
-        //         dbg!(i, bit, current.2, next.0, next.1);
-        //         assert_eq!(current.2, if bit { next.1 } else { next.0 });
-        //     }
-        // }
+        // directions match account key.
+        let account_key = account_key(self.claim.address);
+        for (i, (direction, _, _, _)) in self.address_hash_traces.iter().enumerate() {
+            assert_eq!(
+                *direction,
+                account_key.bit(self.address_hash_traces.len() - i - 1)
+            );
+        }
 
         // mpt path matches account fields, if applicable.
 
@@ -260,7 +249,11 @@ impl Proof {
 
         // old and new roots are correct
         if let Some((direction, open, close, sibling)) = self.address_hash_traces.last() {
-            dbg!(hash(*sibling, *open), hash(*open, *sibling), self.claim.old_root);
+            dbg!(
+                hash(*sibling, *open),
+                hash(*open, *sibling),
+                self.claim.old_root
+            );
             if *direction {
                 assert_eq!(hash(*sibling, *open), self.claim.old_root);
                 assert_eq!(hash(*sibling, *close), self.claim.new_root);
