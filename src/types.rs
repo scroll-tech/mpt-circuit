@@ -436,6 +436,26 @@ mod test {
     }
 
     #[test]
+    fn check_account_key() {
+        for s in [TRACES, READ_TRACES, TOKEN_TRACES] {
+            let traces: Vec<SMTTrace> = serde_json::from_str::<Vec<_>>(s).unwrap();
+            for trace in traces {
+                let address = Address::from(trace.address.0);
+
+                let high_bytes: [u8; 16] = address.0[..16].try_into().unwrap();
+                let low_bytes: [u8; 4] = address.0[16..].try_into().unwrap();
+
+                let address_high = Fr::from_u128(u128::from_be_bytes(high_bytes));
+                let address_low = Fr::from_u128(
+                    u128::from(u32::from_be_bytes(low_bytes)) * 0x1000000000000000000000000u128,
+                );
+
+                assert_eq!(fr(trace.account_key), hash(address_high, address_low));
+            }
+        }
+    }
+
+    #[test]
     fn check_all() {
         // DEPLOY_TRACES(!?!?) has a trace where account nonce and balance change in one trace....
         for s in [TRACES, READ_TRACES, TOKEN_TRACES] {

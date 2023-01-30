@@ -563,6 +563,7 @@ pub struct AccountOp<Fp: FieldExt> {
     /// address (the preimage of acc_trie's key)
     pub address: Fp,
     /// address (the preimage of acc_trie's key, splitted by 2 fields)
+    // here....
     pub address_rep: KeyValue<Fp>,
     /// the key being store (preimage of state_trie's key)
     pub store_key: Option<KeyValue<Fp>>,
@@ -860,6 +861,7 @@ impl<'d, Fp: Hashable> From<&'d serde::HexBytes<32>> for KeyValue<Fp> {
 }
 
 impl<'d, Fp: Hashable> From<&'d serde::HexBytes<20>> for KeyValue<Fp> {
+    // here we are.....
     fn from(byte20: &'d serde::HexBytes<20>) -> Self {
         let bytes = byte20.0;
         let first_16bytes: [u8; 16] = bytes[..16].try_into().expect("expect first 16 bytes");
