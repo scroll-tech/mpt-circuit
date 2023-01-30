@@ -394,14 +394,14 @@ trait Bit {
     fn bit(&self, i: usize) -> bool;
 }
 
-// want to be able to not implement this....
-impl Bit for Address {
-    fn bit(&self, i: usize) -> bool {
-        self.0
-            .get(19 - i / 8)
-            .map_or_else(|| false, |&byte| byte & (1 << (i % 8)) != 0)
-    }
-}
+// // want to be able to not implement this....
+// impl Bit for Address {
+//     fn bit(&self, i: usize) -> bool {
+//         self.0
+//             .get(19 - i / 8)
+//             .map_or_else(|| false, |&byte| byte & (1 << (i % 8)) != 0)
+//     }
+// }
 
 impl Bit for Fr {
     fn bit(&self, i: usize) -> bool {
@@ -427,12 +427,6 @@ mod test {
 
     #[test]
     fn bit_trait() {
-        assert_eq!(Address::repeat_byte(1).bit(0), true);
-        assert_eq!(Address::repeat_byte(1).bit(1), false);
-        assert_eq!(Address::repeat_byte(1).bit(9), false);
-        // panics now at index out of bounds
-        // assert_eq!(Address::repeat_byte(1).bit(400), false);
-
         assert_eq!(Fr::one().bit(0), true);
         assert_eq!(Fr::one().bit(1), false);
     }
