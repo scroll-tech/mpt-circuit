@@ -2,6 +2,7 @@ use ethers_core::types::{Address, U256};
 use halo2_proofs::{arithmetic::FieldExt, halo2curves::bn256::Fr};
 use num_bigint::BigUint;
 use num_traits::identities::Zero;
+use itertools::Itertools;
 
 use crate::{
     operation::SMTPathParse,
@@ -187,31 +188,29 @@ impl From<SMTTrace> for Proof {
 
         let mut address_hash_traces = vec![];
         let [open, close] = trace.account_path;
-        let open_parse: SMTPathParse<Fr> = SMTPathParse::try_from(&open).unwrap();
-        let close_parse: SMTPathParse<Fr> = SMTPathParse::try_from(&close).unwrap();
-        dbg!(
-            trace.address,
-            open.path_part,
-            close.path_part,
-            address.bit(0),
-            address.bit(1),
-            address.bit(2),
-            address.bit(3),
-            address.bit(4),
-            address.bit(5),
-        );
+        // let open_parse: SMTPathParse<Fr> = SMTPathParse::try_from(&open).unwrap();
+        // let close_parse: SMTPathParse<Fr> = SMTPathParse::try_from(&close).unwrap();
+        // dbg!(
+        //     trace.address,
+        //     open.path_part,
+        //     close.path_part,
+        //     address.bit(0),
+        //     address.bit(1),
+        //     address.bit(2),
+        //     address.bit(3),
+        //     address.bit(4),
+        //     address.bit(5),
+        // );
 
-        for (i, (open_hash_trace, close_hash_trace)) in open_parse
-            .0
-            .hash_traces
-            .iter()
-            .zip(close_parse.0.hash_traces)
-            .enumerate()
+        let open_root = path_root(open.clone());
+        let open_hash_traces = get_address_hash_traces(address, &open);
+        let close_root = path_root(close.clone());
+        let close_hash_traces = get_address_hash_traces(address, &close);
+
+        for (i, (open_hash_trace, close_hash_trace)) in
+            open_hash_traces.iter().zip_eq(&close_hash_traces).enumerate()
         {
-            // first one is hashing 1 with the account?
-            if i > 0 {
-                address_hash_traces.push((*open_hash_trace, close_hash_trace));
-            }
+            address_hash_traces.push((*open_hash_trace, *close_hash_trace));
         }
 
         Self {
@@ -239,7 +238,7 @@ impl Proof {
             hash_traces.zip(hash_traces_next).enumerate()
         {
             for (current, next) in [(open, open_next), (close, close_next)] {
-                let bit = self.claim.address.bit(i);
+                let bit = self.claim.address.bit(i + 1);
                 dbg!(i, bit, current.2, next.0, next.1);
                 assert_eq!(current.2, if bit { next.1 } else { next.0 });
             }
@@ -296,6 +295,27 @@ fn path_root(path: SMTPath) -> Fr {
     fr(path.root)
 }
 
+// i think that SMTPathParse::try_from is not always correct?
+fn get_address_hash_traces(address: Address, path: &SMTPath) -> Vec<(Fr, Fr, Fr)> {
+    let mut hash_traces = vec![];
+    // dbg!(path.path.clone());
+    let directions = bits(path.path_part.clone().try_into().unwrap(), path.path.len());
+    // dbg!(directions.clone(), address.bit(0), address.bit(1), address.bit(2), address.bit(3));
+    for (i, node) in path.path.iter().rev().enumerate() {
+        assert_eq!(address.bit(i), directions[i]);
+        // dbg!(node.clone());
+        let [left, right] = if address.bit(i) {
+            [node.sibling, node.value]
+        } else {
+            [node.value, node.sibling]
+        }
+        .map(fr);
+        hash_traces.push((left, right, hash(left, right)));
+    }
+    assert_eq!(hash_traces.last().unwrap().2, fr(path.root));
+    hash_traces
+}
+
 fn bits(x: usize, len: usize) -> Vec<bool> {
     let mut bits = vec![];
     let mut x = x;
@@ -349,13 +369,12 @@ trait Bit {
 
 impl Bit for Address {
     fn bit(&self, i: usize) -> bool {
-        // dbg!(self.0.get(19 - i / 8));
         self.0
             .get(19 - i / 8)
             .map_or_else(|| false, |&byte| byte & (1 << (i % 8)) != 0)
     }
 }
-// bit method is already defined for U256
+// bit method is already defined for U256, but is not what you want. you probably want to rename this trait.
 
 #[cfg(test)]
 mod test {
@@ -384,7 +403,9 @@ mod test {
             for trace in traces {
                 let proof = Proof::from(trace);
                 proof.check();
+                // break;
             }
+            break;
         }
     }
 
