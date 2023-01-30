@@ -191,14 +191,16 @@ impl From<SMTTrace> for Proof {
         let account_key = account_key(address);
         let mut address_hash_traces = vec![];
         let [open_hash_traces, close_hash_traces] = trace.account_path.map(|path| path.path);
+        assert_eq!(open_hash_traces.len(), close_hash_traces.len());
+        let path_length = open_hash_traces.len();
         for (i, (open, close)) in open_hash_traces
-            .iter()
-            .zip_eq(&close_hash_traces)
+            .iter().rev()
+            .zip_eq(close_hash_traces.iter().rev())
             .enumerate()
         {
             assert_eq!(open.sibling, close.sibling);
             address_hash_traces.push((
-                account_key.bit(i),
+                account_key.bit(path_length - 1 - i),
                 fr(open.value),
                 fr(close.value),
                 fr(open.sibling),
@@ -215,8 +217,8 @@ impl From<SMTTrace> for Proof {
 impl Proof {
     fn check(&self) {
         // poseidon hashes are correct
-        let current_address_hash_traces = self.address_hash_traces.iter().rev();
-        let mut next_address_hash_traces = self.address_hash_traces.iter().rev();
+        let current_address_hash_traces = self.address_hash_traces.iter();
+        let mut next_address_hash_traces = self.address_hash_traces.iter();
         next_address_hash_traces.next();
 
         for ((direction, open, close, sibling), (_, next_open, next_close, _)) in
@@ -257,18 +259,18 @@ impl Proof {
         // mpt path matches storage key, if applicable.
 
         // old and new roots are correct
-        // if let Some((direction, open, close, sibling)) = self.address_hash_traces.last() {
-        //     dbg!(hash(*sibling, *open), hash(*open, *sibling), self.claim.old_root);
-        //     if *direction {
-        //         assert_eq!(hash(*sibling, *open), self.claim.old_root);
-        //         assert_eq!(hash(*sibling, *close), self.claim.new_root);
-        //     } else {
-        //         assert_eq!(hash(*open, *sibling), self.claim.old_root);
-        //         assert_eq!(hash(*close, *sibling), self.claim.new_root);
-        //     }
-        // } else {
-        //     panic!("no hash traces!!!!");
-        // }
+        if let Some((direction, open, close, sibling)) = self.address_hash_traces.last() {
+            dbg!(hash(*sibling, *open), hash(*open, *sibling), self.claim.old_root);
+            if *direction {
+                assert_eq!(hash(*sibling, *open), self.claim.old_root);
+                assert_eq!(hash(*sibling, *close), self.claim.new_root);
+            } else {
+                assert_eq!(hash(*open, *sibling), self.claim.old_root);
+                assert_eq!(hash(*close, *sibling), self.claim.new_root);
+            }
+        } else {
+            panic!("no hash traces!!!!");
+        }
 
         // inputs match claim kind
         match self.claim.kind {
