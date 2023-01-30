@@ -347,6 +347,15 @@ fn hash(x: Fr, y: Fr) -> Fr {
     Hashable::hash([x, y])
 }
 
+fn account_key(address: Address) -> Fr {
+    let high_bytes: [u8; 16] = address.0[..16].try_into().unwrap();
+    let low_bytes: [u8; 4] = address.0[16..].try_into().unwrap();
+
+    let address_high = Fr::from_u128(u128::from_be_bytes(high_bytes));
+    let address_low = Fr::from_u128(u128::from(u32::from_be_bytes(low_bytes)) << 96);
+    hash(address_high, address_low)
+}
+
 fn balance_convert(balance: BigUint) -> Fr {
     balance
         .to_u64_digits()
@@ -440,14 +449,7 @@ mod test {
             let traces: Vec<SMTTrace> = serde_json::from_str::<Vec<_>>(s).unwrap();
             for trace in traces {
                 let address = Address::from(trace.address.0);
-
-                let high_bytes: [u8; 16] = address.0[..16].try_into().unwrap();
-                let low_bytes: [u8; 4] = address.0[16..].try_into().unwrap();
-
-                let address_high = Fr::from_u128(u128::from_be_bytes(high_bytes));
-                let address_low = Fr::from_u128(u128::from(u32::from_be_bytes(low_bytes)) << 96);
-
-                assert_eq!(fr(trace.account_key), hash(address_high, address_low));
+                assert_eq!(fr(trace.account_key), account_key(address));
             }
         }
     }
