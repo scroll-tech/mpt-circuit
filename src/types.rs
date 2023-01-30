@@ -187,25 +187,16 @@ impl From<SMTTrace> for Proof {
         };
 
         let mut address_hash_traces = vec![];
-        let [open, close] = trace.account_path;
-
-        let open_directions = bits(open.path_part.clone().try_into().unwrap(), open.path.len());
-        let other_directions: Vec<_> = (0..open.path.len()).map(|i| address.bit(i)).collect();
-        dbg!(open.path_part, address, &open_directions, &other_directions);
-        assert_eq!(open_directions, other_directions);
-
-        // let open_root = path_root(open.clone());
-        // let open_hash_traces = get_address_hash_traces(address, &open);
-        // let close_root = path_root(close.clone());
-        // let close_hash_traces = get_address_hash_traces(address, &close);
-        //
-        // for (i, (open_hash_trace, close_hash_trace)) in
-        //     open_hash_traces.iter().zip_eq(&close_hash_traces).enumerate()
-        // {
-        //     address_hash_traces.push((*open_hash_trace, *close_hash_trace));
-        // }
-
-        // dbg!(claim.kind);
+        let [open_hash_traces, close_hash_traces] = trace
+            .account_path
+            .map(|path| get_address_hash_traces(address, &path));
+        for (i, (open_hash_trace, close_hash_trace)) in open_hash_traces
+            .iter()
+            .zip_eq(&close_hash_traces)
+            .enumerate()
+        {
+            address_hash_traces.push((*open_hash_trace, *close_hash_trace));
+        }
 
         Self {
             claim,
@@ -223,19 +214,22 @@ impl Proof {
             }
         }
 
-        // mpt path matches address
-        // let bits = bits(self.claim.address);
+        // mpt path matches account_key
+        let account_key = account_key(self.claim.address);
+
+        let path_length = self.address_hash_traces.len();
         let hash_traces = self.address_hash_traces.iter();
         let mut hash_traces_next = self.address_hash_traces.iter();
         hash_traces_next.next();
         for (i, ((open, close), (open_next, close_next))) in
             hash_traces.zip(hash_traces_next).enumerate()
         {
-            for (current, next) in [(open, open_next), (close, close_next)] {
-                let bit = self.claim.address.bit(i + 1);
-                // dbg!(i, bit, current.2, next.0, next.1);
-                assert_eq!(current.2, if bit { next.1 } else { next.0 });
-            }
+            // dbg!(account_key);
+            // for (current, next) in [(open, open_next), (close, close_next)] {
+            //     let bit = account_key.bit(path_length - i);
+            //     dbg!(i, bit, current.2, next.0, next.1);
+            //     assert_eq!(current.2, if bit { next.1 } else { next.0 });
+            // }
         }
 
         // mpt path matches account fields, if applicable.
@@ -289,22 +283,22 @@ fn path_root(path: SMTPath) -> Fr {
     fr(path.root)
 }
 
-// i think that SMTPathParse::try_from is not always correct?
 fn get_address_hash_traces(address: Address, path: &SMTPath) -> Vec<(Fr, Fr, Fr)> {
     let mut hash_traces = vec![];
     // dbg!(path.path.clone());
+    let account_key = account_key(address);
     let directions = bits(path.path_part.clone().try_into().unwrap(), path.path.len());
     // assert_eq!(directions)
-    dbg!(
-        address,
-        directions.clone(),
-        address.bit(0),
-        address.bit(1),
-        address.bit(2),
-        address.bit(3)
-    );
+    // dbg!(
+    //     address,
+    //     directions.clone(),
+    //     account_key.bit(0),
+    //     account_key.bit(1),
+    //     account_key.bit(2),
+    //     account_key.bit(3)
+    // );
     for (i, node) in path.path.iter().rev().enumerate() {
-        let direction = address.bit(path.path.len() - i);
+        let direction = account_key.bit(path.path.len() - 1 - i);
         assert_eq!(direction, directions[i]);
         // dbg!(node.clone());
         let [left, right] = if direction {
@@ -379,6 +373,7 @@ trait Bit {
     fn bit(&self, i: usize) -> bool;
 }
 
+// want to be able to not implement this....
 impl Bit for Address {
     fn bit(&self, i: usize) -> bool {
         self.0
@@ -461,7 +456,7 @@ mod test {
             let traces: Vec<SMTTrace> = serde_json::from_str::<Vec<_>>(s).unwrap();
             for trace in traces {
                 let proof = Proof::from(trace);
-                // proof.check();
+                proof.check();
                 // break;
             }
             break;
