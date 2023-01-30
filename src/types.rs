@@ -447,7 +447,7 @@ mod test {
 
                 let address_high = Fr::from_u128(u128::from_be_bytes(high_bytes));
                 let address_low = Fr::from_u128(
-                    u128::from(u32::from_be_bytes(low_bytes)) * 0x1000000000000000000000000u128,
+                    u128::from(u32::from_be_bytes(low_bytes)) << 12,
                 );
 
                 assert_eq!(fr(trace.account_key), hash(address_high, address_low));
