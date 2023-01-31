@@ -235,9 +235,7 @@ impl From<SMTTrace> for Proof {
             // }
 
             let key = trace.state_update.unwrap()[0].clone().unwrap().key;
-
             let storage_key_hash = storage_key_hash(u256_from_hex(key));
-            dbg!(key, storage_key_hash);
             assert_eq!(storage_key_hash, fr(key_hash));
 
             let path_length = storage_path_open.path.len();
@@ -250,7 +248,6 @@ impl From<SMTTrace> for Proof {
                 .enumerate()
             {
                 assert_eq!(open.sibling, close.sibling);
-                dbg!(path_length - 1, i);
                 storage_hash_traces.push((
                     storage_key_hash.bit(path_length - 1 - i),
                     fr(open.value),
@@ -322,20 +319,7 @@ fn account_hash_traces(address: Address, account: AccountData, state_root: Fr) -
 impl Proof {
     fn check(&self) {
         // poseidon hashes are correct
-        let current_address_hash_traces = self.address_hash_traces.iter();
-        let mut next_address_hash_traces = self.address_hash_traces.iter();
-        next_address_hash_traces.next();
-        for ((direction, open, close, sibling), (_, next_open, next_close, _)) in
-            current_address_hash_traces.zip(next_address_hash_traces)
-        {
-            if *direction {
-                assert_eq!(hash(*sibling, *open), *next_open);
-                assert_eq!(hash(*sibling, *close), *next_close);
-            } else {
-                assert_eq!(hash(*open, *sibling), *next_open);
-                assert_eq!(hash(*close, *sibling), *next_close);
-            }
-        }
+        check_hash_traces(&self.address_hash_traces);
 
         // directions match account key.
         let account_key = account_key(self.claim.address);
@@ -354,11 +338,6 @@ impl Proof {
 
         // old and new roots are correct
         if let Some((direction, open, close, sibling)) = self.address_hash_traces.last() {
-            // dbg!(
-            //     hash(*sibling, *open),
-            //     hash(*open, *sibling),
-            //     self.claim.old_root
-            // );
             if *direction {
                 assert_eq!(hash(*sibling, *open), self.claim.old_root);
                 assert_eq!(hash(*sibling, *close), self.claim.new_root);
@@ -380,6 +359,31 @@ impl Proof {
             self.address_hash_traces.get(0).unwrap().2
         );
 
+        // storage poseidon hashes are correct
+        check_hash_traces(&self.storage_hash_traces);
+
+        // // directions match account key.
+        // let account_key = account_key(self.claim.address);
+        // for (i, (direction, _, _, _)) in self.address_hash_traces.iter().enumerate() {
+        //     assert_eq!(
+        //         *direction,
+        //         account_key.bit(self.address_hash_traces.len() - i - 1)
+        //     );
+        // }
+
+        // // storage root is correct, if needed.
+        // if let Some((direction, open, close, sibling)) = self.storage_hash_traces.last() {
+        //     if *direction {
+        //         assert_eq!(hash(*sibling, *open), self.claim.old_root);
+        //         assert_eq!(hash(*sibling, *close), self.claim.new_root);
+        //     } else {
+        //         assert_eq!(hash(*open, *sibling), self.claim.old_root);
+        //         assert_eq!(hash(*close, *sibling), self.claim.new_root);
+        //     }
+        // } else {
+        //     // TODO: check claim doesn't involve storage.
+        // }
+
         // want leaf node sibling and leaf node value
 
         // inputs match claim kind
@@ -400,6 +404,23 @@ impl Proof {
         // }
 
         dbg!("ok!!!!");
+    }
+}
+
+fn check_hash_traces(traces: &[(bool, Fr, Fr, Fr)]) {
+    let current_hash_traces = traces.iter();
+    let mut next_hash_traces = traces.iter();
+    next_hash_traces.next();
+    for ((direction, open, close, sibling), (_, next_open, next_close, _)) in
+        current_hash_traces.zip(next_hash_traces)
+    {
+        if *direction {
+            assert_eq!(hash(*sibling, *open), *next_open);
+            assert_eq!(hash(*sibling, *close), *next_close);
+        } else {
+            assert_eq!(hash(*open, *sibling), *next_open);
+            assert_eq!(hash(*close, *sibling), *next_close);
+        }
     }
 }
 
@@ -476,7 +497,7 @@ fn storage_key_hash(key: U256) -> Fr {
     let low = Fr::from_u128(u128::from_be_bytes(low_bytes));
     hash(high, low)
 
-
+    // TODO: what's wrong with this?
     // let [limb_0, limb_1, limb_2, limb_3] = key.0;
     // let key_high = Fr::from_u128(u128::from(limb_2) + u128::from(limb_3) << 64);
     // let key_low = Fr::from_u128(u128::from(limb_0) + u128::from(limb_1) << 64);
