@@ -257,7 +257,7 @@ impl From<SMTTrace> for Proof {
         }
 
         let [old_account, new_account] = trace.account_update;
-        let [old_state_root, new_state_root] = if let Some(root) = trace.common_state_root {
+        let [old_storage_root, new_storage_root] = if let Some(root) = trace.common_state_root {
             [root, root].map(fr)
         } else {
             trace.state_path.clone().map(|p| path_root(p.unwrap()))
@@ -265,9 +265,9 @@ impl From<SMTTrace> for Proof {
 
         // account_update can be none for non-existing accounts?
         let old_account_hash_traces =
-            account_hash_traces(address, old_account.unwrap(), old_state_root);
+            account_hash_traces(address, old_account.unwrap(), old_storage_root);
         let new_account_hash_traces =
-            account_hash_traces(address, new_account.unwrap(), new_state_root);
+            account_hash_traces(address, new_account.unwrap(), new_storage_root);
 
         Self {
             claim,
@@ -285,12 +285,12 @@ fn path_leaf(path: SMTPath) -> [Fr; 2] {
     [leaf.value, leaf.sibling].map(fr)
 }
 
-fn account_hash_traces(address: Address, account: AccountData, state_root: Fr) -> [[Fr; 3]; 6] {
-    let real_account: Account<Fr> = (&account, state_root).try_into().unwrap();
+fn account_hash_traces(address: Address, account: AccountData, storage_root: Fr) -> [[Fr; 3]; 6] {
+    let real_account: Account<Fr> = (&account, storage_root).try_into().unwrap();
 
     let (codehash_hi, codehash_lo) = hi_lo(account.code_hash);
     let h1 = hash(codehash_hi, codehash_lo);
-    let h2 = hash(h1, state_root);
+    let h2 = hash(h1, storage_root);
 
     let nonce = Fr::from(account.nonce);
     let balance = balance_convert(account.balance);
@@ -305,7 +305,7 @@ fn account_hash_traces(address: Address, account: AccountData, state_root: Fr) -
 
     let mut account_hash_traces = [[Fr::zero(); 3]; 6];
     account_hash_traces[0] = [codehash_hi, codehash_lo, h1];
-    account_hash_traces[1] = [h1, state_root, h2];
+    account_hash_traces[1] = [h1, storage_root, h2];
     account_hash_traces[2] = [nonce, balance, h3];
     account_hash_traces[3] = [h3, h2, h4];
     account_hash_traces[4] = [Fr::one(), account_key, h5];
