@@ -246,7 +246,6 @@ fn path_leaf(path: SMTPath) -> [Fr; 2] {
 
 fn account_hash_traces(address: Address, account: AccountData, state_root: Fr) -> [[Fr; 3]; 6] {
     let real_account: Account<Fr> = (&account, state_root).try_into().unwrap();
-    dbg!(&real_account, real_account.account_hash());
 
     let (codehash_hi, codehash_lo) = hi_lo(account.code_hash);
     let h1 = hash(codehash_hi, codehash_lo);
@@ -272,7 +271,6 @@ fn account_hash_traces(address: Address, account: AccountData, state_root: Fr) -
     account_hash_traces[5] = [h5, h4, h6];
 
     assert_eq!(real_account.account_hash(), h4);
-    dbg!("yay!!!!!");
     account_hash_traces
 }
 
@@ -327,16 +325,14 @@ impl Proof {
             panic!("no hash traces!!!!");
         }
 
-
-        dbg!(
-            hash(Fr::one(), self.leafs[0][1]),
-            hash(hash(Fr::one(), self.leafs[0][1]), self.leafs[0][0]),
-            self.old_account_hash_traces,
-            self.address_hash_traces.get(0).unwrap()
-        );
         assert_eq!(
             self.old_account_hash_traces[5][2],
             self.address_hash_traces.get(0).unwrap().1
+        );
+
+        assert_eq!(
+            self.new_account_hash_traces[5][2],
+            self.address_hash_traces.get(0).unwrap().2
         );
 
         // want leaf node sibling and leaf node value
@@ -364,7 +360,6 @@ impl Proof {
 
 fn path_root(path: SMTPath) -> Fr {
     let parse: SMTPathParse<Fr> = SMTPathParse::try_from(&path).unwrap();
-    // dbg!(&parse.0);
     for (a, b, c) in parse.0.hash_traces {
         assert_eq!(hash(a, b), c)
     }
@@ -387,25 +382,6 @@ fn path_root(path: SMTPath) -> Fr {
     }
     assert_eq!(digest, fr(path.root));
     fr(path.root)
-}
-
-fn account_hash(account: AccountData, state_root: Fr) -> Fr {
-    let real_account: Account<Fr> = (&account, state_root).try_into().unwrap();
-    // dbg!(&real_account);
-
-    let (codehash_hi, codehash_lo) = hi_lo(account.code_hash);
-    // dbg!(codehash_hi, codehash_lo);
-
-    let h1 = hash(codehash_hi, codehash_lo);
-    let h3 = hash(Fr::from(account.nonce), balance_convert(account.balance));
-    let h2 = hash(h1, state_root);
-    // dbg!(h1, h2, h3, hash(h3, h2));
-
-    // dbg!(hash(Fr::one(), hash(h3, h2)));
-
-    let result = hash(h3, h2);
-    assert_eq!(result, real_account.account_hash());
-    result
 }
 
 fn bits(x: usize, len: usize) -> Vec<bool> {
@@ -467,15 +443,6 @@ fn hi_lo(x: BigUint) -> (Fr, Fr) {
 trait Bit {
     fn bit(&self, i: usize) -> bool;
 }
-
-// // want to be able to not implement this....
-// impl Bit for Address {
-//     fn bit(&self, i: usize) -> bool {
-//         self.0
-//             .get(19 - i / 8)
-//             .map_or_else(|| false, |&byte| byte & (1 << (i % 8)) != 0)
-//     }
-// }
 
 impl Bit for Fr {
     fn bit(&self, i: usize) -> bool {
@@ -558,41 +525,5 @@ mod test {
         } else {
             trace.state_path.clone().map(|p| path_root(p.unwrap()))
         }
-    }
-
-    fn path_root(path: SMTPath) -> Fr {
-        let parse: SMTPathParse<Fr> = SMTPathParse::try_from(&path).unwrap();
-        dbg!(&parse.0);
-        for (a, b, c) in parse.0.hash_traces {
-            assert_eq!(hash(a, b), c)
-        }
-
-        let account_hash = if let Some(node) = path.clone().leaf {
-            hash(hash(Fr::one(), fr(node.sibling)), fr(node.value))
-        } else {
-            // we are here but this is not correct?
-            // sometimes there is no storage root. is this only for empty accounts, or just for accounts where the storage is empty?
-            // my theory is that this only happens for emtpy storage trees
-            // this should always be present for account paths.
-            // it is option for storage paths.
-            // return Fr::zero();
-            Fr::zero()
-            // dbg!(path);
-            // unimplemented!("does this happen for non-existing accounts?");
-        };
-
-        let directions = bits(path.path_part.clone().try_into().unwrap(), path.path.len());
-        let mut digest = account_hash;
-        for (&bit, node) in directions.iter().zip(path.path.iter().rev()) {
-            assert_eq!(digest, fr(node.value));
-            digest = if bit {
-                hash(fr(node.sibling), digest)
-            } else {
-                hash(digest, fr(node.sibling))
-            };
-        }
-        assert_eq!(digest, fr(path.root));
-        dbg!("yay!!!!");
-        fr(path.root)
     }
 }
