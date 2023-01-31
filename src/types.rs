@@ -239,8 +239,6 @@ impl From<SMTTrace> for Proof {
             assert_eq!(storage_key_hash, fr(key_hash));
 
             let storage_path_length = storage_path_open.path.len();
-            dbg!(storage_path_open.clone().path_part, bits(storage_path_open.clone().path_part.try_into().unwrap(), storage_path_length));
-
             for (i, (open, close)) in storage_path_open
                 .path
                 .iter()
@@ -249,7 +247,6 @@ impl From<SMTTrace> for Proof {
                 .enumerate()
             {
                 assert_eq!(open.sibling, close.sibling);
-                dbg!(storage_key_hash.bit(storage_path_length - 1 - i));
                 storage_hash_traces.push((
                     storage_key_hash.bit(storage_path_length - 1 - i),
                     fr(open.value),
@@ -370,9 +367,7 @@ impl Proof {
             | ClaimKind::Write(Write::Storage { key, .. })
             | ClaimKind::IsEmpty(Some(key)) => {
                 let storage_key_hash = storage_key_hash(key);
-                dbg!(key, storage_key_hash);
                 for (i, (direction, _, _, _)) in self.storage_hash_traces.iter().enumerate() {
-                    dbg!(storage_key_hash.bit(self.storage_hash_traces.len() - i - 1));
                     assert_eq!(
                         *direction,
                         storage_key_hash.bit(self.storage_hash_traces.len() - i - 1)
