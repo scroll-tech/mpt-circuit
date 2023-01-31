@@ -62,8 +62,8 @@ enum Write {
 struct Proof {
     claim: Claim,
     address_hash_traces: Vec<(bool, Fr, Fr, Fr)>,
-    old_account_hash_traces: [[Fr; 3]; 4],
-    new_account_hash_traces: [[Fr; 3]; 4],
+    old_account_hash_traces: [[Fr; 3]; 6],
+    new_account_hash_traces: [[Fr; 3]; 6],
     // storage_hash_traces: Vec<(bool, Fr, Fr, Fr)>,
 }
 
@@ -220,8 +220,10 @@ impl From<SMTTrace> for Proof {
         };
 
         // account_update can be none for non-existing accounts?
-        let old_account_hash_traces = account_hash_traces(old_account.unwrap(), old_state_root);
-        let new_account_hash_traces = account_hash_traces(new_account.unwrap(), new_state_root);
+        let old_account_hash_traces =
+            account_hash_traces(address, old_account.unwrap(), old_state_root);
+        let new_account_hash_traces =
+            account_hash_traces(address, new_account.unwrap(), new_state_root);
 
         Self {
             claim,
@@ -232,7 +234,7 @@ impl From<SMTTrace> for Proof {
     }
 }
 
-fn account_hash_traces(account: AccountData, state_root: Fr) -> [[Fr; 3]; 4] {
+fn account_hash_traces(address: Address, account: AccountData, state_root: Fr) -> [[Fr; 3]; 4] {
     let (codehash_hi, codehash_lo) = hi_lo(account.code_hash);
     let h1 = hash(codehash_hi, codehash_lo);
     let h2 = hash(h1, state_root);
@@ -241,11 +243,18 @@ fn account_hash_traces(account: AccountData, state_root: Fr) -> [[Fr; 3]; 4] {
     let balance = balance_convert(account.balance);
     let h3 = hash(nonce, balance);
 
-    let mut account_hash_traces = [[Fr::zero(); 3]; 4];
+    let h4 = hash(Fr::one(), h3);
+
+    let account_key = account_key(address);
+    let h5 = hash(h4, account_key);
+
+    let mut account_hash_traces = [[Fr::zero(); 3]; 6];
     account_hash_traces[0] = [codehash_hi, codehash_lo, h1];
     account_hash_traces[1] = [h1, state_root, h2];
     account_hash_traces[2] = [nonce, balance, h3];
     account_hash_traces[3] = [h3, h2, hash(h3, h2)];
+    account_hash_traces[4] = [Fr::one(), account_hash, h4];
+    account_hash_traces[5] = [h4, account_key, h5];
     account_hash_traces
 }
 
