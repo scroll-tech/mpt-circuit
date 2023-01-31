@@ -219,14 +219,14 @@ impl From<SMTTrace> for Proof {
         }
 
         let mut storage_hash_traces = vec![];
-        if let Some(key) = trace.state_key {
+        if let Some(key_hash) = trace.state_key {
             // let storage_key_hash = storage_key_hash(key);
 
             let [storage_path_open, storage_path_close] =
                 trace.state_path.clone().map(|path| path.unwrap());
             assert_eq!(storage_path_open.path_part, storage_path_close.path_part);
 
-            assert_eq!(storage_path_open.path.len(), storage_path_close.path.len())
+            assert_eq!(storage_path_open.path.len(), storage_path_close.path.len());
 
             // // The storage close storage path can be at most 1 longer than the open storage path. This happens when the key was previously empty.
             // // do we never test the case where a storage slot is set to 0?
@@ -234,20 +234,30 @@ impl From<SMTTrace> for Proof {
             //     assert_eq!(storage_path_open.path.len() + 1, storage_path_close.path.len())
             // }
 
-            // for (i, (open, close)) in storage_open_hash_traces
-            //     .iter()
-            //     .rev()
-            //     .zip_eq(storage_close_hash_traces.iter().rev())
-            //     .enumerate()
-            // {
-            //     assert_eq!(open.sibling, close.sibling);
-            //     storage_hash_traces.push((
-            //         storage_key_hash.bit(path_length - 1 - i),
-            //         fr(open.value),
-            //         fr(close.value),
-            //         fr(open.sibling),
-            //     ));
-            // }
+            let key = trace.state_update.unwrap()[0].clone().unwrap().key;
+
+            let storage_key_hash = storage_key_hash(u256_from_hex(key));
+            dbg!(key, storage_key_hash);
+            assert_eq!(storage_key_hash, fr(key_hash));
+
+            let path_length = storage_path_open.path.len();
+
+            for (i, (open, close)) in storage_path_open
+                .path
+                .iter()
+                .rev()
+                .zip_eq(storage_path_close.path.iter().rev())
+                .enumerate()
+            {
+                assert_eq!(open.sibling, close.sibling);
+                dbg!(path_length - 1, i);
+                storage_hash_traces.push((
+                    storage_key_hash.bit(path_length - 1 - i),
+                    fr(open.value),
+                    fr(close.value),
+                    fr(open.sibling),
+                ));
+            }
         }
 
         let [old_account, new_account] = trace.account_update;
@@ -456,6 +466,23 @@ fn account_key(address: Address) -> Fr {
     hash(address_high, address_low)
 }
 
+fn storage_key_hash(key: U256) -> Fr {
+    let mut bytes = [0; 32];
+    key.to_big_endian(&mut bytes);
+    let high_bytes: [u8; 16] = bytes[..16].try_into().unwrap();
+    let low_bytes: [u8; 16] = bytes[16..].try_into().unwrap();
+
+    let high = Fr::from_u128(u128::from_be_bytes(high_bytes));
+    let low = Fr::from_u128(u128::from_be_bytes(low_bytes));
+    hash(high, low)
+
+
+    // let [limb_0, limb_1, limb_2, limb_3] = key.0;
+    // let key_high = Fr::from_u128(u128::from(limb_2) + u128::from(limb_3) << 64);
+    // let key_low = Fr::from_u128(u128::from(limb_0) + u128::from(limb_1) << 64);
+    // hash(key_high, key_low)
+}
+
 fn balance_convert(balance: BigUint) -> Fr {
     balance
         .to_u64_digits()
@@ -561,9 +588,7 @@ mod test {
             for trace in traces {
                 let proof = Proof::from(trace);
                 proof.check();
-                // break;
             }
-            break;
         }
     }
 
