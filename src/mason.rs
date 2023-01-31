@@ -26,7 +26,7 @@
 #[cfg(test)]
 mod test {
     use crate::hash::Hashable;
-    use crate::operation::{Account, MPTPath, SMTPathParse};
+    use crate::operation::{Account, SMTPathParse};
     use crate::serde;
     use crate::serde::HexBytes;
     use halo2_proofs::arithmetic::FieldExt;

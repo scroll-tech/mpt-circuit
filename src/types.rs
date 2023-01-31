@@ -5,8 +5,8 @@ use num_bigint::BigUint;
 use num_traits::identities::Zero;
 
 use crate::{
-    operation::SMTPathParse,
-    serde::{HexBytes, SMTPath, SMTTrace},
+    operation::{Account, SMTPathParse},
+    serde::{AccountData, HexBytes, SMTPath, SMTTrace},
     Hashable,
 };
 
@@ -62,6 +62,9 @@ enum Write {
 struct Proof {
     claim: Claim,
     address_hash_traces: Vec<(bool, Fr, Fr, Fr)>,
+    old_account_hash_traces: [[Fr; 3]; 4],
+    new_account_hash_traces: [[Fr; 3]; 4],
+    // storage_hash_traces: Vec<(bool, Fr, Fr, Fr)>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -209,11 +212,41 @@ impl From<SMTTrace> for Proof {
             ));
         }
 
+        let [old_account, new_account] = trace.account_update;
+        let [old_state_root, new_state_root] = if let Some(root) = trace.common_state_root {
+            [root, root].map(fr)
+        } else {
+            trace.state_path.clone().map(|p| path_root(p.unwrap()))
+        };
+
+        // account_update can be none for non-existing accounts?
+        let old_account_hash_traces = account_hash_traces(old_account.unwrap(), old_state_root);
+        let new_account_hash_traces = account_hash_traces(new_account.unwrap(), new_state_root);
+
         Self {
             claim,
             address_hash_traces,
+            old_account_hash_traces,
+            new_account_hash_traces,
         }
     }
+}
+
+fn account_hash_traces(account: AccountData, state_root: Fr) -> [[Fr; 3]; 4] {
+    let (codehash_hi, codehash_lo) = hi_lo(account.code_hash);
+    let h1 = hash(codehash_hi, codehash_lo);
+    let h2 = hash(h1, state_root);
+
+    let nonce = Fr::from(account.nonce);
+    let balance = balance_convert(account.balance);
+    let h3 = hash(nonce, balance);
+
+    let mut account_hash_traces = [[Fr::zero(); 3]; 4];
+    account_hash_traces[0] = [codehash_hi, codehash_lo, h1];
+    account_hash_traces[1] = [h1, state_root, h2];
+    account_hash_traces[2] = [nonce, balance, h3];
+    account_hash_traces[3] = [h3, h2, hash(h3, h2)];
+    account_hash_traces
 }
 
 impl Proof {
@@ -244,6 +277,8 @@ impl Proof {
         }
 
         // mpt path matches account fields, if applicable.
+        // let[ old_account, new_account ]=
+        // let account_hash = account_hash(account, state_root);
 
         // mpt path matches storage key, if applicable.
 
@@ -304,34 +339,23 @@ fn path_root(path: SMTPath) -> Fr {
     fr(path.root)
 }
 
-fn get_address_hash_traces(address: Address, path: &SMTPath) -> Vec<(Fr, Fr, Fr)> {
-    let mut hash_traces = vec![];
-    // dbg!(path.path.clone());
-    let account_key = account_key(address);
-    let directions = bits(path.path_part.clone().try_into().unwrap(), path.path.len());
-    // assert_eq!(directions)
-    // dbg!(
-    //     address,
-    //     directions.clone(),
-    //     account_key.bit(0),
-    //     account_key.bit(1),
-    //     account_key.bit(2),
-    //     account_key.bit(3)
-    // );
-    for (i, node) in path.path.iter().rev().enumerate() {
-        let direction = account_key.bit(path.path.len() - 1 - i);
-        assert_eq!(direction, directions[i]);
-        // dbg!(node.clone());
-        let [left, right] = if direction {
-            [node.sibling, node.value]
-        } else {
-            [node.value, node.sibling]
-        }
-        .map(fr);
-        hash_traces.push((left, right, hash(left, right)));
-    }
-    assert_eq!(hash_traces.last().unwrap().2, fr(path.root));
-    hash_traces
+fn account_hash(account: AccountData, state_root: Fr) -> Fr {
+    let real_account: Account<Fr> = (&account, state_root).try_into().unwrap();
+    dbg!(&real_account);
+
+    let (codehash_hi, codehash_lo) = hi_lo(account.code_hash);
+    // dbg!(codehash_hi, codehash_lo);
+
+    let h1 = hash(codehash_hi, codehash_lo);
+    let h3 = hash(Fr::from(account.nonce), balance_convert(account.balance));
+    let h2 = hash(h1, state_root);
+    // dbg!(h1, h2, h3, hash(h3, h2));
+
+    // dbg!(hash(Fr::one(), hash(h3, h2)));
+
+    let result = hash(h3, h2);
+    assert_eq!(result, real_account.account_hash());
+    result
 }
 
 fn bits(x: usize, len: usize) -> Vec<bool> {
@@ -476,46 +500,6 @@ mod test {
             }
             break;
         }
-    }
-
-    fn check_trace(trace: SMTTrace) {
-        let [storage_root_before, storage_root_after] = storage_roots(&trace);
-
-        if let Some(account_before) = trace.account_update[0].clone() {
-            dbg!("yess????");
-            let leaf_before_value = fr(trace.account_path[0].clone().leaf.unwrap().value);
-            let leaf_before_sibling = fr(trace.account_path[0].clone().leaf.unwrap().sibling);
-            dbg!(
-                trace.account_key.clone(),
-                trace.account_update.clone(),
-                trace.common_state_root.clone(),
-                trace.address.clone()
-            );
-            dbg!(leaf_before_value, leaf_before_sibling);
-
-            let account_hash = account_hash(account_before.clone(), storage_root_before);
-
-            dbg!(account_hash, leaf_before_value, leaf_before_sibling);
-            assert_eq!(account_hash, leaf_before_value);
-            dbg!("yessssss!");
-        }
-
-        // let leaf = acc_trie
-        //     .old
-        //     .leaf()
-        //     .expect("leaf should exist when there is account data");
-        // let old_state_root = state_trie
-        //     .as_ref()
-        //     .map(|s| s.start_root())
-        //     .unwrap_or(comm_state_root);
-        // let account: Account<Fp> = (account_data, old_state_root).try_into()?;
-        // // sanity check
-        // assert_eq!(account.account_hash(), leaf);
-
-        // let storage_root = trace.common_state_root.or().unwrap()
-        // let [account_hash_after, account_hash_before] = trace.account_update.iter().zip(trace.state)map(||)account_hash()
-
-        let [state_root_before, state_root_after] = trace.account_path.map(path_root);
     }
 
     fn storage_roots(trace: &SMTTrace) -> [Fr; 2] {
