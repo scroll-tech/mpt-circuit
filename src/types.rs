@@ -377,18 +377,20 @@ impl Proof {
             _ => {}
         }
 
-        // // storage root is correct, if needed.
-        // if let Some((direction, open, close, sibling)) = self.storage_hash_traces.last() {
-        //     if *direction {
-        //         assert_eq!(hash(*sibling, *open), self.claim.old_root);
-        //         assert_eq!(hash(*sibling, *close), self.claim.new_root);
-        //     } else {
-        //         assert_eq!(hash(*open, *sibling), self.claim.old_root);
-        //         assert_eq!(hash(*close, *sibling), self.claim.new_root);
-        //     }
-        // } else {
-        //     // TODO: check claim doesn't involve storage.
-        // }
+        // storage root is correct, if needed.
+        if let Some((direction, open, close, sibling)) = self.storage_hash_traces.last() {
+            let old_storage_root = self.old_account_hash_traces[1][1];
+            let new_storage_root = self.new_account_hash_traces[1][1];
+            if *direction {
+                assert_eq!(hash(*sibling, *open), old_storage_root);
+                assert_eq!(hash(*sibling, *close), new_storage_root);
+            } else {
+                assert_eq!(hash(*open, *sibling), old_storage_root);
+                assert_eq!(hash(*close, *sibling), new_storage_root);
+            }
+        } else {
+            // TODO: check claim doesn't involve storage.
+        }
 
         // want leaf node sibling and leaf node value
 
