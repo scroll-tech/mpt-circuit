@@ -64,6 +64,8 @@ struct Proof {
     address_hash_traces: Vec<(bool, Fr, Fr, Fr)>,
     old_account_hash_traces: [[Fr; 3]; 6],
     new_account_hash_traces: [[Fr; 3]; 6],
+
+    leafs: [[Fr; 2]; 2],
     // storage_hash_traces: Vec<(bool, Fr, Fr, Fr)>,
 }
 
@@ -182,8 +184,10 @@ impl From<SMTTrace> for Proof {
     fn from(trace: SMTTrace) -> Self {
         dbg!(&trace);
 
+        let leafs = trace.account_path.clone().map(path_leaf);
+
         let [old_root, new_root] = trace.account_path.clone().map(path_root);
-        let address = trace.address.0.into(); // TODO: check that this is in the right order.
+        let address = trace.address.0.into();
         let claim = Claim {
             new_root,
             old_root,
@@ -230,11 +234,20 @@ impl From<SMTTrace> for Proof {
             address_hash_traces,
             old_account_hash_traces,
             new_account_hash_traces,
+            leafs,
         }
     }
 }
 
-fn account_hash_traces(address: Address, account: AccountData, state_root: Fr) -> [[Fr; 3]; 4] {
+fn path_leaf(path: SMTPath) -> [Fr; 2] {
+    let leaf = path.leaf.unwrap();
+    [leaf.value, leaf.sibling].map(fr)
+}
+
+fn account_hash_traces(address: Address, account: AccountData, state_root: Fr) -> [[Fr; 3]; 6] {
+    let real_account: Account<Fr> = (&account, state_root).try_into().unwrap();
+    dbg!(&real_account, real_account.account_hash());
+
     let (codehash_hi, codehash_lo) = hi_lo(account.code_hash);
     let h1 = hash(codehash_hi, codehash_lo);
     let h2 = hash(h1, state_root);
@@ -243,18 +256,23 @@ fn account_hash_traces(address: Address, account: AccountData, state_root: Fr) -
     let balance = balance_convert(account.balance);
     let h3 = hash(nonce, balance);
 
-    let h4 = hash(Fr::one(), h3);
+    let h4 = hash(h3, h2);
 
     let account_key = account_key(address);
-    let h5 = hash(h4, account_key);
+    let h5 = hash(Fr::one(), account_key);
+
+    let h6 = hash(h5, h4);
 
     let mut account_hash_traces = [[Fr::zero(); 3]; 6];
     account_hash_traces[0] = [codehash_hi, codehash_lo, h1];
     account_hash_traces[1] = [h1, state_root, h2];
     account_hash_traces[2] = [nonce, balance, h3];
-    account_hash_traces[3] = [h3, h2, hash(h3, h2)];
-    account_hash_traces[4] = [Fr::one(), account_hash, h4];
-    account_hash_traces[5] = [h4, account_key, h5];
+    account_hash_traces[3] = [h3, h2, h4];
+    account_hash_traces[4] = [Fr::one(), account_key, h5];
+    account_hash_traces[5] = [h5, h4, h6];
+
+    assert_eq!(real_account.account_hash(), h4);
+    dbg!("yay!!!!!");
     account_hash_traces
 }
 
@@ -293,11 +311,11 @@ impl Proof {
 
         // old and new roots are correct
         if let Some((direction, open, close, sibling)) = self.address_hash_traces.last() {
-            dbg!(
-                hash(*sibling, *open),
-                hash(*open, *sibling),
-                self.claim.old_root
-            );
+            // dbg!(
+            //     hash(*sibling, *open),
+            //     hash(*open, *sibling),
+            //     self.claim.old_root
+            // );
             if *direction {
                 assert_eq!(hash(*sibling, *open), self.claim.old_root);
                 assert_eq!(hash(*sibling, *close), self.claim.new_root);
@@ -309,13 +327,36 @@ impl Proof {
             panic!("no hash traces!!!!");
         }
 
+
+        dbg!(
+            hash(Fr::one(), self.leafs[0][1]),
+            hash(hash(Fr::one(), self.leafs[0][1]), self.leafs[0][0]),
+            self.old_account_hash_traces,
+            self.address_hash_traces.get(0).unwrap()
+        );
+        assert_eq!(
+            self.old_account_hash_traces[5][2],
+            self.address_hash_traces.get(0).unwrap().1
+        );
+
+        // want leaf node sibling and leaf node value
+
         // inputs match claim kind
-        match self.claim.kind {
-            ClaimKind::Read(read) => (),
-            ClaimKind::Write(write) => {}
-            ClaimKind::IsEmpty(None) => {}
-            ClaimKind::IsEmpty(Some(key)) => {}
-        }
+        // match self.claim.kind {
+        //     ClaimKind::Read(read) => match read {
+        //         Read::Nonce(_) => panic!("nonce never happens?"),
+        //         Read::Balance(_) => panic!("balance never happens?"),
+        //         Read::CodeHash(_) => panic!("codehash never happens?"),
+        //         Read::Storage { .. } => panic!("storage never happens?"),
+        //     },
+        //     ClaimKind::Write(write) => {}
+        //     ClaimKind::IsEmpty(None) => {
+        //         panic!("never happens?")
+        //     }
+        //     ClaimKind::IsEmpty(Some(key)) => {
+        //         panic!("never happens?")
+        //     }
+        // }
 
         dbg!("ok!!!!");
     }
@@ -350,7 +391,7 @@ fn path_root(path: SMTPath) -> Fr {
 
 fn account_hash(account: AccountData, state_root: Fr) -> Fr {
     let real_account: Account<Fr> = (&account, state_root).try_into().unwrap();
-    dbg!(&real_account);
+    // dbg!(&real_account);
 
     let (codehash_hi, codehash_lo) = hi_lo(account.code_hash);
     // dbg!(codehash_hi, codehash_lo);
@@ -553,24 +594,5 @@ mod test {
         assert_eq!(digest, fr(path.root));
         dbg!("yay!!!!");
         fr(path.root)
-    }
-
-    fn account_hash(account: AccountData, state_root: Fr) -> Fr {
-        let real_account: Account<Fr> = (&account, state_root).try_into().unwrap();
-        dbg!(&real_account);
-
-        let (codehash_hi, codehash_lo) = hi_lo(account.code_hash);
-        // dbg!(codehash_hi, codehash_lo);
-
-        let h1 = hash(codehash_hi, codehash_lo);
-        let h3 = hash(Fr::from(account.nonce), balance_convert(account.balance));
-        let h2 = hash(h1, state_root);
-        // dbg!(h1, h2, h3, hash(h3, h2));
-
-        // dbg!(hash(Fr::one(), hash(h3, h2)));
-
-        let result = hash(h3, h2);
-        assert_eq!(result, real_account.account_hash());
-        result
     }
 }
