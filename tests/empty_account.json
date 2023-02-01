@@ -1,0 +1,100 @@
+{
+    "index": -1,
+    "address": "0xb36feaeaf76c2a33335b73bef9aef7a23d9af1e3",
+    "accountKey": "0xf59112e5670628682b1ec72767b1a6153096d47742e1d9455c175a955211e900",
+    "accountPath": [
+        {
+            "pathPart": "0x35",
+            "root": "0xd0039d314dc6860d4d26de61c88bd0fbd2e525ec6dfb8f17367079a46302482f",
+            "path": [
+                {
+                    "value": "0x2ccb0213f1c231b89e6a77b5ecdf4000384d1696789cb5d6e2225f145e72b12a",
+                    "sibling": "0x923ad76a4f3e4c63049db2818456f9037e49b5b467292e893b8fc3afe1cdd019"
+                },
+                {
+                    "value": "0xd9813f65f456ca49f867b0e58e4479e9a47e027ddea7dd223fa949b4da153630",
+                    "sibling": "0xb0dc4e59b50d8c8752055382e97d68b87442e6f890f91c6679044cb8c40cbf0a"
+                },
+                {
+                    "value": "0xbddc56a9ec942424e0ae231a99833edd8966e7bdf54578aa4e7f09076cb3a81c",
+                    "sibling": "0x0000000000000000000000000000000000000000000000000000000000000000"
+                },
+                {
+                    "value": "0x59de88bfc172c07b3669ac542cdf3953525ec7dc0b2551b8a573f76f23762311",
+                    "sibling": "0x0000000000000000000000000000000000000000000000000000000000000000"
+                },
+                {
+                    "value": "0x5deee444162302cce9d272e8ae9508508d6a7214da22d3933905d160cb1fcc25",
+                    "sibling": "0x0000000000000000000000000000000000000000000000000000000000000000"
+                },
+                {
+                    "value": "0x46aa07e37397ccd777b8120f61db750760d59343fe918669371fa15a869f1728",
+                    "sibling": "0x1b300e21fc3c84d681ba0ad494c5b04a4c7ff1c8e876742710490a7270dfac23"
+                }
+            ],
+            "leaf": {
+                "value": "0x8085117d35215a915c1b5b7345950dadff5536c9b33365097859a3790f96091e",
+                "sibling": "0x7581e431a68d0fa641e14a7d29a6c2b150db6da1d13f59dee6f7f492a0bebd29"
+            }
+        },
+        {
+            "pathPart": "0xf5",
+            "root": "0xb29de8e07aebe52b20347239bb2423c1e21895df9065843dddef73935f33e628",
+            "path": [
+                {
+                    "value": "0x56f6d0beb5cb5df445249b71e86dd06a837d1feddee8851ac4218a621d777c09",
+                    "sibling": "0x923ad76a4f3e4c63049db2818456f9037e49b5b467292e893b8fc3afe1cdd019"
+                },
+                {
+                    "value": "0x8a992699e34a191779fcfc495309be890ad65d30832de5ad9f82fff7c328d90b",
+                    "sibling": "0xb0dc4e59b50d8c8752055382e97d68b87442e6f890f91c6679044cb8c40cbf0a"
+                },
+                {
+                    "value": "0xe647e80c1c39a729e5c2a31a63214a42a83ad8231d4d11c23f360cb8c224120f",
+                    "sibling": "0x0000000000000000000000000000000000000000000000000000000000000000"
+                },
+                {
+                    "value": "0x1c85c1763544d6e328083b5b81cd809294008419a0b0d2e5a28de4a2cc016e08",
+                    "sibling": "0x0000000000000000000000000000000000000000000000000000000000000000"
+                },
+                {
+                    "value": "0x20f456e322d1102bc861fb3eec171ef0eb61620f62f82349a958f23e50c9d319",
+                    "sibling": "0x0000000000000000000000000000000000000000000000000000000000000000"
+                },
+                {
+                    "value": "0x17f9b4378034e1f0521bfdba975fec821e2454ce4e4251dc384851ff2f62991a",
+                    "sibling": "0x1b300e21fc3c84d681ba0ad494c5b04a4c7ff1c8e876742710490a7270dfac23"
+                },
+                {
+                    "value": "0x19bf403fa00119e44934ed37c1b1277138a60d087bc6ae7ca4adba0c5d78782a",
+                    "sibling": "0x0000000000000000000000000000000000000000000000000000000000000000"
+                },
+                {
+                    "value": "0x7368c8ebabb8fd55758c492232e6302b66efe9ce03c3eb22e9b7540eb15c8a1c",
+                    "sibling": "0x46aa07e37397ccd777b8120f61db750760d59343fe918669371fa15a869f1728"
+                }
+            ],
+            "leaf": {
+                "value": "0x33c5435c783d711eca3cb21179f8afaf6dd0be8ca0f066d0daace28b17fc281d",
+                "sibling": "0xf59112e5670628682b1ec72767b1a6153096d47742e1d9455c175a955211e900"
+            }
+        }
+    ],
+    "accountUpdate": [
+        null,
+        {
+            "nonce": 1,
+            "balance": "0x0",
+            "codeHash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+        }
+    ],
+    "commonStateRoot": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "statePath": [
+        null,
+        null
+    ],
+    "stateUpdate": [
+        null,
+        null
+    ]
+}

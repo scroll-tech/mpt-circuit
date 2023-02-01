@@ -1,6 +1,6 @@
 use ethers_core::types::{Address, U256};
 use halo2_proofs::{arithmetic::FieldExt, halo2curves::bn256::Fr};
-use itertools::Itertools;
+use itertools::{EitherOrBoth, Itertools};
 use num_bigint::BigUint;
 use num_traits::identities::Zero;
 
@@ -62,7 +62,8 @@ enum Write {
 #[derive(Clone, Debug)]
 struct Proof {
     claim: Claim,
-    address_hash_traces: Vec<(bool, Fr, Fr, Fr)>,
+    // direction, open value, close value, sibling, is_padding_open, is_padding_close
+    address_hash_traces: Vec<(bool, Fr, Fr, Fr, bool, bool)>,
 
     leafs: [[Fr; 2]; 2], // lol. you need these now.
 
@@ -201,25 +202,48 @@ impl From<SMTTrace> for Proof {
         };
 
         let [open_hash_traces, close_hash_traces] = trace.account_path.map(|path| path.path);
-        assert_eq!(open_hash_traces.len(), close_hash_traces.len());
+        // is it possible to pad around this?
+        // assert_eq!(open_hash_traces.len(), close_hash_traces.len());
         let path_length = std::cmp::max(open_hash_traces.len(), close_hash_traces.len());
 
         let account_key = account_key(address);
         let mut address_hash_traces = vec![];
-        for (i, (open, close)) in open_hash_traces
+        for (i, e) in open_hash_traces
             .iter()
-            .rev()
-            .zip_eq(close_hash_traces.iter().rev())
+            .zip_longest(close_hash_traces.iter())
             .enumerate()
         {
-            assert_eq!(open.sibling, close.sibling);
-            address_hash_traces.push((
-                account_key.bit(path_length - 1 - i),
-                fr(open.value),
-                fr(close.value),
-                fr(open.sibling),
-            ));
+            address_hash_traces.push(match e {
+                EitherOrBoth::Both(open, close) => {
+                    assert_eq!(open.sibling, close.sibling);
+                    (
+                        account_key.bit(i),
+                        fr(open.value),
+                        fr(close.value),
+                        fr(open.sibling),
+                        false,
+                        false,
+                    )
+                }
+                EitherOrBoth::Left(open) => (
+                    account_key.bit(i),
+                    fr(open.value),
+                    hash(hash(Fr::one(), leafs[1][1]), leafs[1][0]),
+                    fr(open.sibling),
+                    false,
+                    true,
+                ),
+                EitherOrBoth::Right(close) => (
+                    account_key.bit(i),
+                    hash(hash(Fr::one(), leafs[0][1]), leafs[0][0]),
+                    fr(close.value),
+                    fr(close.sibling),
+                    true,
+                    false,
+                ),
+            });
         }
+        address_hash_traces.reverse();
 
         let mut storage_hash_traces = vec![];
         if let Some(key_hash) = trace.state_key {
@@ -268,8 +292,12 @@ impl From<SMTTrace> for Proof {
         };
 
         // account_update can be none for non-existing accounts?
-        let old_account_hash_traces =
-            account_hash_traces(address, old_account.unwrap(), old_storage_root);
+        // what hash traces do we need for
+        let old_account_hash_traces = match old_account {
+            None => empty_account_hash_traces(leafs[0]),
+            Some(account) => account_hash_traces(address, account, old_storage_root),
+        };
+
         let new_account_hash_traces =
             account_hash_traces(address, new_account.unwrap(), new_storage_root);
 
@@ -340,6 +368,18 @@ fn account_hash_traces(address: Address, account: AccountData, storage_root: Fr)
     account_hash_traces
 }
 
+fn empty_account_hash_traces(leafs: [Fr; 2]) -> [[Fr; 3]; 6] {
+    let mut hash_traces = [[Fr::zero(); 3]; 6];
+
+    let h5 = hash(Fr::one(), leafs[1]);
+    let h6 = hash(h5, leafs[0]);
+
+    hash_traces[4] = [Fr::one(), leafs[1], h5];
+    hash_traces[5] = [h5, leafs[0], h6];
+
+    hash_traces
+}
+
 fn storage_key_value_hash_traces(key: U256, value: U256) -> [[Fr; 3]; 3] {
     let (key_high, key_low) = split_word(key);
     let (value_high, value_low) = split_word(value);
@@ -364,11 +404,11 @@ fn storage_key_value_hash_traces(key: U256, value: U256) -> [[Fr; 3]; 3] {
 impl Proof {
     fn check(&self) {
         // poseidon hashes are correct
-        check_hash_traces(&self.address_hash_traces);
+        check_hash_traces_new(&self.address_hash_traces);
 
         // directions match account key.
         let account_key = account_key(self.claim.address);
-        for (i, (direction, _, _, _)) in self.address_hash_traces.iter().enumerate() {
+        for (i, (direction, _, _, _, _, _)) in self.address_hash_traces.iter().enumerate() {
             assert_eq!(
                 *direction,
                 account_key.bit(self.address_hash_traces.len() - i - 1)
@@ -382,7 +422,9 @@ impl Proof {
         // mpt path matches storage key, if applicable.
 
         // old and new roots are correct
-        if let Some((direction, open, close, sibling)) = self.address_hash_traces.last() {
+        if let Some((direction, open, close, sibling, is_padding_open, is_padding_close)) =
+            self.address_hash_traces.last()
+        {
             if *direction {
                 assert_eq!(hash(*sibling, *open), self.claim.old_root);
                 assert_eq!(hash(*sibling, *close), self.claim.new_root);
@@ -394,6 +436,8 @@ impl Proof {
             panic!("no hash traces!!!!");
         }
 
+        // this suggests we want something that keeps 1/2 unchanged if something....
+        // going to have to add an is padding row or something?
         assert_eq!(
             self.old_account_hash_traces[5][2],
             self.address_hash_traces.get(0).unwrap().1
@@ -504,6 +548,48 @@ fn check_hash_traces(traces: &[(bool, Fr, Fr, Fr)]) {
         } else {
             assert_eq!(hash(*open, *sibling), *next_open);
             assert_eq!(hash(*close, *sibling), *next_close);
+        }
+    }
+}
+
+fn check_hash_traces_new(traces: &[(bool, Fr, Fr, Fr, bool, bool)]) {
+    let current_hash_traces = traces.iter();
+    let mut next_hash_traces = traces.iter();
+    next_hash_traces.next();
+    for (
+        (direction, open, close, sibling, is_padding_open, is_padding_close),
+        (_, next_open, next_close, _, is_padding_open_next, is_padding_close_next),
+    ) in current_hash_traces.zip(next_hash_traces)
+    {
+        if *direction {
+            if *is_padding_open {
+
+                // TODOOOOOO
+            } else {
+                assert_eq!(*is_padding_open_next, false);
+                assert_eq!(hash(*sibling, *open), *next_open);
+            }
+
+            if *is_padding_close {
+                // TODOOOOOO
+            } else {
+                assert_eq!(*is_padding_close_next, false);
+                assert_eq!(hash(*sibling, *close), *next_close);
+            }
+        } else {
+            if *is_padding_open {
+                // TODOOOOOO
+            } else {
+                assert_eq!(*is_padding_open_next, false);
+                assert_eq!(hash(*open, *sibling), *next_open);
+            }
+
+            if *is_padding_close {
+                // TODOOOOOO
+            } else {
+                assert_eq!(*is_padding_close_next, false);
+                assert_eq!(hash(*close, *sibling), *next_close);
+            }
         }
     }
 }
