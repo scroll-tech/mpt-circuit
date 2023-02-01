@@ -69,6 +69,8 @@ struct Proof {
     leafs: [[Fr; 2]; 2], // todo: remove these.
 
     storage_hash_traces: Vec<(bool, Fr, Fr, Fr)>,
+    // TODO: make this a struct plz.
+    storage_key_value_hash_traces: Option<[[[Fr; 3]; 3]; 2]>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -234,8 +236,9 @@ impl From<SMTTrace> for Proof {
             //     assert_eq!(storage_path_open.path.len() + 1, storage_path_close.path.len())
             // }
 
-            let key = trace.state_update.unwrap()[0].clone().unwrap().key;
+            let key = trace.state_update.clone().unwrap()[0].clone().unwrap().key;
             let storage_key_hash = storage_key_hash(u256_from_hex(key));
+            // how does this always hold??????
             assert_eq!(storage_key_hash, fr(key_hash));
 
             let storage_path_length = storage_path_open.path.len();
@@ -269,6 +272,24 @@ impl From<SMTTrace> for Proof {
         let new_account_hash_traces =
             account_hash_traces(address, new_account.unwrap(), new_storage_root);
 
+        let storage_key_value_hash_traces = if let Some(key_hash) = trace.state_key {
+            let [old_leaf, new_leaf] = trace.state_update.clone().unwrap().map(|o| o.unwrap());
+            assert_eq!(old_leaf.key, new_leaf.key);
+
+            Some([
+                storage_key_value_hash_traces(
+                    u256_from_hex(old_leaf.key),
+                    u256_from_hex(old_leaf.value),
+                ),
+                storage_key_value_hash_traces(
+                    u256_from_hex(new_leaf.key),
+                    u256_from_hex(new_leaf.value),
+                ),
+            ])
+        } else {
+            None
+        };
+
         Self {
             claim,
             address_hash_traces,
@@ -276,6 +297,7 @@ impl From<SMTTrace> for Proof {
             new_account_hash_traces,
             leafs,
             storage_hash_traces,
+            storage_key_value_hash_traces,
         }
     }
 }
@@ -313,6 +335,27 @@ fn account_hash_traces(address: Address, account: AccountData, storage_root: Fr)
 
     assert_eq!(real_account.account_hash(), h4);
     account_hash_traces
+}
+
+fn storage_key_value_hash_traces(key: U256, value: U256) -> [[Fr; 3]; 3] {
+    let (key_high, key_low) = split_word(key);
+    let (value_high, value_low) = split_word(value);
+    let h0 = hash(key_high, key_low);
+    let h1 = hash(value_high, value_low);
+    dbg!(
+        hash(key_high, key_low),
+        hash(value_high, value_low),
+        hash(Fr::one(), hash(key_high, key_low)),
+        hash(Fr::one(), hash(value_high, value_low)),
+        hash(h0, h1),
+        hash(h1, h0),
+    );
+
+    let mut hash_traces = [[Fr::zero(); 3]; 3];
+    hash_traces[0] = [key_high, key_low, h0];
+    hash_traces[1] = [value_high, value_low, h1];
+    hash_traces[2] = [h0, h1, hash(h0, h1)];
+    hash_traces
 }
 
 impl Proof {
@@ -391,6 +434,23 @@ impl Proof {
         } else {
             // TODO: check claim doesn't involve storage.
         }
+
+        // if let Some(storage_key_value_hash_traces) = self.storage_key_value_hash_traces {
+        //     assert_eq!(
+        //         storage_key_value_hash_traces[0][2][2],
+        //         self.storage_hash_traces.get(0).unwrap().1
+        //     );
+        //     assert_eq!(
+        //         storage_key_value_hash_traces[1][2][2],
+        //         self.storage_hash_traces.get(0).unwrap().2
+        //     );
+        //
+        //     // dbg!(
+        //     //     storage_key_value_hash_traces,
+        //     //     self.storage_hash_traces.get(0)
+        //     // );
+        //     // panic!();
+        // }
 
         // want leaf node sibling and leaf node value
 
@@ -496,14 +556,19 @@ fn account_key(address: Address) -> Fr {
 }
 
 fn storage_key_hash(key: U256) -> Fr {
+    let (high, low) = split_word(key);
+    hash(high, low)
+}
+
+fn split_word(x: U256) -> (Fr, Fr) {
     let mut bytes = [0; 32];
-    key.to_big_endian(&mut bytes);
+    x.to_big_endian(&mut bytes);
     let high_bytes: [u8; 16] = bytes[..16].try_into().unwrap();
     let low_bytes: [u8; 16] = bytes[16..].try_into().unwrap();
 
     let high = Fr::from_u128(u128::from_be_bytes(high_bytes));
     let low = Fr::from_u128(u128::from_be_bytes(low_bytes));
-    hash(high, low)
+    (high, low)
 
     // TODO: what's wrong with this?
     // let [limb_0, limb_1, limb_2, limb_3] = key.0;
