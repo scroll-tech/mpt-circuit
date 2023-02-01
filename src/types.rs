@@ -63,10 +63,11 @@ enum Write {
 struct Proof {
     claim: Claim,
     address_hash_traces: Vec<(bool, Fr, Fr, Fr)>,
+
+    leafs: [[Fr; 2]; 2], // lol. you need these now.
+
     old_account_hash_traces: [[Fr; 3]; 6],
     new_account_hash_traces: [[Fr; 3]; 6],
-
-    leafs: [[Fr; 2]; 2], // todo: remove these.
 
     storage_hash_traces: Vec<(bool, Fr, Fr, Fr)>,
     // TODO: make this a struct plz.
@@ -201,7 +202,7 @@ impl From<SMTTrace> for Proof {
 
         let [open_hash_traces, close_hash_traces] = trace.account_path.map(|path| path.path);
         assert_eq!(open_hash_traces.len(), close_hash_traces.len());
-        let path_length = open_hash_traces.len();
+        let path_length = std::cmp::max(open_hash_traces.len(), close_hash_traces.len());
 
         let account_key = account_key(address);
         let mut address_hash_traces = vec![];
@@ -329,10 +330,12 @@ fn account_hash_traces(address: Address, account: AccountData, storage_root: Fr)
     account_hash_traces[0] = [codehash_hi, codehash_lo, h1];
     account_hash_traces[1] = [h1, storage_root, h2];
     account_hash_traces[2] = [nonce, balance, h3];
-    account_hash_traces[3] = [h3, h2, h4];
-    account_hash_traces[4] = [Fr::one(), account_key, h5];
+    account_hash_traces[3] = [h3, h2, h4]; //
+    account_hash_traces[4] = [Fr::one(), account_key, h5]; // this should be the sibling?
     account_hash_traces[5] = [h5, h4, h6];
 
+    // h4 is value of node?
+    // h5 is sibling of node?
     assert_eq!(real_account.account_hash(), h4);
     account_hash_traces
 }
@@ -401,6 +404,18 @@ impl Proof {
             self.address_hash_traces.get(0).unwrap().2
         );
 
+        dbg!(self.old_account_hash_traces, self.leafs);
+
+        assert_eq!(
+            hash(hash(Fr::one(), self.leafs[0][1]), self.leafs[0][0]),
+            self.old_account_hash_traces[5][2],
+        );
+
+        assert_eq!(
+            hash(hash(Fr::one(), self.leafs[1][1]), self.leafs[1][0]),
+            self.new_account_hash_traces[5][2],
+        );
+
         // storage poseidon hashes are correct
         check_hash_traces(&self.storage_hash_traces);
 
@@ -436,6 +451,7 @@ impl Proof {
         }
 
         // if let Some(storage_key_value_hash_traces) = self.storage_key_value_hash_traces {
+        //     if
         //     assert_eq!(
         //         storage_key_value_hash_traces[0][2][2],
         //         self.storage_hash_traces.get(0).unwrap().1
@@ -444,12 +460,12 @@ impl Proof {
         //         storage_key_value_hash_traces[1][2][2],
         //         self.storage_hash_traces.get(0).unwrap().2
         //     );
-        //
-        //     // dbg!(
-        //     //     storage_key_value_hash_traces,
-        //     //     self.storage_hash_traces.get(0)
-        //     // );
-        //     // panic!();
+
+        // dbg!(
+        //     storage_key_value_hash_traces,
+        //     self.storage_hash_traces.get(0)
+        // );
+        // panic!();
         // }
 
         // want leaf node sibling and leaf node value
@@ -617,6 +633,7 @@ mod test {
 
     use crate::{operation::Account, serde::AccountData};
 
+    const EMPTY_ACCOUNT_TRACE: &str = include_str!("../tests/empty_account.json");
     const TRACES: &str = include_str!("../tests/traces.json");
     const READ_TRACES: &str = include_str!("../tests/read_traces.json");
     const DEPLOY_TRACES: &str = include_str!("../tests/deploy_traces.json");
@@ -684,6 +701,13 @@ mod test {
                 proof.check();
             }
         }
+    }
+
+    #[test]
+    fn check_empty_account() {
+        let trace: SMTTrace = serde_json::from_str(EMPTY_ACCOUNT_TRACE).unwrap();
+        let proof = Proof::from(trace);
+        proof.check();
     }
 
     fn storage_roots(trace: &SMTTrace) -> [Fr; 2] {
