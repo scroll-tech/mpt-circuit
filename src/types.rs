@@ -733,7 +733,7 @@ mod test {
 
         assert_eq!(contains(&[false, false, false], Fr::zero()), true);
 
-        assert_eq!(contains(&[true, false, false], Fr::one()), true);
+        assert_eq!(contains(&[false, false, true], Fr::one()), true);
         assert_eq!(contains(&[false, false, false], Fr::one()), false);
     }
 }
