@@ -693,4 +693,47 @@ mod test {
             trace.state_path.clone().map(|p| path_root(p.unwrap()))
         }
     }
+
+    #[test]
+    fn sanity_check_paths() {
+        for s in [READ_TRACES, TRACES, DEPLOY_TRACES, TOKEN_TRACES] {
+            let traces: Vec<SMTTrace> = serde_json::from_str::<Vec<_>>(s).unwrap();
+            for trace in traces {
+                let address = trace.address.0.into();
+                for (path, account) in trace.account_path.iter().zip_eq(trace.account_update) {
+                    assert!(
+                        contains(
+                            &bits(
+                                path.clone().path_part.try_into().unwrap(),
+                                path.clone().path.len()
+                            ),
+                            account_key(address)
+                        ),
+                        "{:?}",
+                        (address, path.path_part.clone(), account_key(address))
+                    );
+                }
+            }
+        }
+    }
+
+    fn contains(path: &[bool], key: Fr) -> bool {
+        for (i, direction) in path.iter().rev().enumerate() {
+            if key.bit(i) != *direction {
+                return false;
+            }
+        }
+        true
+    }
+
+    #[test]
+    fn test_contains() {
+        assert_eq!(contains(&[true, true], Fr::from(0b11)), true);
+        assert_eq!(contains(&[], Fr::from(0b11)), true);
+
+        assert_eq!(contains(&[false, false, false], Fr::zero()), true);
+
+        assert_eq!(contains(&[true, false, false], Fr::one()), true);
+        assert_eq!(contains(&[false, false, false], Fr::one()), false);
+    }
 }
