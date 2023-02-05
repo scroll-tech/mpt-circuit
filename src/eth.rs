@@ -797,7 +797,7 @@ mod test {
             config
                 .op_tabl
                 .fill_constant(&mut layouter, AccountGadget::transition_rules())?;
-            config.hash_tabl.fill(
+            config.hash_tabl.dev_fill(
                 &mut layouter,
                 self.data
                     .0

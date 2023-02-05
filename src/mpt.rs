@@ -191,18 +191,18 @@ impl MPTOpTables {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct HashTable(pub [Column<Advice>; 4]);
+pub(crate) struct HashTable(pub [Column<Advice>; 5]);
 
 impl HashTable {
     pub fn configure_create<Fp: Field>(meta: &mut ConstraintSystem<Fp>) -> Self {
-        Self([0; 4].map(|_| meta.advice_column()))
+        Self([0; 5].map(|_| meta.advice_column()))
     }
 
     pub fn configure_assign(cols: &[Column<Advice>]) -> Self {
-        Self([cols[0], cols[1], cols[2], cols[3]])
+        Self([cols[0], cols[1], cols[2], cols[3], cols[4]])
     }
 
-    pub fn commitment_index(&self) -> [usize; 4] {
+    pub fn commitment_index(&self) -> [usize; 5] {
         self.0.map(|col| col.index())
     }
 
@@ -223,36 +223,39 @@ impl HashTable {
                 enable.clone() * fst,
                 meta.query_advice(self.0[1], Rotation::cur()),
             ),
-            (enable * snd, meta.query_advice(self.0[2], Rotation::cur())),
+            (
+                enable.clone() * snd, 
+                meta.query_advice(self.0[2], Rotation::cur())),
             (
                 Expression::Constant(Fp::zero()),
                 meta.query_advice(self.0[3], Rotation::cur()),
             ),
+            // TODO: also lookup from `self.0[4]` after https://github.com/scroll-tech/mpt-circuit/issues/9
+            // has been resolved
         ]
     }
 
     /// a helper entry to fill hash table with specified rows, use padding record
     /// when hashing_records is not enough
-    pub fn fill_with_paddings<'d, Fp: FieldExt>(
+    pub fn dev_fill_with_paddings<'d, Fp: FieldExt>(
         &self,
         layouter: &mut impl Layouter<Fp>,
         hashing_records: impl Iterator<Item = &'d (Fp, Fp, Fp)> + Clone,
         padding: (Fp, Fp, Fp),
         filled_rows: usize,
     ) -> Result<(), Error> {
-        let paddings = [padding];
 
-        self.fill(
+        self.dev_fill(
             layouter,
             hashing_records
                 .map(|i| i) //shrink the lifetime from 'd
-                .chain(paddings.iter().cycle())
+                .chain(std::iter::repeat(&padding))
                 .take(filled_rows),
         )
     }
 
-    /// a helper entry to fill hash table
-    pub fn fill<'d, Fp: FieldExt>(
+    /// a helper entry to fill hash table, only for dev (in using cases)
+    pub fn dev_fill<'d, Fp: FieldExt>(
         &self,
         layouter: &mut impl Layouter<Fp>,
         hashing_records: impl Iterator<Item = &'d (Fp, Fp, Fp)> + Clone,
@@ -278,12 +281,9 @@ impl HashTable {
 
                         table.assign_advice(|| "right", self.0[2], offset, || Value::known(*rh))?;
 
-                        table.assign_advice(
-                            || "ctrl_pad",
-                            self.0[3],
-                            offset,
-                            || Value::known(Fp::zero()),
-                        )?;
+                        table.assign_advice(|| "ctrl_pad",self.0[3], offset, || Value::known(Fp::zero()))?;
+
+                        table.assign_advice(|| "heading mark",self.0[4], offset, || Value::known(Fp::one()))?;
 
                         Ok(())
                     })
@@ -1348,7 +1348,7 @@ mod test {
             config
                 .global
                 .hash_table
-                .fill(&mut layouter, self.data.hash_traces.iter())?;
+                .dev_fill(&mut layouter, self.data.hash_traces.iter())?;
 
             Ok(())
         }
@@ -1538,7 +1538,7 @@ mod test {
             )?;
 
             // op chip now need hash table (for key hash lookup)
-            config.global.hash_table.fill(
+            config.global.hash_table.dev_fill(
                 &mut layouter,
                 self.data
                     .old
@@ -1728,7 +1728,7 @@ mod test {
             config
                 .gadget
                 .hash_table
-                .fill(&mut layouter, self.data.hash_traces())?;
+                .dev_fill(&mut layouter, self.data.hash_traces())?;
 
             layouter.assign_region(
                 || "mpt",
