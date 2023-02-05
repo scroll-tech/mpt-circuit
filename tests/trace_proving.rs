@@ -183,7 +183,7 @@ fn circuit_connection() {
     let hash_index = commit_indexs.hash_tbl_begin_at_accompanied_circuit();
 
     let (trie_circuit, hash_circuit) = data.circuits(200);
-    let hash_table_size = [0u8;5];
+    let hash_table_size = [0u8; 5];
 
     let vk = keygen_vk(&params, &trie_circuit).unwrap();
     let pk = keygen_pk(&params, vk, &trie_circuit).unwrap();
@@ -205,7 +205,7 @@ fn circuit_connection() {
         (0..trie_index).for_each(|_| {
             transcript.read_point().unwrap();
         });
-        hash_table_size.map(|_|transcript.read_point().unwrap())
+        hash_table_size.map(|_| transcript.read_point().unwrap())
     };
     //log::info!("rw_commitment_state {:?}", rw_commitment_state);
 
@@ -229,7 +229,7 @@ fn circuit_connection() {
         (0..hash_index).for_each(|_| {
             transcript.read_point().unwrap();
         });
-        hash_table_size.map(|_|transcript.read_point().unwrap())
+        hash_table_size.map(|_| transcript.read_point().unwrap())
     };
     //log::info!("rw_commitment_evm {:?}", rw_commitment_evm);
 

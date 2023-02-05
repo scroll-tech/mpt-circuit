@@ -515,7 +515,7 @@ impl<F: FieldExt> MPTTable<F> {
                 for (offset, entry) in self.entries.iter().enumerate() {
                     for (index, col) in config.proof_sel.as_slice().iter().copied().enumerate() {
                         region.assign_advice(
-                            || format!("assign for proof type enabler {}", offset),
+                            || format!("assign for proof type enabler {offset}"),
                             col,
                             offset,
                             || {
@@ -542,7 +542,7 @@ impl<F: FieldExt> MPTTable<F> {
                         config.old_value,
                     ]) {
                         region.assign_advice(
-                            || format!("assign for mpt table offset {}", offset),
+                            || format!("assign for mpt table offset {offset}"),
                             col,
                             offset,
                             || val,

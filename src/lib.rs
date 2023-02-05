@@ -20,6 +20,7 @@ pub mod operation;
 pub mod serde;
 
 use eth::StorageGadget;
+use hash_circuit::hash::PoseidonHashTable;
 /// re-export required namespace from depened poseidon hash circuit
 pub use hash_circuit::{hash, poseidon};
 pub use mpt_table::MPTProofType;
@@ -458,7 +459,7 @@ impl EthTrieConfig {
         mpt_tbl.load(layouter)
     }
 
-    /// synthesize the hash table part, it is an development-only 
+    /// synthesize the hash table part, it is an development-only
     /// entry which just fill the hashes come from mpt circuit itself
     pub fn dev_load_hash_table<'d, Fp: Hashable>(
         &self,
@@ -542,7 +543,7 @@ impl EthTrieConfig {
                         last_op_code = OP_ACCOUNT;
                     }
 
-                    assert!(start <= rows, "assigned rows for exceed limited {}", rows);
+                    assert!(start <= rows, "assigned rows for exceed limited {rows}");
 
                     self.layer.complete_block(
                         &mut region,
@@ -694,8 +695,10 @@ pub struct HashCircuit<F: Hashable>(hash::PoseidonHashTable<F>, usize);
 impl<Fp: Hashable> HashCircuit<Fp> {
     /// re-warped, all-in-one creation
     pub fn new(calcs: usize, input_with_check: &[&(Fp, Fp, Fp)]) -> Self {
-        let mut tbl = hash::PoseidonHashTable::default();
-        tbl.mpt_only = true;
+        let mut tbl = PoseidonHashTable {
+            mpt_only: true,
+            ..Default::default()
+        };
         tbl.constant_inputs_with_check(input_with_check.iter().copied());
         Self(tbl, calcs)
     }
@@ -784,13 +787,13 @@ impl CommitmentIndexs {
     #[deprecated]
     /// the first input col's pos
     pub fn left_pos(&self) -> (usize, usize) {
-        (self.0+1, self.1+1)
+        (self.0 + 1, self.1 + 1)
     }
 
     #[deprecated]
     /// the second input col's pos
     pub fn right_pos(&self) -> (usize, usize) {
-        (self.0+2, self.1+2)
+        (self.0 + 2, self.1 + 2)
     }
 
     /// the beginning of hash table index
@@ -820,11 +823,7 @@ impl CommitmentIndexs {
 
         let hash_circuit_indexs = config.commitment_index();
 
-        Self(
-            trie_circuit_indexs[0],
-            hash_circuit_indexs[0],
-            None,
-        )
+        Self(trie_circuit_indexs[0], hash_circuit_indexs[0], None)
     }
 
     /// get commitment for full circuit

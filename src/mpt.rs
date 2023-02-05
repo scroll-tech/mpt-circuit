@@ -206,9 +206,9 @@ impl HashTable {
         self.0.map(|col| col.index())
     }
 
-    pub fn build_lookup<'d, Fp: FieldExt>(
+    pub fn build_lookup<Fp: FieldExt>(
         &self,
-        meta: &mut VirtualCells<'d, Fp>,
+        meta: &mut VirtualCells<'_, Fp>,
         enable: Expression<Fp>,
         fst: Expression<Fp>,
         snd: Expression<Fp>,
@@ -224,10 +224,11 @@ impl HashTable {
                 meta.query_advice(self.0[1], Rotation::cur()),
             ),
             (
-                enable.clone() * snd, 
-                meta.query_advice(self.0[2], Rotation::cur())),
+                enable.clone() * snd,
+                meta.query_advice(self.0[2], Rotation::cur()),
+            ),
             (
-                Expression::Constant(Fp::zero()),
+                enable * Expression::Constant(Fp::zero()),
                 meta.query_advice(self.0[3], Rotation::cur()),
             ),
             // TODO: also lookup from `self.0[4]` after https://github.com/scroll-tech/mpt-circuit/issues/9
@@ -244,7 +245,6 @@ impl HashTable {
         padding: (Fp, Fp, Fp),
         filled_rows: usize,
     ) -> Result<(), Error> {
-
         self.dev_fill(
             layouter,
             hashing_records
@@ -281,9 +281,19 @@ impl HashTable {
 
                         table.assign_advice(|| "right", self.0[2], offset, || Value::known(*rh))?;
 
-                        table.assign_advice(|| "ctrl_pad",self.0[3], offset, || Value::known(Fp::zero()))?;
+                        table.assign_advice(
+                            || "ctrl_pad",
+                            self.0[3],
+                            offset,
+                            || Value::known(Fp::zero()),
+                        )?;
 
-                        table.assign_advice(|| "heading mark",self.0[4], offset, || Value::known(Fp::one()))?;
+                        table.assign_advice(
+                            || "heading mark",
+                            self.0[4],
+                            offset,
+                            || Value::known(Fp::one()),
+                        )?;
 
                         Ok(())
                     })
@@ -778,7 +788,7 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
                 config.hash_type,
                 offset + index,
                 || Value::known(Fp::from(hash_type as u64)),
-            )?;          
+            )?;
             region.assign_advice(
                 || "sel",
                 config.s_path,
@@ -1047,24 +1057,14 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
         for (index, (path, sibling)) in paths.iter().zip(siblings.iter()).enumerate() {
             acc_key = *path * cur_depth + acc_key;
 
-            region.assign_advice(
-                || "path", 
-                config.path, 
-                offset, 
-                || Value::known(*path)
-            )?;
+            region.assign_advice(|| "path", config.path, offset, || Value::known(*path))?;
             region.assign_advice(
                 || "acckey",
                 config.acc_key,
                 offset,
                 || Value::known(acc_key),
             )?;
-            region.assign_advice(
-                || "depth", 
-                config.depth, 
-                offset, 
-                || Value::known(cur_depth)
-            )?;
+            region.assign_advice(|| "depth", config.depth, offset, || Value::known(cur_depth))?;
             region.assign_advice(
                 || "sibling",
                 config.sibling,
@@ -1127,12 +1127,7 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
             offset,
             || Value::known(self.data.key_immediate),
         )?;
-        region.assign_advice(
-            || "depth", 
-            config.depth, 
-            offset, 
-            || Value::known(cur_depth)
-        )?;
+        region.assign_advice(|| "depth", config.depth, offset, || Value::known(cur_depth))?;
         region.assign_advice(
             || "sibling last (key for extended or padding)",
             config.sibling,
@@ -1604,7 +1599,7 @@ mod test {
                     new: MPTPath::<Fp> {
                         hash_types: vec![HashType::Start, HashType::Middle, HashType::Leaf],
                         ..Default::default()
-                    },               
+                    },
                     ..Default::default()
                 },
             }
@@ -1637,7 +1632,7 @@ mod test {
                             HashType::Leaf,
                         ],
                         ..Default::default()
-                    },             
+                    },
                     ..Default::default()
                 },
             }
