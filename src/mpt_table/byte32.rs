@@ -57,7 +57,7 @@ impl Config {
     ) -> Result<bool, Error> {
         for (col, v, tip) in [(self.rep_hi, v_pair.0, "hi"), (self.rep_lo, v_pair.1, "lo")] {
             region.assign_advice(
-                || format!("assign for byte32 pair {} base", tip),
+                || format!("assign for byte32 pair {tip} base"),
                 col,
                 offset,
                 || Value::known(v),

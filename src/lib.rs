@@ -20,6 +20,8 @@ pub mod operation;
 pub mod serde;
 
 use eth::StorageGadget;
+use hash_circuit::hash::PoseidonHashTable;
+/// re-export required namespace from depened poseidon hash circuit
 pub use hash_circuit::{hash, poseidon};
 pub use mpt_table::MPTProofType;
 use mpt_table::{Config as MPTConfig, MPTEntry, MPTTable};
@@ -255,7 +257,7 @@ impl<Fp: FieldExt> Circuit<Fp> for SimpleTrie<Fp> {
             .mpt
             .tables
             .fill_constant(&mut layouter, MPTOpGadget::transition_rules())?;
-        config.mpt.hash_table.fill(
+        config.mpt.hash_table.dev_fill(
             &mut layouter,
             self.ops.iter().flat_map(|op| op.hash_traces()),
         )?;
@@ -311,7 +313,7 @@ impl EthTrieConfig {
     /// configure for lite circuit (no mpt table included, for fast testing)
     pub fn configure_base<Fp: FieldExt>(
         meta: &mut ConstraintSystem<Fp>,
-        hash_tbl: [Column<Advice>; 4],
+        hash_tbl: [Column<Advice>; 5],
     ) -> Self {
         let tables = mpt::MPTOpTables::configure_create(meta);
         let hash_tbl = mpt::HashTable::configure_assign(&hash_tbl);
@@ -397,7 +399,7 @@ impl EthTrieConfig {
 
     /// configure for lite circuit (no mpt table included, for fast testing)
     pub fn configure_lite<Fp: FieldExt>(meta: &mut ConstraintSystem<Fp>) -> Self {
-        let hash_tbl = [0; 4].map(|_| meta.advice_column());
+        let hash_tbl = [0; 5].map(|_| meta.advice_column());
         Self::configure_base(meta, hash_tbl)
     }
 
@@ -405,7 +407,7 @@ impl EthTrieConfig {
     pub fn configure_sub<Fp: FieldExt>(
         meta: &mut ConstraintSystem<Fp>,
         mpt_tbl: [Column<Advice>; 7],
-        hash_tbl: [Column<Advice>; 4],
+        hash_tbl: [Column<Advice>; 5],
         randomness: Expression<Fp>,
     ) -> Self {
         let mut lite_cfg = Self::configure_base(meta, hash_tbl);
@@ -457,15 +459,15 @@ impl EthTrieConfig {
         mpt_tbl.load(layouter)
     }
 
-    /// synthesize the hash table part, the randomness also specify
-    /// if the base part of mpt table should be assigned
-    pub fn load_hash_table<'d, Fp: Hashable>(
+    /// synthesize the hash table part, it is an development-only
+    /// entry which just fill the hashes come from mpt circuit itself
+    pub fn dev_load_hash_table<'d, Fp: Hashable>(
         &self,
         layouter: &mut impl Layouter<Fp>,
         hash_traces: impl Iterator<Item = &'d (Fp, Fp, Fp)> + Clone,
         rows: usize,
     ) -> Result<(), Error> {
-        self.hash_tbl.fill_with_paddings(
+        self.hash_tbl.dev_fill_with_paddings(
             layouter,
             HashTracesSrc::from(hash_traces),
             (
@@ -541,7 +543,7 @@ impl EthTrieConfig {
                         last_op_code = OP_ACCOUNT;
                     }
 
-                    assert!(start <= rows, "assigned rows for exceed limited {}", rows);
+                    assert!(start <= rows, "assigned rows for exceed limited {rows}");
 
                     self.layer.complete_block(
                         &mut region,
@@ -687,13 +689,16 @@ impl<Fp: Hashable> EthTrieCircuit<Fp, false> {
     }
 }
 
-/// hash circuit as the companion of mpt hashes
+/// a companied hash circuit as the companion of mpt hashes
 pub struct HashCircuit<F: Hashable>(hash::PoseidonHashTable<F>, usize);
 
 impl<Fp: Hashable> HashCircuit<Fp> {
     /// re-warped, all-in-one creation
     pub fn new(calcs: usize, input_with_check: &[&(Fp, Fp, Fp)]) -> Self {
-        let mut tbl = hash::PoseidonHashTable::default();
+        let mut tbl = PoseidonHashTable {
+            mpt_only: true,
+            ..Default::default()
+        };
         tbl.constant_inputs_with_check(input_with_check.iter().copied());
         Self(tbl, calcs)
     }
@@ -708,7 +713,7 @@ impl<Fp: Hashable> Circuit<Fp> for HashCircuit<Fp> {
     }
 
     fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
-        let hash_tbl = [0; 4].map(|_| meta.advice_column());
+        let hash_tbl = [0; 5].map(|_| meta.advice_column());
         hash::PoseidonHashConfig::configure_sub(meta, hash_tbl, hash_circuit::DEFAULT_STEP)
     }
 
@@ -751,7 +756,11 @@ impl<Fp: Hashable> EthTrie<Fp> {
     }
 
     /// Create all associated circuit objects, better API
-    /// the option rows specify the rows for mpt circuit
+    /// [rows] specified the maxium hash entries the accompanied hash circuit can handle
+    /// and the option in rows specify the **circuit** rows mpt circuit would used
+    /// without specified it would derived a mpt circuit much larger than the accompanied
+    /// hash circuit, i.e: if the mpt circuit has almost fully filled there would be more
+    /// hashes need to be handled than the accompanied hash circuit can accommodate
     pub fn to_circuits(
         self,
         rows: (usize, Option<usize>),
@@ -767,25 +776,48 @@ impl<Fp: Hashable> EthTrie<Fp> {
             hash_circuit,
         )
     }
+
+    /// Create all associated circuit objects, with specificing the maxium rows circuit
+    /// can used for deriving the entry limit in mpt circuit
+    pub fn to_circuits_by_circuit_limit(
+        self,
+        maxium_circuit_rows: usize,
+        tips: &[MPTProofType],
+    ) -> (EthTrieCircuit<Fp, false>, HashCircuit<Fp>) {
+        self.to_circuits((maxium_circuit_rows / Fp::hash_block_size(), None), tips)
+    }
 }
 
 /// index for hash table's commitments
-pub struct CommitmentIndexs([usize; 3], [usize; 3], Option<usize>);
+pub struct CommitmentIndexs(usize, usize, Option<usize>);
 
 impl CommitmentIndexs {
+    #[deprecated]
     /// the hash col's pos
     pub fn hash_pos(&self) -> (usize, usize) {
-        (self.0[0], self.1[0])
+        (self.0, self.1)
     }
 
+    #[deprecated]
     /// the first input col's pos
     pub fn left_pos(&self) -> (usize, usize) {
-        (self.0[1], self.1[1])
+        (self.0 + 1, self.1 + 1)
     }
 
+    #[deprecated]
     /// the second input col's pos
     pub fn right_pos(&self) -> (usize, usize) {
-        (self.0[2], self.1[2])
+        (self.0 + 2, self.1 + 2)
+    }
+
+    /// the beginning of hash table index
+    pub fn hash_tbl_begin(&self) -> usize {
+        self.0
+    }
+
+    /// the beginning of hash table index, at the accompanied hash circuit
+    pub fn hash_tbl_begin_at_accompanied_circuit(&self) -> usize {
+        self.1
     }
 
     /// the beginning of mpt table index
@@ -805,11 +837,7 @@ impl CommitmentIndexs {
 
         let hash_circuit_indexs = config.commitment_index();
 
-        Self(
-            trie_circuit_indexs[0..3].try_into().unwrap(),
-            hash_circuit_indexs[0..3].try_into().unwrap(),
-            None,
-        )
+        Self(trie_circuit_indexs[0], hash_circuit_indexs[0], None)
     }
 
     /// get commitment for full circuit
@@ -829,8 +857,8 @@ impl CommitmentIndexs {
         let hash_circuit_indexs = config.commitment_index();
 
         Self(
-            trie_circuit_indexs[0..3].try_into().unwrap(),
-            hash_circuit_indexs[0..3].try_into().unwrap(),
+            trie_circuit_indexs[0],
+            hash_circuit_indexs[0],
             Some(mpt_table_start),
         )
     }
@@ -855,7 +883,7 @@ impl<Fp: Hashable, const LITE: bool> Circuit<Fp> for EthTrieCircuit<Fp, LITE> {
             EthTrieConfig::configure_lite(meta)
         } else {
             let base = [0; 7].map(|_| meta.advice_column());
-            let hash_tbl = [0; 4].map(|_| meta.advice_column());
+            let hash_tbl = [0; 5].map(|_| meta.advice_column());
             let randomness = Expression::Constant(Fp::from(get_rand_base()));
             EthTrieConfig::configure_sub(meta, base, hash_tbl, randomness)
         }
@@ -866,7 +894,7 @@ impl<Fp: Hashable, const LITE: bool> Circuit<Fp> for EthTrieCircuit<Fp, LITE> {
         config: Self::Config,
         mut layouter: impl Layouter<Fp>,
     ) -> Result<(), Error> {
-        config.load_hash_table(
+        config.dev_load_hash_table(
             &mut layouter,
             self.ops.iter().flat_map(|op| op.hash_traces()),
             self.calcs,

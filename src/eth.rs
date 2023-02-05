@@ -201,7 +201,7 @@ impl AccountGadget {
                 enable * state_change_key.clone() * (one - state_change_key),
             ]
         });
-        
+
         //additional row
         // TODO: nonce now can increase more than 1, we should constraint it with lookup table (better than a compare circuit)
         // BUT: this constraint should also exist in state circui so do we really need it?
@@ -308,7 +308,7 @@ impl AccountGadget {
             )?;
             region.assign_advice(
                 || "enable s_ctrl",
-                self.s_ctrl_type[index as usize],
+                self.s_ctrl_type[index],
                 offset,
                 || Value::known(Fp::one()),
             )?;
@@ -670,11 +670,11 @@ impl StorageGadget {
         [].into_iter()
     }
 
-    pub fn assign<'d, Fp: FieldExt>(
+    pub fn assign<Fp: FieldExt>(
         &self,
         region: &mut Region<'_, Fp>,
         offset: usize,
-        full_op: &'d AccountOp<Fp>,
+        full_op: &AccountOp<Fp>,
     ) -> Result<usize, Error> {
         region.assign_advice(
             || "enable storage leaf circuit",
@@ -797,7 +797,7 @@ mod test {
             config
                 .op_tabl
                 .fill_constant(&mut layouter, AccountGadget::transition_rules())?;
-            config.hash_tabl.fill(
+            config.hash_tabl.dev_fill(
                 &mut layouter,
                 self.data
                     .0

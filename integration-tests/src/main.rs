@@ -31,8 +31,7 @@ fn main() {
     let k = k.max(6);
 
     println!(
-        "start proving trace with mpt-circuit, has {} rows, {} hash_rows and base k is {}",
-        rows, hash_rows, k
+        "start proving trace with mpt-circuit, has {rows} rows, {hash_rows} hash_rows and base k is {k}",
     );
 
     let final_root = data.final_root();
@@ -44,7 +43,7 @@ fn main() {
         9 => data.circuits(450),
         10 => data.circuits(900),
         11 => data.circuits(1950),
-        _ => panic!("too large k {}", k),
+        _ => panic!("too large k {k}"),
     };
 
     let prover_mpt = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
@@ -53,5 +52,5 @@ fn main() {
     assert_eq!(prover_mpt.verify(), Ok(()));
     assert_eq!(prover_hash.verify(), Ok(()));
 
-    println!("done, final hash {:?}", final_root);
+    println!("done, final hash {final_root:?}");
 }
