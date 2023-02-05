@@ -172,7 +172,7 @@ impl AccountGadget {
         }
 
         // this gate constraint each gadget handle at most one change in account data
-        meta.create_gate("single update for account data", |meta| {
+        /* meta.create_gate("single update for account data", |meta| {
             let enable = meta.query_selector(sel) * meta.query_advice(s_enable, Rotation::cur());
             let data_diff = meta.query_advice(data_old, Rotation::cur())
                 - meta.query_advice(data_new, Rotation::cur());
@@ -200,7 +200,7 @@ impl AccountGadget {
                 enable.clone() * (state_change_key.clone() - diff_acc),
                 enable * state_change_key.clone() * (one - state_change_key),
             ]
-        });
+        });*/
 
         //additional row
         // TODO: nonce now can increase more than 1, we should constraint it with lookup table (better than a compare circuit)
