@@ -756,7 +756,11 @@ impl<Fp: Hashable> EthTrie<Fp> {
     }
 
     /// Create all associated circuit objects, better API
-    /// the option rows specify the rows for mpt circuit
+    /// [rows] specified the maxium hash entries the accompanied hash circuit can handle
+    /// and the option in rows specify the **circuit** rows mpt circuit would used
+    /// without specified it would derived a mpt circuit much larger than the accompanied
+    /// hash circuit, i.e: if the mpt circuit has almost fully filled there would be more
+    /// hashes need to be handled than the accompanied hash circuit can accommodate
     pub fn to_circuits(
         self,
         rows: (usize, Option<usize>),
@@ -771,6 +775,16 @@ impl<Fp: Hashable> EthTrie<Fp> {
             EthTrieCircuit::new(mpt_rows, self.ops, Vec::from(tips)),
             hash_circuit,
         )
+    }
+
+    /// Create all associated circuit objects, with specificing the maxium rows circuit
+    /// can used for deriving the entry limit in mpt circuit
+    pub fn to_circuits_by_circuit_limit(
+        self,
+        maxium_circuit_rows: usize,
+        tips: &[MPTProofType],
+    ) -> (EthTrieCircuit<Fp, false>, HashCircuit<Fp>) {
+        self.to_circuits((maxium_circuit_rows / Fp::hash_block_size(), None), tips)
     }
 }
 
