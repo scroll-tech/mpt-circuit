@@ -235,7 +235,7 @@ impl From<SMTTrace> for Proof {
                 });
                 (
                     [open.clone(), close.clone()].map(path_root),
-                    Some(get_internal_hash_traces_storage(
+                    Some(get_internal_hash_traces(
                         fr(key),
                         leaf_hashes,
                         &(open.path),
@@ -261,9 +261,15 @@ impl From<SMTTrace> for Proof {
 
         let account_key = account_key(claim.address);
         let leafs = trace.account_path.clone().map(path_leaf);
-        let [open_hash_traces, close_hash_traces] = trace.account_path.map(|path| path.path);
-        let address_hash_traces =
-            get_internal_hash_traces(account_key, leafs, &open_hash_traces, &close_hash_traces);
+        let [open_hash_traces, close_hash_traces] =
+            trace.account_path.clone().map(|path| path.path);
+        let leaf_hashes = trace.account_path.clone().map(leaf_hash);
+        let address_hash_traces = get_internal_hash_traces(
+            account_key,
+            leaf_hashes,
+            &open_hash_traces,
+            &close_hash_traces,
+        );
 
         let [old_account, new_account] = trace.account_update;
         let old_account_hash_traces = match old_account {
@@ -293,6 +299,15 @@ fn path_leaf(path: SMTPath) -> [Fr; 2] {
     } else {
         assert_eq!(path, SMTPath::default());
         [Fr::zero(), Fr::zero()]
+    }
+}
+
+fn leaf_hash(path: SMTPath) -> Fr {
+    if let Some(leaf) = path.leaf {
+        hash(hash(Fr::one(), fr(leaf.sibling)), fr(leaf.value))
+    } else {
+        assert_eq!(path, SMTPath::default());
+        Fr::zero()
     }
 }
 
@@ -329,54 +344,6 @@ fn account_hash_traces(address: Address, account: AccountData, storage_root: Fr)
 }
 
 fn get_internal_hash_traces(
-    key: Fr,
-    leafs: [[Fr; 2]; 2],
-    open_hash_traces: &[SMTNode],
-    close_hash_traces: &[SMTNode],
-) -> Vec<(bool, Fr, Fr, Fr, bool, bool)> {
-    let path_length = std::cmp::max(open_hash_traces.len(), close_hash_traces.len());
-
-    let mut address_hash_traces = vec![];
-    for (i, e) in open_hash_traces
-        .iter()
-        .zip_longest(close_hash_traces.iter())
-        .enumerate()
-    {
-        address_hash_traces.push(match e {
-            EitherOrBoth::Both(open, close) => {
-                assert_eq!(open.sibling, close.sibling);
-                (
-                    key.bit(i),
-                    fr(open.value),
-                    fr(close.value),
-                    fr(open.sibling),
-                    false,
-                    false,
-                )
-            }
-            EitherOrBoth::Left(open) => (
-                key.bit(i),
-                fr(open.value),
-                hash(hash(Fr::one(), leafs[1][1]), leafs[1][0]),
-                fr(open.sibling),
-                false,
-                true,
-            ),
-            EitherOrBoth::Right(close) => (
-                key.bit(i),
-                hash(hash(Fr::one(), leafs[0][1]), leafs[0][0]),
-                fr(close.value),
-                fr(close.sibling),
-                true,
-                false,
-            ),
-        });
-    }
-    address_hash_traces.reverse();
-    address_hash_traces
-}
-
-fn get_internal_hash_traces_storage(
     key: Fr,
     leaf_hashes: [Fr; 2],
     open_hash_traces: &[SMTNode],
@@ -558,12 +525,6 @@ impl Proof {
         } else {
             // check claim does not involve storage.
         }
-
-        // let [old_storage_root, new_storage_root] = if let Some(root) = trace.common_state_root {
-        //     [root, root].map(fr)
-        // } else {
-        //     trace.state_path.clone().map(|p| path_root(p.unwrap()))
-        // };
     }
 }
 
