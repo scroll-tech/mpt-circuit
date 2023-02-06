@@ -286,7 +286,7 @@ pub struct AccountData {
 }
 
 /// struct in SMTTrace
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq, Copy)]
 pub struct StateData {
     /// the key of storage
     pub key: HexBytes<32>,

@@ -6,7 +6,7 @@ use num_traits::identities::Zero;
 
 use crate::{
     operation::{Account, SMTPathParse},
-    serde::{AccountData, HexBytes, SMTPath, SMTTrace},
+    serde::{AccountData, HexBytes, SMTNode, SMTPath, SMTTrace},
     Hashable,
 };
 
@@ -201,49 +201,10 @@ impl From<SMTTrace> for Proof {
             kind: ClaimKind::from(&trace),
         };
 
-        let [open_hash_traces, close_hash_traces] = trace.account_path.map(|path| path.path);
-        // is it possible to pad around this?
-        // assert_eq!(open_hash_traces.len(), close_hash_traces.len());
-        let path_length = std::cmp::max(open_hash_traces.len(), close_hash_traces.len());
-
         let account_key = account_key(address);
-        let mut address_hash_traces = vec![];
-        for (i, e) in open_hash_traces
-            .iter()
-            .zip_longest(close_hash_traces.iter())
-            .enumerate()
-        {
-            address_hash_traces.push(match e {
-                EitherOrBoth::Both(open, close) => {
-                    assert_eq!(open.sibling, close.sibling);
-                    (
-                        account_key.bit(i),
-                        fr(open.value),
-                        fr(close.value),
-                        fr(open.sibling),
-                        false,
-                        false,
-                    )
-                }
-                EitherOrBoth::Left(open) => (
-                    account_key.bit(i),
-                    fr(open.value),
-                    hash(hash(Fr::one(), leafs[1][1]), leafs[1][0]),
-                    fr(open.sibling),
-                    false,
-                    true,
-                ),
-                EitherOrBoth::Right(close) => (
-                    account_key.bit(i),
-                    hash(hash(Fr::one(), leafs[0][1]), leafs[0][0]),
-                    fr(close.value),
-                    fr(close.sibling),
-                    true,
-                    false,
-                ),
-            });
-        }
-        address_hash_traces.reverse();
+        let [open_hash_traces, close_hash_traces] = trace.account_path.map(|path| path.path);
+        let address_hash_traces =
+            get_internal_hash_traces(account_key, leafs, &open_hash_traces, &close_hash_traces);
 
         let mut storage_hash_traces = vec![];
         if let Some(key_hash) = trace.state_key {
@@ -252,16 +213,19 @@ impl From<SMTTrace> for Proof {
             let [storage_path_open, storage_path_close] =
                 trace.state_path.clone().map(|path| path.unwrap());
             assert_eq!(storage_path_open.path_part, storage_path_close.path_part);
-
             assert_eq!(storage_path_open.path.len(), storage_path_close.path.len());
 
-            // // The storage close storage path can be at most 1 longer than the open storage path. This happens when the key was previously empty.
-            // // do we never test the case where a storage slot is set to 0?
-            // if storage_path_open.path.len() != storage_path_close.path.len() {
-            //     assert_eq!(storage_path_open.path.len() + 1, storage_path_close.path.len())
+            let [open_key, close_key] = trace
+                .state_update
+                .unwrap()
+                .map(|o| o.map(|state_data| state_data.key));
+
+            // match open_key {
+            //     Some(key) => ,
+            //     None => ,// there must be
             // }
 
-            let key = trace.state_update.clone().unwrap()[0].clone().unwrap().key;
+            let key = open_key.unwrap();
             let storage_key_hash = storage_key_hash(u256_from_hex(key));
             // how does this always hold??????
             assert_eq!(storage_key_hash, fr(key_hash));
@@ -368,6 +332,54 @@ fn account_hash_traces(address: Address, account: AccountData, storage_root: Fr)
     account_hash_traces
 }
 
+fn get_internal_hash_traces(
+    key: Fr,
+    leafs: [[Fr; 2]; 2],
+    open_hash_traces: &[SMTNode],
+    close_hash_traces: &[SMTNode],
+) -> Vec<(bool, Fr, Fr, Fr, bool, bool)> {
+    let path_length = std::cmp::max(open_hash_traces.len(), close_hash_traces.len());
+
+    let mut address_hash_traces = vec![];
+    for (i, e) in open_hash_traces
+        .iter()
+        .zip_longest(close_hash_traces.iter())
+        .enumerate()
+    {
+        address_hash_traces.push(match e {
+            EitherOrBoth::Both(open, close) => {
+                assert_eq!(open.sibling, close.sibling);
+                (
+                    key.bit(i),
+                    fr(open.value),
+                    fr(close.value),
+                    fr(open.sibling),
+                    false,
+                    false,
+                )
+            }
+            EitherOrBoth::Left(open) => (
+                key.bit(i),
+                fr(open.value),
+                hash(hash(Fr::one(), leafs[1][1]), leafs[1][0]),
+                fr(open.sibling),
+                false,
+                true,
+            ),
+            EitherOrBoth::Right(close) => (
+                key.bit(i),
+                hash(hash(Fr::one(), leafs[0][1]), leafs[0][0]),
+                fr(close.value),
+                fr(close.sibling),
+                true,
+                false,
+            ),
+        });
+    }
+    address_hash_traces.reverse();
+    address_hash_traces
+}
+
 fn empty_account_hash_traces(leafs: [Fr; 2]) -> [[Fr; 3]; 6] {
     let mut hash_traces = [[Fr::zero(); 3]; 6];
 
@@ -414,12 +426,6 @@ impl Proof {
                 account_key.bit(self.address_hash_traces.len() - i - 1)
             );
         }
-
-        // mpt path matches account fields, if applicable.
-        // let[ old_account, new_account ]=
-        // let account_hash = account_hash(account, state_root);
-
-        // mpt path matches storage key, if applicable.
 
         // old and new roots are correct
         if let Some((direction, open, close, sibling, is_padding_open, is_padding_close)) =
@@ -494,44 +500,11 @@ impl Proof {
             // TODO: check claim doesn't involve storage.
         }
 
-        // if let Some(storage_key_value_hash_traces) = self.storage_key_value_hash_traces {
-        //     if
-        //     assert_eq!(
-        //         storage_key_value_hash_traces[0][2][2],
-        //         self.storage_hash_traces.get(0).unwrap().1
-        //     );
-        //     assert_eq!(
-        //         storage_key_value_hash_traces[1][2][2],
-        //         self.storage_hash_traces.get(0).unwrap().2
-        //     );
-
-        // dbg!(
-        //     storage_key_value_hash_traces,
-        //     self.storage_hash_traces.get(0)
-        // );
-        // panic!();
-        // }
-
-        // want leaf node sibling and leaf node value
-
-        // inputs match claim kind
-        // match self.claim.kind {
-        //     ClaimKind::Read(read) => match read {
-        //         Read::Nonce(_) => panic!("nonce never happens?"),
-        //         Read::Balance(_) => panic!("balance never happens?"),
-        //         Read::CodeHash(_) => panic!("codehash never happens?"),
-        //         Read::Storage { .. } => panic!("storage never happens?"),
-        //     },
-        //     ClaimKind::Write(write) => {}
-        //     ClaimKind::IsEmpty(None) => {
-        //         panic!("never happens?")
-        //     }
-        //     ClaimKind::IsEmpty(Some(key)) => {
-        //         panic!("never happens?")
-        //     }
-        // }
-
-        dbg!("ok!!!!");
+        // let [old_storage_root, new_storage_root] = if let Some(root) = trace.common_state_root {
+        //     [root, root].map(fr)
+        // } else {
+        //     trace.state_path.clone().map(|p| path_root(p.unwrap()))
+        // };
     }
 }
 
@@ -649,6 +622,7 @@ fn hash(x: Fr, y: Fr) -> Fr {
 }
 
 fn account_key(address: Address) -> Fr {
+    // TODO: the names of these are reversed
     let high_bytes: [u8; 16] = address.0[..16].try_into().unwrap();
     let low_bytes: [u8; 4] = address.0[16..].try_into().unwrap();
 
@@ -720,6 +694,7 @@ mod test {
     use crate::{operation::Account, serde::AccountData};
 
     const EMPTY_ACCOUNT_TRACE: &str = include_str!("../tests/empty_account.json");
+    const EMPTY_STORAGE_TRACE: &str = include_str!("../tests/empty_storage.json");
     const TRACES: &str = include_str!("../tests/traces.json");
     const READ_TRACES: &str = include_str!("../tests/read_traces.json");
     const DEPLOY_TRACES: &str = include_str!("../tests/deploy_traces.json");
@@ -792,6 +767,22 @@ mod test {
     #[test]
     fn check_empty_account() {
         let trace: SMTTrace = serde_json::from_str(EMPTY_ACCOUNT_TRACE).unwrap();
+        let proof = Proof::from(trace);
+        proof.check();
+    }
+
+    #[test]
+    fn check_deploy_traces() {
+        let traces: Vec<SMTTrace> = serde_json::from_str::<Vec<_>>(DEPLOY_TRACES).unwrap();
+        for trace in traces {
+            let proof = Proof::from(trace);
+            proof.check();
+        }
+    }
+
+    #[test]
+    fn check_empty_storage_write() {
+        let trace: SMTTrace = serde_json::from_str(EMPTY_STORAGE_TRACE).unwrap();
         let proof = Proof::from(trace);
         proof.check();
     }
