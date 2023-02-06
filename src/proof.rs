@@ -7,8 +7,8 @@ use num_traits::identities::Zero;
 use crate::{
     operation::{Account, SMTPathParse},
     serde::{AccountData, HexBytes, SMTNode, SMTPath, SMTTrace, StateData},
-    Hashable,
     types::Claim,
+    Hashable,
 };
 
 struct Proof {
@@ -24,7 +24,12 @@ struct AccountHashTraces {
 }
 
 impl AccountHashTraces {
-    fn new(key: Fr, paths: [SMTPath; 2], updates: [Option<AccountData>; 2], state_roots: [Fr; 2]) -> Self {
+    fn new(
+        key: Fr,
+        paths: [SMTPath; 2],
+        updates: [Option<AccountData>; 2],
+        state_roots: [Fr; 2],
+    ) -> Self {
         unimplemented!()
     }
 }
@@ -44,7 +49,6 @@ impl StorageHashTraces {
         unimplemented!()
     }
 }
-
 
 struct HashTrace {
     left: Fr,
@@ -72,26 +76,6 @@ impl From<SMTTrace> for Proof {
             _ => unreachable!(),
         };
 
-        // let account_key = account_key(claim.address);
-        // let paths = trace.account_path.clone().map(|path| path.path);
-        // let leaf_hashes = trace.account_path.clone().map(leaf_hash);
-        // let address_hash_traces = get_internal_hash_traces(
-        //     account_key,
-        //     leaf_hashes,
-        //     &open_hash_traces,
-        //     &close_hash_traces,
-        // );
-        //
-        // let leafs = trace.account_path.clone().map(get_leaf).map(|x| x.unwrap());
-        // let [old_account, new_account] = trace.account_update;
-        // let old_account_hash_traces = match old_account {
-        //     None => empty_account_hash_traces(leafs[0]),
-        //     Some(account) => account_hash_traces(claim.address, account, old_storage_root),
-        // };
-        // let new_account_hash_traces = match new_account {
-        //     None => empty_account_hash_traces(leafs[1]),
-        //     Some(account) => account_hash_traces(claim.address, account, new_storage_root),
-        // };
         let account = AccountHashTraces::new(
             fr(trace.account_key),
             trace.account_path,

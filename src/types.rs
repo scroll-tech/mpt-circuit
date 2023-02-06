@@ -304,7 +304,7 @@ impl From<SMTTrace> for Proof {
 fn get_leaf(path: SMTPath) -> Option<LeafNode> {
     path.leaf.map(|leaf| LeafNode {
         key: fr(leaf.sibling),
-        value_hash: fr(leaf.value)
+        value_hash: fr(leaf.value),
     })
 }
 
