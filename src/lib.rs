@@ -700,10 +700,7 @@ pub struct HashCircuit<F: Hashable>(hash::PoseidonHashTable<F>, usize);
 impl<Fp: Hashable> HashCircuit<Fp> {
     /// re-warped, all-in-one creation
     pub fn new(calcs: usize, input_with_check: &[&(Fp, Fp, Fp)]) -> Self {
-        let mut tbl = PoseidonHashTable {
-            mpt_only: true,
-            ..Default::default()
-        };
+        let mut tbl = PoseidonHashTable::default();
         tbl.constant_inputs_with_check(input_with_check.iter().copied());
         Self(tbl, calcs)
     }
@@ -728,7 +725,11 @@ impl<Fp: Hashable> Circuit<Fp> for HashCircuit<Fp> {
         mut layouter: impl Layouter<Fp>,
     ) -> Result<(), Error> {
         let chip = hash::PoseidonHashChip::<Fp, { hash_circuit::DEFAULT_STEP }>::construct(
-            config, &self.0, self.1,
+            config, 
+            &self.0, 
+            self.1,
+            true,
+            None,
         );
         chip.load(&mut layouter)
     }
