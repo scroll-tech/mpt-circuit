@@ -85,6 +85,20 @@ enum NodeKind {
     StorageKeyTail(U256),
 }
 
+impl From<&SMTTrace> for Claim {
+    fn from(trace: &SMTTrace) -> Self {
+        // TODO: this is doing a lot of extra work!!!!
+        let [old_root, new_root] = trace.account_path.clone().map(path_root);
+        let address = trace.address.0.into();
+        Self {
+            new_root,
+            old_root,
+            address,
+            kind: ClaimKind::from(trace),
+        }
+    }
+}
+
 impl From<&SMTTrace> for ClaimKind {
     fn from(trace: &SMTTrace) -> Self {
         let [account_old, account_new] = &trace.account_update;
@@ -190,6 +204,8 @@ impl From<SMTTrace> for Proof {
     fn from(trace: SMTTrace) -> Self {
         dbg!(&trace);
 
+        let claim = Claim::from(&trace);
+
         // do storage stuff first, if needed.
         let [old_storage_root, new_storage_root] = if let Some(root) = trace.common_state_root {
             [root, root].map(fr)
@@ -198,10 +214,18 @@ impl From<SMTTrace> for Proof {
         };
 
         let storage_hash_traces = if let Some(key_hash) = trace.state_key {
-            let storage_leafs = trace.state_path.clone().map(|path| path_leaf(path.unwrap()));
+            let storage_leafs = trace
+                .state_path
+                .clone()
+                .map(|path| path_leaf(path.unwrap()));
             let [storage_path_open, storage_path_close] =
                 trace.state_path.clone().map(|path| path.unwrap().path);
-            Some(get_internal_hash_traces(fr(key_hash), storage_leafs, &storage_path_open, &storage_path_close))
+            Some(get_internal_hash_traces(
+                fr(key_hash),
+                storage_leafs,
+                &storage_path_open,
+                &storage_path_close,
+            ))
         } else {
             None
         };
@@ -224,18 +248,8 @@ impl From<SMTTrace> for Proof {
             None
         };
 
+        let account_key = account_key(claim.address);
         let leafs = trace.account_path.clone().map(path_leaf);
-
-        let [old_root, new_root] = trace.account_path.clone().map(path_root);
-        let address = trace.address.0.into();
-        let claim = Claim {
-            new_root,
-            old_root,
-            address,
-            kind: ClaimKind::from(&trace),
-        };
-
-        let account_key = account_key(address);
         let [open_hash_traces, close_hash_traces] = trace.account_path.map(|path| path.path);
         let address_hash_traces =
             get_internal_hash_traces(account_key, leafs, &open_hash_traces, &close_hash_traces);
@@ -243,11 +257,11 @@ impl From<SMTTrace> for Proof {
         let [old_account, new_account] = trace.account_update;
         let old_account_hash_traces = match old_account {
             None => empty_account_hash_traces(leafs[0]),
-            Some(account) => account_hash_traces(address, account, old_storage_root),
+            Some(account) => account_hash_traces(claim.address, account, old_storage_root),
         };
         let new_account_hash_traces = match new_account {
             None => empty_account_hash_traces(leafs[1]),
-            Some(account) => account_hash_traces(address, account, new_storage_root),
+            Some(account) => account_hash_traces(claim.address, account, new_storage_root),
         };
 
         Self {
@@ -434,7 +448,9 @@ impl Proof {
         );
 
         // storage poseidon hashes are correct
-        self.storage_hash_traces.as_ref().map(|x| check_hash_traces_new(x.as_slice()));
+        self.storage_hash_traces
+            .as_ref()
+            .map(|x| check_hash_traces_new(x.as_slice()));
 
         // directions match storage key hash.
         match self.claim.kind {
@@ -442,10 +458,17 @@ impl Proof {
             | ClaimKind::Write(Write::Storage { key, .. })
             | ClaimKind::IsEmpty(Some(key)) => {
                 let storage_key_hash = storage_key_hash(key);
-                for (i, (direction, _, _, _, _, _)) in self.storage_hash_traces.as_ref().unwrap().iter().enumerate() {
+                for (i, (direction, _, _, _, _, _)) in self
+                    .storage_hash_traces
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .enumerate()
+                {
                     assert_eq!(
                         *direction,
-                        storage_key_hash.bit(self.storage_hash_traces.as_ref().unwrap().len() - i - 1)
+                        storage_key_hash
+                            .bit(self.storage_hash_traces.as_ref().unwrap().len() - i - 1)
                     );
                 }
             }
@@ -453,7 +476,9 @@ impl Proof {
         }
 
         // storage root is correct, if needed.
-        if let Some((direction, open, close, sibling, _, _)) = self.storage_hash_traces.as_ref().unwrap().last() {
+        if let Some((direction, open, close, sibling, _, _)) =
+            self.storage_hash_traces.as_ref().unwrap().last()
+        {
             let old_storage_root = self.old_account_hash_traces[1][1];
             let new_storage_root = self.new_account_hash_traces[1][1];
             if *direction {
