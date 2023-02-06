@@ -179,15 +179,15 @@ impl Config {
         });
 
         if false {
-        meta.lookup_any("mpt account not exist entry lookup", |meta| {
-            let s_enable = meta.query_advice(self.proof_sel[3], Rotation::cur());
+            meta.lookup_any("mpt account not exist entry lookup", |meta| {
+                let s_enable = meta.query_advice(self.proof_sel[3], Rotation::cur());
 
-            build_entry_lookup_common(meta, (3, 0))
-                .into_iter()
-                .chain(build_entry_lookup_not_exist(meta))
-                .map(|(fst, snd)| (fst * s_enable.clone(), snd))
-                .collect()
-        });
+                build_entry_lookup_common(meta, (3, 0))
+                    .into_iter()
+                    .chain(build_entry_lookup_not_exist(meta))
+                    .map(|(fst, snd)| (fst * s_enable.clone(), snd))
+                    .collect()
+            });
         }
 
         meta.lookup_any("mpt account destroy entry lookup", |meta| {

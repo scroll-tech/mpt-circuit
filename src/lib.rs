@@ -621,6 +621,11 @@ const OP_ACCOUNT: u32 = 3;
 const OP_STORAGE: u32 = 4;
 
 impl<Fp: FieldExt> EthTrie<Fp> {
+    /// Obtain the wrapped operation sequence
+    pub fn get_ops(&self) -> &[AccountOp<Fp>] {
+        &self.ops
+    }
+
     /// Add an op into the circuit data
     pub fn add_op(&mut self, op: AccountOp<Fp>) {
         if self.ops.is_empty() {
@@ -730,6 +735,11 @@ impl<Fp: Hashable> Circuit<Fp> for HashCircuit<Fp> {
 }
 
 impl<Fp: Hashable> EthTrie<Fp> {
+    /// export the hashes involved in current operation sequence
+    pub fn hash_traces(&self) -> impl Iterator<Item = &(Fp, Fp, Fp)> + Clone {
+        self.ops.iter().flat_map(|op| op.hash_traces())
+    }
+
     /// Obtain the total required rows for mpt and hash circuits (include the top and bottom padding)
     pub fn use_rows(&self) -> (usize, usize) {
         // calc rows for mpt circuit, we need to compare the rows used by adviced region and table region
