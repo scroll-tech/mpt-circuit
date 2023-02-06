@@ -190,21 +190,12 @@ impl From<SMTTrace> for Proof {
     fn from(trace: SMTTrace) -> Self {
         dbg!(&trace);
 
-        let leafs = trace.account_path.clone().map(path_leaf);
-
-        let [old_root, new_root] = trace.account_path.clone().map(path_root);
-        let address = trace.address.0.into();
-        let claim = Claim {
-            new_root,
-            old_root,
-            address,
-            kind: ClaimKind::from(&trace),
+        // do storage stuff first, if needed.
+        let [old_storage_root, new_storage_root] = if let Some(root) = trace.common_state_root {
+            [root, root].map(fr)
+        } else {
+            trace.state_path.clone().map(|p| path_root(p.unwrap()))
         };
-
-        let account_key = account_key(address);
-        let [open_hash_traces, close_hash_traces] = trace.account_path.map(|path| path.path);
-        let address_hash_traces =
-            get_internal_hash_traces(account_key, leafs, &open_hash_traces, &close_hash_traces);
 
         let mut storage_hash_traces = vec![];
         if let Some(key_hash) = trace.state_key {
@@ -248,23 +239,6 @@ impl From<SMTTrace> for Proof {
             }
         }
 
-        let [old_account, new_account] = trace.account_update;
-        let [old_storage_root, new_storage_root] = if let Some(root) = trace.common_state_root {
-            [root, root].map(fr)
-        } else {
-            trace.state_path.clone().map(|p| path_root(p.unwrap()))
-        };
-
-        // account_update can be none for non-existing accounts?
-        // what hash traces do we need for
-        let old_account_hash_traces = match old_account {
-            None => empty_account_hash_traces(leafs[0]),
-            Some(account) => account_hash_traces(address, account, old_storage_root),
-        };
-
-        let new_account_hash_traces =
-            account_hash_traces(address, new_account.unwrap(), new_storage_root);
-
         let storage_key_value_hash_traces = if let Some(key_hash) = trace.state_key {
             let [old_leaf, new_leaf] = trace.state_update.clone().unwrap().map(|o| o.unwrap());
             assert_eq!(old_leaf.key, new_leaf.key);
@@ -281,6 +255,32 @@ impl From<SMTTrace> for Proof {
             ])
         } else {
             None
+        };
+
+        let leafs = trace.account_path.clone().map(path_leaf);
+
+        let [old_root, new_root] = trace.account_path.clone().map(path_root);
+        let address = trace.address.0.into();
+        let claim = Claim {
+            new_root,
+            old_root,
+            address,
+            kind: ClaimKind::from(&trace),
+        };
+
+        let account_key = account_key(address);
+        let [open_hash_traces, close_hash_traces] = trace.account_path.map(|path| path.path);
+        let address_hash_traces =
+            get_internal_hash_traces(account_key, leafs, &open_hash_traces, &close_hash_traces);
+
+        let [old_account, new_account] = trace.account_update;
+        let old_account_hash_traces = match old_account {
+            None => empty_account_hash_traces(leafs[0]),
+            Some(account) => account_hash_traces(address, account, old_storage_root),
+        };
+        let new_account_hash_traces = match new_account {
+            None => empty_account_hash_traces(leafs[1]),
+            Some(account) => account_hash_traces(address, account, new_storage_root),
         };
 
         Self {
