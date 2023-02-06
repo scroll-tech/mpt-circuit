@@ -59,13 +59,26 @@ enum Write {
     },
 }
 
+#[derive(Clone, Copy, Debug)]
+struct LeafNode {
+    key: Fr,
+    value_hash: Fr,
+}
+
+impl LeafNode {
+    fn hash(&self) -> Fr {
+        hash(hash(Fr::one(), self.key), self.value_hash)
+    }
+}
+
 #[derive(Clone, Debug)]
 struct Proof {
     claim: Claim,
     // direction, open value, close value, sibling, is_padding_open, is_padding_close
     address_hash_traces: Vec<(bool, Fr, Fr, Fr, bool, bool)>,
 
-    leafs: [[Fr; 2]; 2], // lol. you need these now.
+    // TODO: make this optional
+    leafs: [LeafNode; 2],
 
     old_account_hash_traces: [[Fr; 3]; 6],
     new_account_hash_traces: [[Fr; 3]; 6],
@@ -83,12 +96,6 @@ enum NodeKind {
     NonceBalance,
     StorageKeyPrefix(bool),
     StorageKeyTail(U256),
-}
-
-// TODOOOOOOOO generic over value??????
-struct LeafNode {
-    key: Fr,
-    value_hash: Fr,
 }
 
 impl From<&SMTTrace> for Claim {
@@ -260,7 +267,7 @@ impl From<SMTTrace> for Proof {
         };
 
         let account_key = account_key(claim.address);
-        let leafs = trace.account_path.clone().map(path_leaf);
+        let leafs = trace.account_path.clone().map(get_leaf).map(|x| x.unwrap());
         let [open_hash_traces, close_hash_traces] =
             trace.account_path.clone().map(|path| path.path);
         let leaf_hashes = trace.account_path.clone().map(leaf_hash);
@@ -293,13 +300,12 @@ impl From<SMTTrace> for Proof {
     }
 }
 
-fn path_leaf(path: SMTPath) -> [Fr; 2] {
-    if let Some(leaf) = path.leaf {
-        [leaf.value, leaf.sibling].map(fr)
-    } else {
-        assert_eq!(path, SMTPath::default());
-        [Fr::zero(), Fr::zero()]
-    }
+// This should be an optional
+fn get_leaf(path: SMTPath) -> Option<LeafNode> {
+    path.leaf.map(|leaf| LeafNode {
+        key: fr(leaf.sibling),
+        value_hash: fr(leaf.value)
+    })
 }
 
 fn leaf_hash(path: SMTPath) -> Fr {
@@ -391,14 +397,14 @@ fn get_internal_hash_traces(
     address_hash_traces
 }
 
-fn empty_account_hash_traces(leafs: [Fr; 2]) -> [[Fr; 3]; 6] {
+fn empty_account_hash_traces(leaf: LeafNode) -> [[Fr; 3]; 6] {
     let mut hash_traces = [[Fr::zero(); 3]; 6];
 
-    let h5 = hash(Fr::one(), leafs[1]);
-    let h6 = hash(h5, leafs[0]);
+    let h5 = hash(Fr::one(), leaf.key);
+    let h6 = hash(h5, leaf.value_hash);
 
-    hash_traces[4] = [Fr::one(), leafs[1], h5];
-    hash_traces[5] = [h5, leafs[0], h6];
+    hash_traces[4] = [Fr::one(), leaf.key, h5];
+    hash_traces[5] = [h5, leaf.value_hash, h6];
 
     hash_traces
 }
@@ -468,12 +474,12 @@ impl Proof {
         dbg!(self.old_account_hash_traces, self.leafs);
 
         assert_eq!(
-            hash(hash(Fr::one(), self.leafs[0][1]), self.leafs[0][0]),
+            hash(hash(Fr::one(), self.leafs[0].key), self.leafs[0].value_hash),
             self.old_account_hash_traces[5][2],
         );
 
         assert_eq!(
-            hash(hash(Fr::one(), self.leafs[1][1]), self.leafs[1][0]),
+            hash(hash(Fr::one(), self.leafs[1].key), self.leafs[1].value_hash),
             self.new_account_hash_traces[5][2],
         );
 
