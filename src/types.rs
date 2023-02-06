@@ -70,7 +70,7 @@ struct Proof {
     old_account_hash_traces: [[Fr; 3]; 6],
     new_account_hash_traces: [[Fr; 3]; 6],
 
-    storage_hash_traces: Vec<(bool, Fr, Fr, Fr)>,
+    storage_hash_traces: Option<Vec<(bool, Fr, Fr, Fr, bool, bool)>>,
     // TODO: make this a struct plz.
     storage_key_value_hash_traces: Option<[[[Fr; 3]; 3]; 2]>,
 }
@@ -197,47 +197,14 @@ impl From<SMTTrace> for Proof {
             trace.state_path.clone().map(|p| path_root(p.unwrap()))
         };
 
-        let mut storage_hash_traces = vec![];
-        if let Some(key_hash) = trace.state_key {
-            // let storage_key_hash = storage_key_hash(key);
-
+        let storage_hash_traces = if let Some(key_hash) = trace.state_key {
+            let storage_leafs = trace.state_path.clone().map(|path| path_leaf(path.unwrap()));
             let [storage_path_open, storage_path_close] =
-                trace.state_path.clone().map(|path| path.unwrap());
-            assert_eq!(storage_path_open.path_part, storage_path_close.path_part);
-            assert_eq!(storage_path_open.path.len(), storage_path_close.path.len());
-
-            let [open_key, close_key] = trace
-                .state_update
-                .unwrap()
-                .map(|o| o.map(|state_data| state_data.key));
-
-            // match open_key {
-            //     Some(key) => ,
-            //     None => ,// there must be
-            // }
-
-            let key = open_key.unwrap();
-            let storage_key_hash = storage_key_hash(u256_from_hex(key));
-            // how does this always hold??????
-            assert_eq!(storage_key_hash, fr(key_hash));
-
-            let storage_path_length = storage_path_open.path.len();
-            for (i, (open, close)) in storage_path_open
-                .path
-                .iter()
-                .rev()
-                .zip_eq(storage_path_close.path.iter().rev())
-                .enumerate()
-            {
-                assert_eq!(open.sibling, close.sibling);
-                storage_hash_traces.push((
-                    storage_key_hash.bit(storage_path_length - 1 - i),
-                    fr(open.value),
-                    fr(close.value),
-                    fr(open.sibling),
-                ));
-            }
-        }
+                trace.state_path.clone().map(|path| path.unwrap().path);
+            Some(get_internal_hash_traces(fr(key_hash), storage_leafs, &storage_path_open, &storage_path_close))
+        } else {
+            None
+        };
 
         let storage_key_value_hash_traces = if let Some(key_hash) = trace.state_key {
             let [old_leaf, new_leaf] = trace.state_update.clone().unwrap().map(|o| o.unwrap());
@@ -467,7 +434,7 @@ impl Proof {
         );
 
         // storage poseidon hashes are correct
-        check_hash_traces(&self.storage_hash_traces);
+        self.storage_hash_traces.as_ref().map(|x| check_hash_traces_new(x.as_slice()));
 
         // directions match storage key hash.
         match self.claim.kind {
@@ -475,10 +442,10 @@ impl Proof {
             | ClaimKind::Write(Write::Storage { key, .. })
             | ClaimKind::IsEmpty(Some(key)) => {
                 let storage_key_hash = storage_key_hash(key);
-                for (i, (direction, _, _, _)) in self.storage_hash_traces.iter().enumerate() {
+                for (i, (direction, _, _, _, _, _)) in self.storage_hash_traces.as_ref().unwrap().iter().enumerate() {
                     assert_eq!(
                         *direction,
-                        storage_key_hash.bit(self.storage_hash_traces.len() - i - 1)
+                        storage_key_hash.bit(self.storage_hash_traces.as_ref().unwrap().len() - i - 1)
                     );
                 }
             }
@@ -486,7 +453,7 @@ impl Proof {
         }
 
         // storage root is correct, if needed.
-        if let Some((direction, open, close, sibling)) = self.storage_hash_traces.last() {
+        if let Some((direction, open, close, sibling, _, _)) = self.storage_hash_traces.as_ref().unwrap().last() {
             let old_storage_root = self.old_account_hash_traces[1][1];
             let new_storage_root = self.new_account_hash_traces[1][1];
             if *direction {
