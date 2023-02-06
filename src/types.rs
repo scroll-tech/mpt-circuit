@@ -85,6 +85,12 @@ enum NodeKind {
     StorageKeyTail(U256),
 }
 
+// TODOOOOOOOO generic over value??????
+struct LeafNode {
+    key: Fr,
+    value_hash: Fr,
+}
+
 impl From<&SMTTrace> for Claim {
     fn from(trace: &SMTTrace) -> Self {
         // TODO: this is doing a lot of extra work!!!!
@@ -207,46 +213,87 @@ impl From<SMTTrace> for Proof {
         let claim = Claim::from(&trace);
 
         // do storage stuff first, if needed.
+        let (
+            [old_storage_root, new_storage_root],
+            storage_hash_traces,
+            storage_key_value_hash_traces,
+        ) = match (
+            trace.common_state_root,
+            trace.state_key,
+            &trace.state_path,
+            trace.state_update,
+        ) {
+            (Some(storage_root), None, [None, None], Some([None, None])) => {
+                ([storage_root; 2].map(fr), None, None)
+            }
+            (None, Some(key), [Some(open), Some(close)], Some(storage_updates)) => {
+                let leaf_hashes = [open, close].map(|path| {
+                    path.leaf
+                        .as_ref()
+                        .map(|leaf| hash(hash(Fr::one(), fr(leaf.sibling)), fr(leaf.value)))
+                        .unwrap_or_default()
+                });
+                (
+                    [open.clone(), close.clone()].map(path_root),
+                    Some(get_internal_hash_traces_storage(
+                        fr(key),
+                        leaf_hashes,
+                        &(open.path),
+                        &(close.path),
+                    )),
+                    None,
+                    // Some([
+                    //     storage_key_value_hash_traces(
+                    //         u256_from_hex(old_leaf.key),
+                    //         u256_from_hex(old_leaf.value),
+                    //     ),
+                    //     storage_key_value_hash_traces(
+                    //         u256_from_hex(new_leaf.key),
+                    //         u256_from_hex(new_leaf.value),
+                    //     ),
+                    // ]),
+                )
+            }
+            _ => {
+                unreachable!();
+            }
+        };
+
         let [old_storage_root, new_storage_root] = if let Some(root) = trace.common_state_root {
             [root, root].map(fr)
         } else {
             trace.state_path.clone().map(|p| path_root(p.unwrap()))
         };
 
-        let storage_hash_traces = if let Some(key_hash) = trace.state_key {
-            let storage_leafs = trace
-                .state_path
-                .clone()
-                .map(|path| path_leaf(path.unwrap()));
-            let [storage_path_open, storage_path_close] =
-                trace.state_path.clone().map(|path| path.unwrap().path);
-            Some(get_internal_hash_traces(
-                fr(key_hash),
-                storage_leafs,
-                &storage_path_open,
-                &storage_path_close,
-            ))
-        } else {
-            None
-        };
+        // let storage_hash_traces = if let Some(key_hash) = trace.state_key {
+        //     let storage_leafs = trace
+        //         .state_path
+        //         .clone()
+        //         .map(|path| path_leaf(path.unwrap()));
+        //     let [storage_path_open, storage_path_close] =
+        //         trace.state_path.clone().map(|path| path.unwrap().path);
+        //     Some()
+        // } else {
+        //     None
+        // };
 
-        let storage_key_value_hash_traces = if let Some(key_hash) = trace.state_key {
-            let [old_leaf, new_leaf] = trace.state_update.clone().unwrap().map(|o| o.unwrap());
-            assert_eq!(old_leaf.key, new_leaf.key);
-
-            Some([
-                storage_key_value_hash_traces(
-                    u256_from_hex(old_leaf.key),
-                    u256_from_hex(old_leaf.value),
-                ),
-                storage_key_value_hash_traces(
-                    u256_from_hex(new_leaf.key),
-                    u256_from_hex(new_leaf.value),
-                ),
-            ])
-        } else {
-            None
-        };
+        // let storage_key_value_hash_traces = if let Some(key_hash) = trace.state_key {
+        //     let [old_leaf, new_leaf] = trace.state_update.clone().unwrap().map(|o| o.unwrap());
+        //     assert_eq!(old_leaf.key, new_leaf.key);
+        //
+        //     Some([
+        //         storage_key_value_hash_traces(
+        //             u256_from_hex(old_leaf.key),
+        //             u256_from_hex(old_leaf.value),
+        //         ),
+        //         storage_key_value_hash_traces(
+        //             u256_from_hex(new_leaf.key),
+        //             u256_from_hex(new_leaf.value),
+        //         ),
+        //     ])
+        // } else {
+        //     None
+        // };
 
         let account_key = account_key(claim.address);
         let leafs = trace.account_path.clone().map(path_leaf);
@@ -354,6 +401,54 @@ fn get_internal_hash_traces(
             EitherOrBoth::Right(close) => (
                 key.bit(i),
                 hash(hash(Fr::one(), leafs[0][1]), leafs[0][0]),
+                fr(close.value),
+                fr(close.sibling),
+                true,
+                false,
+            ),
+        });
+    }
+    address_hash_traces.reverse();
+    address_hash_traces
+}
+
+fn get_internal_hash_traces_storage(
+    key: Fr,
+    leaf_hashes: [Fr; 2],
+    open_hash_traces: &[SMTNode],
+    close_hash_traces: &[SMTNode],
+) -> Vec<(bool, Fr, Fr, Fr, bool, bool)> {
+    let path_length = std::cmp::max(open_hash_traces.len(), close_hash_traces.len());
+
+    let mut address_hash_traces = vec![];
+    for (i, e) in open_hash_traces
+        .iter()
+        .zip_longest(close_hash_traces.iter())
+        .enumerate()
+    {
+        address_hash_traces.push(match e {
+            EitherOrBoth::Both(open, close) => {
+                assert_eq!(open.sibling, close.sibling);
+                (
+                    key.bit(i),
+                    fr(open.value),
+                    fr(close.value),
+                    fr(open.sibling),
+                    false,
+                    false,
+                )
+            }
+            EitherOrBoth::Left(open) => (
+                key.bit(i),
+                fr(open.value),
+                leaf_hashes[1],
+                fr(open.sibling),
+                false,
+                true,
+            ),
+            EitherOrBoth::Right(close) => (
+                key.bit(i),
+                leaf_hashes[0],
                 fr(close.value),
                 fr(close.sibling),
                 true,
@@ -499,7 +594,6 @@ impl Proof {
         } else {
             // check claim does not involve storage.
         }
-
 
         // let [old_storage_root, new_storage_root] = if let Some(root) = trace.common_state_root {
         //     [root, root].map(fr)
