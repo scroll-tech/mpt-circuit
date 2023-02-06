@@ -259,42 +259,6 @@ impl From<SMTTrace> for Proof {
             }
         };
 
-        let [old_storage_root, new_storage_root] = if let Some(root) = trace.common_state_root {
-            [root, root].map(fr)
-        } else {
-            trace.state_path.clone().map(|p| path_root(p.unwrap()))
-        };
-
-        // let storage_hash_traces = if let Some(key_hash) = trace.state_key {
-        //     let storage_leafs = trace
-        //         .state_path
-        //         .clone()
-        //         .map(|path| path_leaf(path.unwrap()));
-        //     let [storage_path_open, storage_path_close] =
-        //         trace.state_path.clone().map(|path| path.unwrap().path);
-        //     Some()
-        // } else {
-        //     None
-        // };
-
-        // let storage_key_value_hash_traces = if let Some(key_hash) = trace.state_key {
-        //     let [old_leaf, new_leaf] = trace.state_update.clone().unwrap().map(|o| o.unwrap());
-        //     assert_eq!(old_leaf.key, new_leaf.key);
-        //
-        //     Some([
-        //         storage_key_value_hash_traces(
-        //             u256_from_hex(old_leaf.key),
-        //             u256_from_hex(old_leaf.value),
-        //         ),
-        //         storage_key_value_hash_traces(
-        //             u256_from_hex(new_leaf.key),
-        //             u256_from_hex(new_leaf.value),
-        //         ),
-        //     ])
-        // } else {
-        //     None
-        // };
-
         let account_key = account_key(claim.address);
         let leafs = trace.account_path.clone().map(path_leaf);
         let [open_hash_traces, close_hash_traces] = trace.account_path.map(|path| path.path);
