@@ -242,7 +242,7 @@ pub type Hash = HexBytes<32>;
 pub type Address = HexBytes<20>;
 
 /// struct in SMTTrace
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, Eq, PartialEq)]
 pub struct SMTNode {
     /// value
     pub value: Hash,
@@ -251,7 +251,7 @@ pub struct SMTNode {
 }
 
 /// struct in SMTTrace
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default, Eq, PartialEq)]
 #[serde(rename_all(deserialize = "camelCase", serialize = "camelCase"))]
 pub struct SMTPath {
     /// root

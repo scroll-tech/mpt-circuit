@@ -277,8 +277,12 @@ impl From<SMTTrace> for Proof {
 }
 
 fn path_leaf(path: SMTPath) -> [Fr; 2] {
-    let leaf = path.leaf.unwrap();
-    [leaf.value, leaf.sibling].map(fr)
+    if let Some(leaf) = path.leaf {
+        [leaf.value, leaf.sibling].map(fr)
+    } else {
+        assert_eq!(path, SMTPath::default());
+        [Fr::zero(), Fr::zero()]
+    }
 }
 
 fn account_hash_traces(address: Address, account: AccountData, storage_root: Fr) -> [[Fr; 3]; 6] {
@@ -476,21 +480,26 @@ impl Proof {
         }
 
         // storage root is correct, if needed.
-        if let Some((direction, open, close, sibling, _, _)) =
-            self.storage_hash_traces.as_ref().unwrap().last()
-        {
-            let old_storage_root = self.old_account_hash_traces[1][1];
-            let new_storage_root = self.new_account_hash_traces[1][1];
-            if *direction {
-                assert_eq!(hash(*sibling, *open), old_storage_root);
-                assert_eq!(hash(*sibling, *close), new_storage_root);
+        if let Some(storage_update) = &self.storage_hash_traces {
+            if let Some((direction, open, close, sibling, _, _)) =
+                self.storage_hash_traces.as_ref().unwrap().last()
+            {
+                let old_storage_root = self.old_account_hash_traces[1][1];
+                let new_storage_root = self.new_account_hash_traces[1][1];
+                if *direction {
+                    assert_eq!(hash(*sibling, *open), old_storage_root);
+                    assert_eq!(hash(*sibling, *close), new_storage_root);
+                } else {
+                    assert_eq!(hash(*open, *sibling), old_storage_root);
+                    assert_eq!(hash(*close, *sibling), new_storage_root);
+                }
             } else {
-                assert_eq!(hash(*open, *sibling), old_storage_root);
-                assert_eq!(hash(*close, *sibling), new_storage_root);
+                // TODO: check claimed read is 0
             }
         } else {
-            // TODO: check claim doesn't involve storage.
+            // check claim does not involve storage.
         }
+
 
         // let [old_storage_root, new_storage_root] = if let Some(root) = trace.common_state_root {
         //     [root, root].map(fr)
