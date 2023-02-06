@@ -11,7 +11,7 @@ use crate::{
 };
 
 #[derive(Clone, Copy, Debug)]
-struct Claim {
+pub(crate) struct Claim {
     old_root: Fr,
     new_root: Fr,
     address: Address,
