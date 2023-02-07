@@ -242,7 +242,7 @@ pub type Hash = HexBytes<32>;
 pub type Address = HexBytes<20>;
 
 /// struct in SMTTrace
-#[derive(Debug, Deserialize, Serialize, Clone, Eq, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, Eq, PartialEq)]
 pub struct SMTNode {
     /// value
     pub value: Hash,
