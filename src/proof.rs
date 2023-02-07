@@ -42,15 +42,17 @@ struct StorageHashTraces {
 
 impl StorageHashTraces {
     fn new(key: Fr, paths: [&SMTPath; 2], updates: [Option<StateData>; 2]) -> Self {
-        // let parent_nodes = get_internal_hash_traces(key, [Fr::zero(); 2], &paths[0], &paths[1]);
-        let parent_nodes = vec![];
-
         let [old_leaf, new_leaf] = paths.map(|p| p.leaf);
         let [old_update, new_update] = updates;
         let old_storage = old_leaf.map(|leaf| get_storage_leaf_hash_traces(old_update, leaf));
         let new_storage = new_leaf.map(|leaf| get_storage_leaf_hash_traces(new_update, leaf));
         Self {
-            parent_nodes,
+            parent_nodes: get_internal_hash_traces(
+                key,
+                [old_storage, new_storage]
+                    .map(|hash_traces| hash_traces.map(|x| x[3].out).unwrap_or_default()),
+                paths.map(|x| x.path.as_slice()),
+            ),
             old_storage,
             new_storage,
         }
@@ -90,7 +92,6 @@ impl HashTrace {
 impl From<SMTTrace> for Proof {
     fn from(trace: SMTTrace) -> Self {
         dbg!(&trace);
-
         let claim = Claim::from(&trace);
 
         let (storage_roots, storage) = match (
@@ -127,9 +128,9 @@ impl From<SMTTrace> for Proof {
 fn get_internal_hash_traces(
     key: Fr,
     leaf_hashes: [Fr; 2],
-    open_hash_traces: &[SMTNode],
-    close_hash_traces: &[SMTNode],
+    paths: [&[SMTNode]; 2],
 ) -> Vec<(bool, Fr, Fr, Fr, bool, bool)> {
+    let [open_hash_traces, close_hash_traces] = paths;
     let path_length = std::cmp::max(open_hash_traces.len(), close_hash_traces.len());
 
     let mut address_hash_traces = vec![];
