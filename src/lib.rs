@@ -725,11 +725,7 @@ impl<Fp: Hashable> Circuit<Fp> for HashCircuit<Fp> {
         mut layouter: impl Layouter<Fp>,
     ) -> Result<(), Error> {
         let chip = hash::PoseidonHashChip::<Fp, { hash_circuit::DEFAULT_STEP }>::construct(
-            config, 
-            &self.0, 
-            self.1,
-            true,
-            None,
+            config, &self.0, self.1, true, None,
         );
         chip.load(&mut layouter)
     }
@@ -738,7 +734,7 @@ impl<Fp: Hashable> Circuit<Fp> for HashCircuit<Fp> {
 impl<Fp: Hashable> EthTrie<Fp> {
     /// export the hashes involved in current operation sequence
     pub fn hash_traces(&self) -> impl Iterator<Item = &(Fp, Fp, Fp)> + Clone {
-        self.ops.iter().flat_map(|op| op.hash_traces())
+        HashTracesSrc::from(self.ops.iter().flat_map(|op| op.hash_traces()))
     }
 
     /// Obtain the total required rows for mpt and hash circuits (include the top and bottom padding)
