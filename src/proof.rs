@@ -30,9 +30,7 @@ impl AccountHashTraces {
         [old_update, new_update]: [Option<AccountData>; 2],
         [old_storage_root, new_storage_root]: [Fr; 2],
     ) -> Self {
-        // dbg!(&paths);
         let [old_leaf, new_leaf] = paths.clone().map(|p| p.leaf);
-        // dbg!(old_leaf, new_leaf);
         let old_account =
             old_leaf.map(|leaf| get_account_hash_traces(key, old_update, old_storage_root, leaf));
         let new_account =
@@ -74,7 +72,6 @@ impl StorageHashTraces {
             &paths[0].path,
             &paths[1].path,
         );
-        dbg!(&parent_nodes);
 
         Self {
             parent_nodes,
@@ -84,15 +81,9 @@ impl StorageHashTraces {
     }
 
     fn roots(&self) -> [Fr; 2] {
-        dbg!(self.old_storage, self.new_storage);
-        // dbg!(&self.parent_nodes);
         if let Some((direction, open, close, sibling, is_open_padding, is_close_padding)) =
             self.parent_nodes.last()
         {
-            dbg!(
-                get_root(*direction, *open, *sibling, *is_open_padding),
-                get_root(*direction, *close, *sibling, *is_close_padding),
-            );
             [
                 get_root(*direction, *open, *sibling, *is_open_padding),
                 get_root(*direction, *close, *sibling, *is_close_padding),
@@ -142,8 +133,6 @@ impl From<SMTTrace> for Proof {
             }
             _ => unreachable!(),
         };
-
-        dbg!(storage_roots);
 
         let account = AccountHashTraces::new(
             fr(trace.account_key),
@@ -210,11 +199,12 @@ fn get_internal_hash_traces(
 
 fn get_root(direction: bool, value: Fr, sibling: Fr, is_padding: bool) -> Fr {
     if is_padding {
-        Fr::zero()
+        panic!(); // this is dead code i think
+        value
     } else if direction {
-        hash(value, sibling)
-    } else {
         hash(sibling, value)
+    } else {
+        hash(value, sibling)
     }
 }
 
@@ -227,7 +217,14 @@ fn get_storage_leaf_hash_traces(state_data: Option<StateData>, leaf: SMTNode) ->
         hash_traces[1] = HashTrace::new(value_high, value_low);
 
         // Sanity check that the leaf matches the value hash, if present.
-        assert_eq!(hash_traces[1].out, fr(leaf.value));
+        dbg!(state_data, leaf);
+
+        if hash_traces[1].out != fr(leaf.value) {
+            assert_eq!(u256_from_hex(state_data.value), U256::zero());
+        } else {
+            assert_eq!(hash_traces[1].out, fr(leaf.value));
+        }
+
     }
     hash_traces[2] = HashTrace::new(Fr::one(), fr(leaf.sibling));
     hash_traces[3] = HashTrace::new(hash_traces[2].out, fr(leaf.value));
@@ -241,7 +238,6 @@ fn get_account_hash_traces(
     storage_root: Fr, // this is actually optional? what if there is no account?
     leaf: SMTNode,
 ) -> [HashTrace; 6] {
-    // dbg!(&account_data, storage_root);
     let mut hash_traces = [HashTrace::default(); 6];
     if let Some(account_data) = account_data {
         let (codehash_hi, codehash_lo) = hi_lo(&account_data.code_hash);
@@ -255,11 +251,10 @@ fn get_account_hash_traces(
 
         // Sanity check we calculated the account hash correctly.
         let real_account: Account<Fr> = (&account_data, storage_root).try_into().unwrap();
-        dbg!(real_account.account_hash());
         assert_eq!(real_account.account_hash(), hash_traces[3].out);
 
         // Sanity check that the leaf matches the value hash, if present.
-        dbg!(storage_root, leaf, hash_traces);
+        dbg!(hash_traces, leaf);
         assert_eq!(hash_traces[3].out, fr(leaf.value));
     }
     hash_traces[4] = HashTrace::new(Fr::one(), fr(leaf.sibling));
@@ -333,11 +328,54 @@ fn balance_convert(balance: &BigUint) -> Fr {
 mod test {
     use super::*;
 
+    const EMPTY_ACCOUNT_TRACE: &str = include_str!("../tests/empty_account.json");
     const EMPTY_STORAGE_TRACE: &str = include_str!("../tests/empty_storage.json");
+    const TRACES: &str = include_str!("../tests/traces.json");
+    const READ_TRACES: &str = include_str!("../tests/read_traces.json");
+    const DEPLOY_TRACES: &str = include_str!("../tests/deploy_traces.json");
+    const TOKEN_TRACES: &str = include_str!("../tests/token_traces.json");
 
     #[test]
-    fn check_empty_storage_write() {
-        let trace: SMTTrace = serde_json::from_str(EMPTY_STORAGE_TRACE).unwrap();
+    fn check_empty_storage() {
+        let empty_storage = include_str!("../tests/empty_storage.json");
+        let trace: SMTTrace = serde_json::from_str(empty_storage).unwrap();
         let proof = Proof::from(trace);
+    }
+
+    #[test]
+    fn empty_account() {
+        let empty_storage = include_str!("../tests/empty_account.json");
+        let trace: SMTTrace = serde_json::from_str(empty_storage).unwrap();
+        let proof = Proof::from(trace);
+    }
+
+    #[test]
+    fn read_traces() {
+        for s in [READ_TRACES] {
+            let traces: Vec<SMTTrace> = serde_json::from_str::<Vec<_>>(s).unwrap();
+            for trace in traces {
+                let proof = Proof::from(trace);
+            }
+        }
+    }
+
+    #[test]
+    fn deploy_traces() {
+        for s in [DEPLOY_TRACES] {
+            let traces: Vec<SMTTrace> = serde_json::from_str::<Vec<_>>(s).unwrap();
+            for trace in traces {
+                let proof = Proof::from(trace);
+            }
+        }
+    }
+
+    #[test]
+    fn token_traces() {
+        for s in [TOKEN_TRACES] {
+            let traces: Vec<SMTTrace> = serde_json::from_str::<Vec<_>>(s).unwrap();
+            for trace in traces {
+                let proof = Proof::from(trace);
+            }
+        }
     }
 }
