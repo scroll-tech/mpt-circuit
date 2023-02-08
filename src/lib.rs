@@ -621,6 +621,11 @@ const OP_ACCOUNT: u32 = 3;
 const OP_STORAGE: u32 = 4;
 
 impl<Fp: FieldExt> EthTrie<Fp> {
+    /// Obtain the wrapped operation sequence
+    pub fn get_ops(&self) -> &[AccountOp<Fp>] {
+        &self.ops
+    }
+
     /// Add an op into the circuit data
     pub fn add_op(&mut self, op: AccountOp<Fp>) {
         if self.ops.is_empty() {
@@ -695,10 +700,7 @@ pub struct HashCircuit<F: Hashable>(hash::PoseidonHashTable<F>, usize);
 impl<Fp: Hashable> HashCircuit<Fp> {
     /// re-warped, all-in-one creation
     pub fn new(calcs: usize, input_with_check: &[&(Fp, Fp, Fp)]) -> Self {
-        let mut tbl = PoseidonHashTable {
-            mpt_only: true,
-            ..Default::default()
-        };
+        let mut tbl = PoseidonHashTable::default();
         tbl.constant_inputs_with_check(input_with_check.iter().copied());
         Self(tbl, calcs)
     }
@@ -723,13 +725,18 @@ impl<Fp: Hashable> Circuit<Fp> for HashCircuit<Fp> {
         mut layouter: impl Layouter<Fp>,
     ) -> Result<(), Error> {
         let chip = hash::PoseidonHashChip::<Fp, { hash_circuit::DEFAULT_STEP }>::construct(
-            config, &self.0, self.1,
+            config, &self.0, self.1, true, None,
         );
         chip.load(&mut layouter)
     }
 }
 
 impl<Fp: Hashable> EthTrie<Fp> {
+    /// export the hashes involved in current operation sequence
+    pub fn hash_traces(&self) -> impl Iterator<Item = &(Fp, Fp, Fp)> + Clone {
+        HashTracesSrc::from(self.ops.iter().flat_map(|op| op.hash_traces()))
+    }
+
     /// Obtain the total required rows for mpt and hash circuits (include the top and bottom padding)
     pub fn use_rows(&self) -> (usize, usize) {
         // calc rows for mpt circuit, we need to compare the rows used by adviced region and table region
