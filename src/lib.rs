@@ -10,6 +10,7 @@
 pub use crate::serde::{Hash, Row, RowDeError};
 
 mod eth;
+mod gadgets;
 mod layers;
 mod mason;
 mod mpt;
@@ -18,6 +19,7 @@ mod proof;
 #[cfg(test)]
 mod test_utils;
 mod types;
+mod util;
 
 pub mod operation;
 pub mod serde;

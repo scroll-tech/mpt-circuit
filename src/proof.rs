@@ -8,6 +8,7 @@ use crate::{
     operation::{Account, SMTPathParse},
     serde::{AccountData, HexBytes, SMTNode, SMTPath, SMTTrace, StateData},
     types::Claim,
+    util::{balance_convert, fr, hash, hi_lo, split_word, u256_from_hex, Bit},
     Hashable,
 };
 
@@ -97,10 +98,10 @@ impl StorageHashTraces {
 }
 
 #[derive(Clone, Copy, Debug, Default)]
-struct HashTrace {
-    left: Fr,
-    right: Fr,
-    out: Fr,
+pub(crate) struct HashTrace {
+    pub left: Fr,
+    pub right: Fr,
+    pub out: Fr,
 }
 
 impl HashTrace {
@@ -224,7 +225,6 @@ fn get_storage_leaf_hash_traces(state_data: Option<StateData>, leaf: SMTNode) ->
         } else {
             assert_eq!(hash_traces[1].out, fr(leaf.value));
         }
-
     }
     hash_traces[2] = HashTrace::new(Fr::one(), fr(leaf.sibling));
     hash_traces[3] = HashTrace::new(hash_traces[2].out, fr(leaf.value));
@@ -260,68 +260,6 @@ fn get_account_hash_traces(
     hash_traces[4] = HashTrace::new(Fr::one(), fr(leaf.sibling));
     hash_traces[5] = HashTrace::new(hash_traces[4].out, fr(leaf.value));
     hash_traces
-}
-
-fn fr(x: HexBytes<32>) -> Fr {
-    Fr::from_bytes(&x.0).unwrap()
-}
-
-fn hash(x: Fr, y: Fr) -> Fr {
-    Hashable::hash([x, y])
-}
-
-trait Bit {
-    fn bit(&self, i: usize) -> bool;
-}
-
-impl Bit for Fr {
-    fn bit(&self, i: usize) -> bool {
-        let mut bytes = self.to_bytes();
-        bytes.reverse();
-        bytes
-            .get(31 - i / 8)
-            .map_or_else(|| false, |&byte| byte & (1 << (i % 8)) != 0)
-    }
-}
-
-fn u256_from_hex(x: HexBytes<32>) -> U256 {
-    U256::from_big_endian(&x.0)
-}
-
-fn split_word(x: U256) -> (Fr, Fr) {
-    let mut bytes = [0; 32];
-    x.to_big_endian(&mut bytes);
-    let high_bytes: [u8; 16] = bytes[..16].try_into().unwrap();
-    let low_bytes: [u8; 16] = bytes[16..].try_into().unwrap();
-
-    let high = Fr::from_u128(u128::from_be_bytes(high_bytes));
-    let low = Fr::from_u128(u128::from_be_bytes(low_bytes));
-    (high, low)
-
-    // TODO: what's wrong with this?
-    // let [limb_0, limb_1, limb_2, limb_3] = key.0;
-    // let key_high = Fr::from_u128(u128::from(limb_2) + u128::from(limb_3) << 64);
-    // let key_low = Fr::from_u128(u128::from(limb_0) + u128::from(limb_1) << 64);
-    // hash(key_high, key_low)
-}
-
-fn hi_lo(x: &BigUint) -> (Fr, Fr) {
-    let mut u64_digits = x.to_u64_digits();
-    u64_digits.resize(4, 0);
-    (
-        Fr::from_u128((u128::from(u64_digits[3]) << 64) + u128::from(u64_digits[2])),
-        Fr::from_u128((u128::from(u64_digits[1]) << 64) + u128::from(u64_digits[0])),
-    )
-}
-
-fn balance_convert(balance: &BigUint) -> Fr {
-    balance
-        .to_u64_digits()
-        .iter()
-        .rev() // to_u64_digits has least significant digit is first
-        .fold(Fr::zero(), |a, b| {
-            a * Fr::from(1 << 32).square() + Fr::from(*b)
-        })
 }
 
 #[cfg(test)]
