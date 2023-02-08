@@ -27,10 +27,30 @@ impl AccountHashTraces {
     fn new(
         key: Fr,
         paths: [SMTPath; 2],
-        updates: [Option<AccountData>; 2],
-        state_roots: [Fr; 2],
+        [old_update, new_update]: [Option<AccountData>; 2],
+        [old_storage_root, new_storage_root]: [Fr; 2],
     ) -> Self {
-        unimplemented!()
+        // dbg!(&paths);
+        let [old_leaf, new_leaf] = paths.clone().map(|p| p.leaf);
+        // dbg!(old_leaf, new_leaf);
+        let old_account =
+            old_leaf.map(|leaf| get_account_hash_traces(key, old_update, old_storage_root, leaf));
+        let new_account =
+            new_leaf.map(|leaf| get_account_hash_traces(key, new_update, new_storage_root, leaf));
+
+        let parent_nodes = get_internal_hash_traces(
+            key,
+            [old_account, new_account]
+                .map(|hash_traces| hash_traces.map(|x| x[3].out).unwrap_or_default()),
+            &paths[0].path,
+            &paths[1].path,
+        );
+
+        Self {
+            parent_nodes,
+            old_account,
+            new_account,
+        }
     }
 }
 
@@ -42,32 +62,45 @@ struct StorageHashTraces {
 
 impl StorageHashTraces {
     fn new(key: Fr, paths: [&SMTPath; 2], updates: [Option<StateData>; 2]) -> Self {
-        let [old_leaf, new_leaf] = paths.map(|p| p.leaf);
+        let [old_leaf, new_leaf] = paths.clone().map(|p| p.leaf);
         let [old_update, new_update] = updates;
         let old_storage = old_leaf.map(|leaf| get_storage_leaf_hash_traces(old_update, leaf));
         let new_storage = new_leaf.map(|leaf| get_storage_leaf_hash_traces(new_update, leaf));
+
+        let parent_nodes = get_internal_hash_traces(
+            key,
+            [old_storage, new_storage]
+                .map(|hash_traces| hash_traces.map(|x| x[3].out).unwrap_or_default()),
+            &paths[0].path,
+            &paths[1].path,
+        );
+        dbg!(&parent_nodes);
+
         Self {
-            parent_nodes: get_internal_hash_traces(
-                key,
-                [old_storage, new_storage]
-                    .map(|hash_traces| hash_traces.map(|x| x[3].out).unwrap_or_default()),
-                paths.map(|x| x.path.as_slice()),
-            ),
+            parent_nodes,
             old_storage,
             new_storage,
         }
     }
 
     fn roots(&self) -> [Fr; 2] {
+        dbg!(self.old_storage, self.new_storage);
+        // dbg!(&self.parent_nodes);
         if let Some((direction, open, close, sibling, is_open_padding, is_close_padding)) =
             self.parent_nodes.last()
         {
+            dbg!(
+                get_root(*direction, *open, *sibling, *is_open_padding),
+                get_root(*direction, *close, *sibling, *is_close_padding),
+            );
             [
                 get_root(*direction, *open, *sibling, *is_open_padding),
                 get_root(*direction, *close, *sibling, *is_close_padding),
             ]
         } else {
-            [Fr::zero(); 2]
+            let old_root = self.old_storage.map_or_else(Fr::zero, |h| h[3].out);
+            let new_root = self.new_storage.map_or_else(Fr::zero, |h| h[3].out);
+            [old_root, new_root]
         }
     }
 }
@@ -110,6 +143,8 @@ impl From<SMTTrace> for Proof {
             _ => unreachable!(),
         };
 
+        dbg!(storage_roots);
+
         let account = AccountHashTraces::new(
             fr(trace.account_key),
             trace.account_path,
@@ -128,9 +163,9 @@ impl From<SMTTrace> for Proof {
 fn get_internal_hash_traces(
     key: Fr,
     leaf_hashes: [Fr; 2],
-    paths: [&[SMTNode]; 2],
+    open_hash_traces: &[SMTNode],
+    close_hash_traces: &[SMTNode],
 ) -> Vec<(bool, Fr, Fr, Fr, bool, bool)> {
-    let [open_hash_traces, close_hash_traces] = paths;
     let path_length = std::cmp::max(open_hash_traces.len(), close_hash_traces.len());
 
     let mut address_hash_traces = vec![];
@@ -195,8 +230,40 @@ fn get_storage_leaf_hash_traces(state_data: Option<StateData>, leaf: SMTNode) ->
         assert_eq!(hash_traces[1].out, fr(leaf.value));
     }
     hash_traces[2] = HashTrace::new(Fr::one(), fr(leaf.sibling));
-    hash_traces[3] = HashTrace::new(hash_traces[3].out, fr(leaf.value));
+    hash_traces[3] = HashTrace::new(hash_traces[2].out, fr(leaf.value));
 
+    hash_traces
+}
+
+fn get_account_hash_traces(
+    key: Fr,
+    account_data: Option<AccountData>,
+    storage_root: Fr, // this is actually optional? what if there is no account?
+    leaf: SMTNode,
+) -> [HashTrace; 6] {
+    // dbg!(&account_data, storage_root);
+    let mut hash_traces = [HashTrace::default(); 6];
+    if let Some(account_data) = account_data {
+        let (codehash_hi, codehash_lo) = hi_lo(&account_data.code_hash);
+        let nonce = Fr::from(account_data.nonce);
+        let balance = balance_convert(&account_data.balance);
+
+        hash_traces[0] = HashTrace::new(codehash_hi, codehash_lo);
+        hash_traces[1] = HashTrace::new(hash_traces[0].out, storage_root);
+        hash_traces[2] = HashTrace::new(nonce, balance);
+        hash_traces[3] = HashTrace::new(hash_traces[2].out, hash_traces[1].out);
+
+        // Sanity check we calculated the account hash correctly.
+        let real_account: Account<Fr> = (&account_data, storage_root).try_into().unwrap();
+        dbg!(real_account.account_hash());
+        assert_eq!(real_account.account_hash(), hash_traces[3].out);
+
+        // Sanity check that the leaf matches the value hash, if present.
+        dbg!(storage_root, leaf, hash_traces);
+        assert_eq!(hash_traces[3].out, fr(leaf.value));
+    }
+    hash_traces[4] = HashTrace::new(Fr::one(), fr(leaf.sibling));
+    hash_traces[5] = HashTrace::new(hash_traces[4].out, fr(leaf.value));
     hash_traces
 }
 
@@ -241,6 +308,25 @@ fn split_word(x: U256) -> (Fr, Fr) {
     // let key_high = Fr::from_u128(u128::from(limb_2) + u128::from(limb_3) << 64);
     // let key_low = Fr::from_u128(u128::from(limb_0) + u128::from(limb_1) << 64);
     // hash(key_high, key_low)
+}
+
+fn hi_lo(x: &BigUint) -> (Fr, Fr) {
+    let mut u64_digits = x.to_u64_digits();
+    u64_digits.resize(4, 0);
+    (
+        Fr::from_u128((u128::from(u64_digits[3]) << 64) + u128::from(u64_digits[2])),
+        Fr::from_u128((u128::from(u64_digits[1]) << 64) + u128::from(u64_digits[0])),
+    )
+}
+
+fn balance_convert(balance: &BigUint) -> Fr {
+    balance
+        .to_u64_digits()
+        .iter()
+        .rev() // to_u64_digits has least significant digit is first
+        .fold(Fr::zero(), |a, b| {
+            a * Fr::from(1 << 32).square() + Fr::from(*b)
+        })
 }
 
 #[cfg(test)]
