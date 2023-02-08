@@ -1,9 +1,10 @@
 #[derive(Clone, Copy, Debug)]
 struct Config {
-    selector: Selector,
-    exported_columns: [Column<Advice>; 10],
-    binary_columns: [Column<Advice>; 6],
-    field_columns: [Column<Advice>; 10],
+    storage_leafs: StorageLeafConfig,
+
+    account_parents: AccountParentsConfig,
+    account_leafs: AccountLeafConfig,
+
 }
 
 // AddressKey -> Account -> StorageKey -> StorageLeaf
