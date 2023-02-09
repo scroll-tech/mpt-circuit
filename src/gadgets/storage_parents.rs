@@ -38,27 +38,27 @@ impl Config {
             column
         });
 
-        meta.lookup_any("open hash", |meta| {
-            let direction = meta.query_advice(direction, Rotation::cur());
-            let hash = meta.query_advice(open, Rotation::next());
-            let open = meta.query_advice(open, Rotation::cur());
-            let sibling = meta.query_advice(sibling, Rotation::cur());
+        [(open, is_padding_open), (close, is_padding_close)].map(|(value, is_padding)| {
+            meta.lookup_any("open hash", |meta| {
+                let direction = meta.query_advice(direction, Rotation::cur());
+                let hash = meta.query_advice(value, Rotation::next());
+                let value = meta.query_advice(value, Rotation::cur());
+                let sibling = meta.query_advice(sibling, Rotation::cur());
 
-            let left = open.clone() * direction.clone()
-                + sibling.clone() * (Expression::Constant(F::one()) - direction.clone());
-            let right = sibling.clone() * direction.clone()
-                + open.clone() * (Expression::Constant(F::one()) - direction.clone());
+                let left = value.clone() * direction.clone()
+                    + sibling.clone() * (Expression::Constant(F::one()) - direction.clone());
+                let right = sibling.clone() * direction.clone()
+                    + value.clone() * (Expression::Constant(F::one()) - direction.clone());
 
-            let is_padding = meta.query_advice(is_padding_open, Rotation::cur());
-            poseidon_table.lookup_expressions(
-                meta,
-                left * is_padding.clone(),
-                right * is_padding.clone(),
-                hash * is_padding,
-            )
+                let is_padding = meta.query_advice(is_padding, Rotation::cur());
+                poseidon_table.lookup_expressions(
+                    meta,
+                    left * is_padding.clone(),
+                    right * is_padding.clone(),
+                    hash * is_padding,
+                )
+            })
         });
-
-
 
         Self {
             selector,

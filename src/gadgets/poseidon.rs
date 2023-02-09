@@ -19,12 +19,12 @@ pub(crate) struct Config {
 }
 
 impl Config {
-    fn configure<F: FieldExt>(meta: &mut ConstraintSystem<F>) -> Self {
+    fn configure<F: Field>(meta: &mut ConstraintSystem<F>) -> Self {
         let [left, right, hash] = [(); 3].map(|()| meta.advice_column());
         Self { left, right, hash }
     }
 
-    fn assign<F: FieldExt>(
+    fn assign<F: Field>(
         &self,
         layouter: &mut impl Layouter<F>,
         hash_traces: &[(F, F, F)],
@@ -76,5 +76,51 @@ impl Config {
             (right, q(self.right)),
             (hash, q(self.hash)),
         ]
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use halo2_proofs::{
+        circuit::SimpleFloorPlanner, dev::MockProver, halo2curves::bn256::Fr, plonk::Circuit,
+    };
+
+    #[derive(Clone, Default, Debug)]
+    struct PoseidonCircuit {
+        traces: Vec<HashTrace>,
+    }
+
+    impl Circuit<Fr> for PoseidonCircuit {
+        type Config = Config;
+        type FloorPlanner = SimpleFloorPlanner;
+
+        fn without_witnesses(&self) -> Self {
+            Self::default()
+        }
+
+        fn configure(meta: &mut ConstraintSystem<Fr>) -> Self::Config {
+            Self::Config::configure(meta)
+        }
+
+        fn synthesize(
+            &self,
+            config: Self::Config,
+            mut layouter: impl Layouter<Fr>,
+        ) -> Result<(), Error> {
+            let witness: Vec<_> = self
+                .traces
+                .iter()
+                .map(|t| (t.left, t.right, t.out))
+                .collect();
+            config.assign(&mut layouter, witness.as_slice())
+        }
+    }
+
+    #[test]
+    fn circuit() {
+        let circuit = PoseidonCircuit { traces: vec![] };
+        let prover = MockProver::<Fr>::run(4, &circuit, vec![]).unwrap();
+        assert_eq!(prover.verify(), Ok(()));
     }
 }
