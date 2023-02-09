@@ -17,6 +17,7 @@ struct Config {
     sibling: Column<Advice>,
 
     is_first: Column<Advice>,
+    is_last: Column<Advice>,
     direction: Column<Advice>,
     is_padding_open: Column<Advice>,
     is_padding_close: Column<Advice>,
@@ -37,12 +38,35 @@ impl Config {
             column
         });
 
+        meta.lookup_any("open hash", |meta| {
+            let direction = meta.query_advice(direction, Rotation::cur());
+            let hash = meta.query_advice(open, Rotation::next());
+            let open = meta.query_advice(open, Rotation::cur());
+            let sibling = meta.query_advice(sibling, Rotation::cur());
+
+            let left = open.clone() * direction.clone()
+                + sibling.clone() * (Expression::Constant(F::one()) - direction.clone());
+            let right = sibling.clone() * direction.clone()
+                + open.clone() * (Expression::Constant(F::one()) - direction.clone());
+
+            let is_padding = meta.query_advice(is_padding_open, Rotation::cur());
+            poseidon_table.lookup_expressions(
+                meta,
+                left * is_padding.clone(),
+                right * is_padding.clone(),
+                hash * is_padding,
+            )
+        });
+
+
+
         Self {
             selector,
             open,
             close,
             sibling,
             is_first,
+            is_last: meta.advice_column(),
             direction,
             is_padding_open,
             is_padding_close,

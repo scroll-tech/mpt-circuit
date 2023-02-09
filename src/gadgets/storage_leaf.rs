@@ -27,10 +27,10 @@ struct Config {
 impl Config {
     fn configure<F: Field>(meta: &mut ConstraintSystem<F>, poseidon_table: PoseidonConfig) -> Self {
         let [key_high, key_low, key_hash] = [(); 3].map(|()| meta.advice_column());
-        poseidon_table.lookup_columns(meta, key_high, key_low, key_hash);
+        poseidon_table.add_lookup(meta, key_high, key_low, key_hash);
 
         let [value_high, value_low, value_hash] = [(); 3].map(|()| meta.advice_column());
-        poseidon_table.lookup_columns(meta, value_high, value_low, value_hash);
+        poseidon_table.add_lookup(meta, value_high, value_low, value_hash);
 
         let leaf_hash = meta.advice_column();
         // poseidon_table.lookup_leaf(meta, key_hash, leaf_hash);

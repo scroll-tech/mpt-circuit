@@ -46,7 +46,7 @@ impl Config {
         )
     }
 
-    pub(crate) fn lookup_columns<F: Field>(
+    pub(crate) fn add_lookup<F: Field>(
         &self,
         meta: &mut ConstraintSystem<F>,
         left: Column<Advice>,
@@ -65,18 +65,16 @@ impl Config {
 
     pub(crate) fn lookup_expressions<F: Field>(
         &self,
-        meta: &mut ConstraintSystem<F>,
+        meta: &mut VirtualCells<'_, F>,
         left: Expression<F>,
         right: Expression<F>,
         hash: Expression<F>,
-    ) {
-        meta.lookup_any("", |meta| {
-            let mut q = |a| meta.query_advice(a, Rotation::cur());
-            vec![
-                (left, q(self.left)),
-                (right, q(self.right)),
-                (hash, q(self.hash)),
-            ]
-        });
+    ) -> Vec<(Expression<F>, Expression<F>)> {
+        let mut q = |a| meta.query_advice(a, Rotation::cur());
+        vec![
+            (left, q(self.left)),
+            (right, q(self.right)),
+            (hash, q(self.hash)),
+        ]
     }
 }
