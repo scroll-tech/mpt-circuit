@@ -57,3 +57,49 @@ impl Config {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use halo2_proofs::{
+        circuit::SimpleFloorPlanner, dev::MockProver, halo2curves::bn256::Fr, plonk::Circuit,
+    };
+
+    #[derive(Clone, Default, Debug)]
+    struct TestCircuit {
+        traces: Vec<(U256, U256)>,
+    }
+
+    impl Circuit<Fr> for TestCircuit {
+        type Config = Config;
+        type FloorPlanner = SimpleFloorPlanner;
+
+        fn without_witnesses(&self) -> Self {
+            Self::default()
+        }
+
+        fn configure(meta: &mut ConstraintSystem<Fr>) -> Self::Config {
+            let poseidon = PoseidonConfig::configure(meta);
+
+            // panic!();
+            Self::Config::configure(meta, poseidon)
+        }
+
+        fn synthesize(
+            &self,
+            config: Self::Config,
+            mut layouter: impl Layouter<Fr>,
+        ) -> Result<(), Error> {
+            // config.assign(&mut layouter, &self.traces);
+
+            panic!();
+        }
+    }
+
+    #[test]
+    fn circuit() {
+        let circuit = TestCircuit { traces: vec![] };
+        let prover = MockProver::<Fr>::run(4, &circuit, vec![]).unwrap();
+        assert_eq!(prover.verify(), Ok(()));
+    }
+}

@@ -19,7 +19,7 @@ pub(crate) struct Config {
 }
 
 impl Config {
-    fn configure<F: Field>(meta: &mut ConstraintSystem<F>) -> Self {
+    pub(crate) fn configure<F: Field>(meta: &mut ConstraintSystem<F>) -> Self {
         let [left, right, hash] = [(); 3].map(|()| meta.advice_column());
         Self { left, right, hash }
     }
