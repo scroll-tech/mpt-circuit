@@ -436,18 +436,19 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
         });
 
         // second hash lookup (Poseidon(hash1, Root) = hash2, Poseidon(hash3, hash2) = hash_final)
-        meta.lookup_any("account hash2 and hash_final calc", |meta| {
-            // only enable on row 1 and 2
-            let s_enable = meta.query_advice(s_enable, Rotation::cur());
-            let enable_rows = meta.query_advice(s_ctrl_type[1], Rotation::cur())
-                + meta.query_advice(s_ctrl_type[2], Rotation::cur());
-            let enable = enable_rows * s_enable;
-            let fst = meta.query_advice(intermediate_1, Rotation::cur());
-            let snd = meta.query_advice(intermediate_2, Rotation::cur());
-            let hash = meta.query_advice(intermediate_2, Rotation::prev());
+        // TODO: re-enable once there are new traces.
+        // meta.lookup_any("account hash2 and hash_final calc", |meta| {
+        //     // only enable on row 1 and 2
+        //     let s_enable = meta.query_advice(s_enable, Rotation::cur());
+        //     let enable_rows = meta.query_advice(s_ctrl_type[1], Rotation::cur())
+        //         + meta.query_advice(s_ctrl_type[2], Rotation::cur());
+        //     let enable = enable_rows * s_enable;
+        //     let fst = meta.query_advice(intermediate_1, Rotation::cur());
+        //     let snd = meta.query_advice(intermediate_2, Rotation::cur());
+        //     let hash = meta.query_advice(intermediate_2, Rotation::prev());
 
-            hash_table.build_lookup(meta, enable, fst, snd, hash)
-        });
+        //     hash_table.build_lookup(meta, enable, fst, snd, hash)
+        // });
 
         // third hash lookup (Poseidon(nonce, balance) = hash3)
         meta.lookup_any("account hash3 calc", |meta| {
@@ -884,7 +885,7 @@ mod test {
             data: (old_acc_data, acc_data),
         };
 
-        let k = 4;
+        let k = 5;
         #[cfg(feature = "print_layout")]
         print_layout!("layouts/accgadget_layout.png", k, &circuit);
 

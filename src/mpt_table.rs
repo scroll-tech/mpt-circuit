@@ -461,7 +461,6 @@ impl<F: FieldExt> MPTTable<F> {
             .enumerate()
             .for_each(|(index, col)| {
                 meta.create_gate("proof sel array", |meta| {
-                    dbg!(index);
                     let sel = meta.query_selector(sel);
                     let col = meta.query_advice(col, Rotation::cur());
                     let proof_type = meta.query_advice(proof_type, Rotation::cur());
@@ -524,7 +523,6 @@ impl<F: FieldExt> MPTTable<F> {
                             col,
                             offset,
                             || {
-                                dbg!(entry.proof_type);
                                 Value::known(if index + 1 == entry.proof_type as usize {
                                     F::one()
                                 } else {
