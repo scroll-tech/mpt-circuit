@@ -20,7 +20,7 @@ type RangeCheckConfig = RangeCheckCfg<8>;
 #[derive(Clone, Debug)]
 pub(crate) struct Config {
     sel: Selector,
-    proof_sel: [Column<Advice>; 7],
+    proof_sel: [Column<Advice>; 9], // one boolean column for each variant of MPTProofType
 
     address: Column<Advice>,
     storage_key: Column<Advice>,
@@ -240,6 +240,10 @@ pub enum MPTProofType {
     StorageChanged,
     /// non exist proof for storage
     StorageDoesNotExist,
+    /// poseidon code hash
+    PoseidonCodeHashExists,
+    /// code length, in bytes
+    CodeSizeExists,
 }
 
 /// the Entry for mpt table
@@ -421,7 +425,7 @@ impl<F: FieldExt> MPTTable<F> {
         let new_value = tbl_base[5];
         let old_value = tbl_base[6];
 
-        let proof_sel = [0; 7].map(|_| meta.advice_column());
+        let proof_sel = [0; 9].map(|_| meta.advice_column());
 
         let range_check_u8 = RangeCheckChip::<F, 8>::configure(meta);
 
@@ -457,6 +461,7 @@ impl<F: FieldExt> MPTTable<F> {
             .enumerate()
             .for_each(|(index, col)| {
                 meta.create_gate("proof sel array", |meta| {
+                    dbg!(index);
                     let sel = meta.query_selector(sel);
                     let col = meta.query_advice(col, Rotation::cur());
                     let proof_type = meta.query_advice(proof_type, Rotation::cur());
@@ -519,6 +524,7 @@ impl<F: FieldExt> MPTTable<F> {
                             col,
                             offset,
                             || {
+                                dbg!(entry.proof_type);
                                 Value::known(if index + 1 == entry.proof_type as usize {
                                     F::one()
                                 } else {
@@ -826,8 +832,25 @@ mod test {
             old_value: Default::default(),
         };
 
+        let entry4 = MPTEntry {
+            proof_type: MPTProofType::PoseidonCodeHashExists,
+            base: [
+                address + Fp::one(),
+                Fp::zero(),
+                Fp::from(MPTProofType::PoseidonCodeHashExists as u64),
+                rand_fp(), // what is this?
+                rand_fp(), // what is this?
+                Fp::one(),
+                Fp::one(),
+            ]
+            .map(Some),
+            storage_key: Default::default(),
+            new_value: Default::default(),
+            old_value: Default::default(),
+        };
+
         let circuit = TestMPTTableCircuit {
-            entries: vec![entry1, entry2, entry3],
+            entries: vec![entry1, entry2, entry3, entry4],
         };
         let k = 9;
         let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
