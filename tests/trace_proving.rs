@@ -15,9 +15,9 @@ use halo2_proofs::transcript::{
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
-const TEST_TRACE: &str = include_str!("./traces.json");
-const TEST_TRACE_SMALL: &str = include_str!("./token_traces.json");
-const TEST_TRACE_READONLY: &str = include_str!("./read_traces.json");
+const TEST_TRACE: &str = include_str!("./dual_code_hash/traces_1.json");
+const TEST_TRACE_SMALL: &str = include_str!("./dual_code_hash/traces_1.json");
+const TEST_TRACE_READONLY: &str = include_str!("./dual_code_hash/traces_1.json");
 
 #[test]
 fn trace_read_only() {
@@ -173,7 +173,7 @@ fn circuit_connection() {
     let os_rng = ChaCha8Rng::from_seed([101u8; 32]);
 
     let mut data: EthTrie<Fp> = Default::default();
-    data.add_ops(ops);
+    data.add_ops(ops); // something is wrong here?
 
     let (mpt_rows, hash_rows) = data.use_rows();
     println!("mpt {}, hash {}", mpt_rows, hash_rows);
@@ -188,6 +188,7 @@ fn circuit_connection() {
     let vk = keygen_vk(&params, &trie_circuit).unwrap();
     let pk = keygen_pk(&params, vk, &trie_circuit).unwrap();
 
+    dbg!("");
     let mut transcript = PoseidonWrite::<_, G1Affine, Challenge255<_>>::init(vec![]);
     create_proof::<KZGCommitmentScheme<Bn256>, ProverSHPLONK<'_, Bn256>, _, _, _, _>(
         &params,
@@ -200,6 +201,7 @@ fn circuit_connection() {
     .unwrap();
     let proof_script = transcript.finalize();
 
+    dbg!("");
     let rw_commitment_state = {
         let mut transcript = PoseidonRead::<_, _, Challenge255<G1Affine>>::init(&proof_script[..]);
         (0..trie_index).for_each(|_| {
@@ -209,9 +211,12 @@ fn circuit_connection() {
     };
     //log::info!("rw_commitment_state {:?}", rw_commitment_state);
 
+    dbg!("vk?");
     let vk = keygen_vk(&params, &hash_circuit).unwrap();
+    dbg!("pk?");
     let pk = keygen_pk(&params, vk, &hash_circuit).unwrap();
 
+    dbg!("");
     let mut transcript = PoseidonWrite::<_, _, Challenge255<_>>::init(vec![]);
     create_proof::<KZGCommitmentScheme<Bn256>, ProverSHPLONK<'_, Bn256>, _, _, _, _>(
         &params,
@@ -222,8 +227,10 @@ fn circuit_connection() {
         &mut transcript,
     )
     .unwrap();
+    dbg!("");
     let proof_script = transcript.finalize();
 
+    dbg!("");
     let rw_commitment_evm = {
         let mut transcript = PoseidonRead::<_, _, Challenge255<G1Affine>>::init(&proof_script[..]);
         (0..hash_index).for_each(|_| {

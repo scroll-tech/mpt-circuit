@@ -276,13 +276,13 @@ pub struct AccountData {
     /// balance
     #[serde(deserialize_with = "de_uint_hex", serialize_with = "se_uint_hex")]
     pub balance: BigUint,
-    /// codeHash
+    /// keccakCodeHash
     #[serde(
         default,
         deserialize_with = "de_uint_hex",
         serialize_with = "se_uint_hex_fixed32"
     )]
-    pub code_hash: BigUint,
+    pub keccak_code_hash: BigUint,
     /// poseidonCodeHash
     #[serde(
         default,

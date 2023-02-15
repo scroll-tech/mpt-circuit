@@ -450,19 +450,19 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
         //     hash_table.build_lookup(meta, enable, fst, snd, hash)
         // });
 
-        // third hash lookup (Poseidon(nonce, balance) = hash3)
-        meta.lookup_any("account hash3 calc", |meta| {
-            // only enable on row 1
-            let s_enable = meta.query_advice(s_enable, Rotation::cur());
-            let enable_rows = meta.query_advice(s_ctrl_type[1], Rotation::cur());
-            let enable = enable_rows * s_enable;
+        // // third hash lookup (Poseidon(nonce, balance) = hash3)
+        // meta.lookup_any("account hash3 calc", |meta| {
+        //     // only enable on row 1
+        //     let s_enable = meta.query_advice(s_enable, Rotation::cur());
+        //     let enable_rows = meta.query_advice(s_ctrl_type[1], Rotation::cur());
+        //     let enable = enable_rows * s_enable;
 
-            let fst = meta.query_advice(acc_data_fields, Rotation::prev());
-            let snd = meta.query_advice(acc_data_fields, Rotation::cur());
-            let hash = meta.query_advice(intermediate_1, Rotation::cur());
+        //     let fst = meta.query_advice(acc_data_fields, Rotation::prev());
+        //     let snd = meta.query_advice(acc_data_fields, Rotation::cur());
+        //     let hash = meta.query_advice(intermediate_1, Rotation::cur());
 
-            hash_table.build_lookup(meta, enable, fst, snd, hash)
-        });
+        //     hash_table.build_lookup(meta, enable, fst, snd, hash)
+        // });
 
         // equality constraint: hash_final and Root
         meta.create_gate("account calc equalities", |meta| {
