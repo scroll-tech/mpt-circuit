@@ -836,8 +836,8 @@ mod test {
                 address + Fp::one(),
                 Fp::zero(),
                 Fp::from(MPTProofType::PoseidonCodeHashExists as u64),
-                rand_fp(), // what is this?
-                rand_fp(), // what is this?
+                rand_fp(),
+                rand_fp(),
                 Fp::one(),
                 Fp::one(),
             ]

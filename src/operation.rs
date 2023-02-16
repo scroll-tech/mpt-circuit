@@ -113,7 +113,6 @@ impl<Fp: FieldExt> MPTPath<Fp> {
         assert!(self.hash_types.len() > 1, "can not extend empty path");
         let ins_pos = self.hash_types.len() - 1;
         // can only extend a path with leaf
-        // this will be wrong......
         let new_key_immediate = hasher(&Fp::one(), &self.key().expect("can only extend leaf"));
         let status = match self.status {
             MPTPathStatus::Leaf((fp, fp_immediate)) => MPTPathStatus::Extended((
@@ -422,18 +421,17 @@ pub struct Account<Fp> {
 impl<Fp: FieldExt> Account<Fp> {
     /// calculating all traces ad-hoc with hasher function
     pub(crate) fn trace(mut self, mut hasher: impl FnMut(&Fp, &Fp) -> Fp) -> Self {
-        // TODO: rename
-        let nonce_and_codesize = self.code_size * Fp::from(1 << 32).square() + self.nonce;
+        let codesize_and_nonce = self.code_size * Fp::from(1 << 32).square() + self.nonce;
         let h1 = hasher(&self.codehash.0, &self.codehash.1);
         let h2 = hasher(&self.state_root, &h1);
-        let h3 = hasher(&nonce_and_codesize, &self.balance);
+        let h3 = hasher(&codesize_and_nonce, &self.balance);
         let h4 = hasher(&h3, &h2);
         let h_final = hasher(&h4, &self.poseidon_codehash);
 
         self.hash_traces = vec![
             (self.codehash.0, self.codehash.1, h1),
             (self.state_root, h1, h2),
-            (nonce_and_codesize, self.balance, h3),
+            (codesize_and_nonce, self.balance, h3),
             (h3, h2, h4),
             (h4, self.poseidon_codehash, h_final),
         ];
@@ -943,8 +941,7 @@ impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTTrace> for AccountOp<Fp> {
             let account: Account<Fp> = (account_data, new_state_root).try_into()?;
 
             // sanity check
-            // TODO: re-add once we have new traces.
-            // assert_eq!(account.account_hash(), leaf);
+            assert_eq!(account.account_hash(), leaf);
             Some(account)
         } else {
             None
@@ -1132,13 +1129,13 @@ mod tests {
         let example = include_str!("../tests/dual_code_hash/trace_1.json");
         let trace: serde::SMTTrace = serde_json::from_str(example).unwrap();
 
-        // println!("{:?}", trace.state_path[0]);
+        println!("{:?}", trace.state_path[0]);
         let parse: SMTPathParse<Fp> = trace.state_path[0].as_ref().unwrap().try_into().unwrap();
-        // println!("{:?}", parse.0);
+        println!("{:?}", parse.0);
 
-        // println!("{:?}", trace.state_path[1]);
+        println!("{:?}", trace.state_path[1]);
         let parse: SMTPathParse<Fp> = trace.state_path[1].as_ref().unwrap().try_into().unwrap();
-        // println!("{:?}", parse.0);
+        println!("{:?}", parse.0);
 
         let state_op_test: SingleOp<Fp> = (
             trace.state_path[0].as_ref().unwrap(),
@@ -1147,15 +1144,15 @@ mod tests {
         )
             .try_into()
             .unwrap();
-        // println!("{:?}", state_op_test);
+        println!("{:?}", state_op_test);
 
-        // println!("{:?}", trace.account_path[0]);
+        println!("{:?}", trace.account_path[0]);
         let parse: SMTPathParse<Fp> = (&trace.account_path[0]).try_into().unwrap();
-        // println!("{:?}", parse.0);
+        println!("{:?}", parse.0);
 
-        // println!("{:?}", trace.account_path[1]);
+        println!("{:?}", trace.account_path[1]);
         let parse: SMTPathParse<Fp> = (&trace.account_path[1]).try_into().unwrap();
-        // println!("{:?}", parse.0);
+        println!("{:?}", parse.0);
 
         let account_op_test: SingleOp<Fp> = (
             &trace.account_path[0],
@@ -1164,7 +1161,7 @@ mod tests {
         )
             .try_into()
             .unwrap();
-        // println!("{:?}", account_op_test);
+        println!("{:?}", account_op_test);
 
         let account_data_test: Account<Fp> = (
             trace.account_update[0].as_ref().unwrap(),
@@ -1172,7 +1169,7 @@ mod tests {
         )
             .try_into()
             .unwrap();
-        // println!("{:?}", account_data_test);
+        println!("{:?}", account_data_test);
         assert_eq!(
             account_data_test.account_hash(),
             account_op_test.old.leaf().unwrap()
@@ -1184,23 +1181,14 @@ mod tests {
         )
             .try_into()
             .unwrap();
-        // println!("{:?}", account_data_test);
+        println!("{:?}", account_data_test);
         assert_eq!(
             account_data_test.account_hash(),
             account_op_test.new.leaf().unwrap()
         );
 
         let final_data: AccountOp<Fp> = (&trace).try_into().unwrap();
-        // println!("{:?}", final_data);
-    }
-
-    #[test]
-    fn trace_convert_insert_op() {
-        let example = r#"{"address":"0xb36feaeaf76c2a33335b73bef9aef7a23d9af1e3","accountKey":"0xf59112e5670628682b1ec72767b1a6153096d47742e1d9455c175a955211e900","accountPath":[{"pathPart":"0x35","root":"0xebb00990cd20ab357e0e2115c0e301b8f4b0e0ee80b0500b3071e25c15770708","path":[{"value":"0x637a3f9434eddbed4a74ccf9472cf0e0d2806efe6100c42787fc9e19e1bf8028","sibling":"0x8251455b38bef426b8c56ad1e5c4b2004d0a57cf8af0aa499329e502f3a5022b"},{"value":"0xb1ca958b3030d92b8a07ea6b1733c2e015a11b80612b22bbf8be572b237ac308","sibling":"0xe582f6c510f1bf05d68badf1284b17ab9b44408e12f7c46b09c9260dd572fa2e"},{"value":"0x44947e33abac81c9d1cdbdc1eddf1646c042d5ba09a2096e38b280995a1fe805","sibling":"0x0000000000000000000000000000000000000000000000000000000000000000"},{"value":"0x706201d8f8e421382bc72b45f9f6bda4a4686ca7c8f83fd6cd548dc55d6cfd07","sibling":"0x0000000000000000000000000000000000000000000000000000000000000000"},{"value":"0x060d011c93edea04679826c4ca35f903e85f3d255b124cf327d331b9a256bf0e","sibling":"0x0000000000000000000000000000000000000000000000000000000000000000"},{"value":"0x0498324f694fc9f300d1600f78e054657dcb9ce620358beba8c1e847a14dc203","sibling":"0x559653b52296e19fe878d6430dbc748ebcd3046b463aa32689eac16c29702607"}],"leaf":{"value":"0xebda5e259838533294ae6548ea49d9ef6c13113fac4f311890821345d3cb3617","sibling":"0x7581e431a68d0fa641e14a7d29a6c2b150db6da1d13f59dee6f7f492a0bebd29"}},{"pathPart":"0xf5","root":"0xab4ef5db245d66748b2cbd6eb7f57ebd8fee61444130233546fcd196a0298706","path":[{"value":"0x26e297ed2c0265392eb4d55ca93464914535a3da6c1a70a5884bbf0048f2bc11","sibling":"0x8251455b38bef426b8c56ad1e5c4b2004d0a57cf8af0aa499329e502f3a5022b"},{"value":"0x08eaa42867286da95ec7cf88e17ee86fdbc158b6c631365eab3f00f20ac7a029","sibling":"0xe582f6c510f1bf05d68badf1284b17ab9b44408e12f7c46b09c9260dd572fa2e"},{"value":"0xfee9e393c454b03ebe8c59988ee4c4a7224fdd133d211f1057131253610aa91d","sibling":"0x0000000000000000000000000000000000000000000000000000000000000000"},{"value":"0x01198505cc61e6be5421ed71bb380cb85f7d77af957c30d9a79478f236c4802b","sibling":"0x0000000000000000000000000000000000000000000000000000000000000000"},{"value":"0xd91419a365920d5a3bd771e9d354abd558d0f9ff429a37d002ebfd122833ea2c","sibling":"0x0000000000000000000000000000000000000000000000000000000000000000"},{"value":"0x6af55a02e1b2435ebbbc58bf8e9b83efc4b4fd10dad2c739ba6be95119781e00","sibling":"0x559653b52296e19fe878d6430dbc748ebcd3046b463aa32689eac16c29702607"},{"value":"0x34a4740b27bec9410f659ec6134d6f7c9c933f35143152c374b125e2bce7ac2a","sibling":"0x0000000000000000000000000000000000000000000000000000000000000000"},{"value":"0x7368c8ebabb8fd55758c492232e6302b66efe9ce03c3eb22e9b7540eb15c8a1c","sibling":"0x0498324f694fc9f300d1600f78e054657dcb9ce620358beba8c1e847a14dc203"}],"leaf":{"value":"0x33c5435c783d711eca3cb21179f8afaf6dd0be8ca0f066d0daace28b17fc281d","sibling":"0xf59112e5670628682b1ec72767b1a6153096d47742e1d9455c175a955211e900"}}],"accountUpdate":[null,{"nonce":1,"balance":"0x0","codeHash":"0x0000000000000000000000000000000000000000000000000000000000000000"}],"commonStateRoot":"0x0000000000000000000000000000000000000000000000000000000000000000","statePath":[null,null],"stateUpdate":[null,null]}"#;
-        let trace: serde::SMTTrace = serde_json::from_str(example).unwrap();
-
-        let data: AccountOp<Fp> = (&trace).try_into().unwrap();
-        println!("{:?}", data);
+        println!("{:?}", final_data);
     }
 
     // verify the calculation of account data's root
@@ -1255,7 +1243,6 @@ mod tests {
         let data = data.complete(|a, b| <Fp as Hashable>::hash([*a, *b]));
         println!("{:?}", data);
 
-        //0x282e0113717ea7f0d515b8db9adaf15741c4ace339965482b771062e1f969fb6
         dbg!(data.account_hash().to_repr());
         assert_eq!(
             data.account_hash(),

@@ -1539,7 +1539,7 @@ mod test {
                     .old
                     .hash_traces
                     .iter()
-                    .chain([(Fp::one(), self.data.key, Fp::zero())].iter()), //dummy for key calc // here???
+                    .chain([(Fp::one(), self.data.key, Fp::zero())].iter()), //dummy for key calc
             )?;
 
             Ok(())

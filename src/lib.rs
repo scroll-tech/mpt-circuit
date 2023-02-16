@@ -640,7 +640,6 @@ impl<Fp: FieldExt> EthTrie<Fp> {
     /// Add an op array
     pub fn add_ops(&mut self, ops: impl IntoIterator<Item = AccountOp<Fp>>) {
         for op in ops {
-            dbg!(&op);
             self.add_op(op)
         }
     }
