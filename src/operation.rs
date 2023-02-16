@@ -432,9 +432,9 @@ impl<Fp: FieldExt> Account<Fp> {
 
         self.hash_traces = vec![
             (self.codehash.0, self.codehash.1, h1),
-            (h1, self.state_root, h2),
+            (self.state_root, h1, h2),
             (nonce_and_codesize, self.balance, h3),
-            (h3, h1, h4),
+            (h3, h2, h4),
             (h4, self.poseidon_codehash, h_final),
         ];
 
