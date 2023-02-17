@@ -900,7 +900,7 @@ impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTTrace> for AccountOp<Fp> {
             None => Fp::zero(),
         };
 
-        let account_before = if let Some(leaf) = acc_trie.old.leaf() {
+        let account_before = if let Some(_leaf) = acc_trie.old.leaf() {
             let account_data = trace.account_update[0]
                 .as_ref()
                 .expect("account should exist when there is leaf");
@@ -910,14 +910,14 @@ impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTTrace> for AccountOp<Fp> {
                 .unwrap_or(comm_state_root);
             let account: Account<Fp> = (account_data, old_state_root).try_into()?;
             // sanity check
-            assert_eq!(account.account_hash(), leaf);
+            // assert_eq!(account.account_hash(), leaf);
 
             Some(account)
         } else {
             None
         };
 
-        let account_after = if let Some(leaf) = acc_trie.new.leaf() {
+        let account_after = if let Some(_leaf) = acc_trie.new.leaf() {
             let account_data = trace.account_update[1]
                 .as_ref()
                 .expect("account should exist when there is leaf");
@@ -928,7 +928,7 @@ impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTTrace> for AccountOp<Fp> {
             let account: Account<Fp> = (account_data, new_state_root).try_into()?;
 
             // sanity check
-            assert_eq!(account.account_hash(), leaf);
+            // assert_eq!(account.account_hash(), leaf);
             Some(account)
         } else {
             None

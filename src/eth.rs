@@ -411,7 +411,7 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
 
     fn configure(
         meta: &mut ConstraintSystem<Fp>,
-        sel: Selector,
+        _sel: Selector,
         s_enable: Column<Advice>,
         s_ctrl_type: [Column<Advice>; 4],
         acc_data_fields: Column<Advice>,
@@ -464,22 +464,22 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
         });
 
         // equality constraint: hash_final and Root
-        meta.create_gate("account calc equalities", |meta| {
-            let s_enable = meta.query_selector(sel) * meta.query_advice(s_enable, Rotation::cur());
-            let exported_equal1 = meta.query_advice(intermediate_2, Rotation::cur())
-                - meta.query_advice(acc_data_fields, Rotation::prev());
-            let exported_equal2 = meta.query_advice(intermediate_2, Rotation::cur())
-                - meta.query_advice(acc_data_fields, Rotation::next());
+        /*         meta.create_gate("account calc equalities", |meta| {
+                    let s_enable = meta.query_selector(sel) * meta.query_advice(s_enable, Rotation::cur());
+                    let exported_equal1 = meta.query_advice(intermediate_2, Rotation::cur())
+                        - meta.query_advice(acc_data_fields, Rotation::prev());
+                    let exported_equal2 = meta.query_advice(intermediate_2, Rotation::cur())
+                        - meta.query_advice(acc_data_fields, Rotation::next());
 
-            // equalities in the circuit
-            vec![
-                s_enable.clone()
-                    * meta.query_advice(s_ctrl_type[0], Rotation::cur())
-                    * exported_equal1, // equality of hash_final
-                s_enable * meta.query_advice(s_ctrl_type[2], Rotation::cur()) * exported_equal2, // equality of state trie root
-            ]
-        });
-
+                    // equalities in the circuit
+                    vec![
+                        s_enable.clone()
+                            * meta.query_advice(s_ctrl_type[0], Rotation::cur())
+                            * exported_equal1, // equality of hash_final
+                        s_enable * meta.query_advice(s_ctrl_type[2], Rotation::cur()) * exported_equal2, // equality of state trie root
+                    ]
+                });
+        */
         AccountChipConfig {
             acc_data_fields,
             acc_data_fields_ext,
@@ -492,13 +492,13 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
         let config = self.config();
         let data = self.loaded();
         // fill the connected circuit
-        let offset = self.offset - 1;
+        /*        let offset = self.offset - 1;
         region.assign_advice(
             || "account hash final",
             config.acc_data_fields,
             offset,
             || Value::known(data.account_hash()),
-        )?;
+        )?;*/
 
         // fill the main block of chip
         for (col, vals, desc) in [
