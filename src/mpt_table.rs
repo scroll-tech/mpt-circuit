@@ -178,6 +178,7 @@ impl Config {
                 .collect()
         });
 
+        if false {
         meta.lookup_any("mpt account not exist entry lookup", |meta| {
             let s_enable = meta.query_advice(self.proof_sel[3], Rotation::cur());
 
@@ -187,6 +188,7 @@ impl Config {
                 .map(|(fst, snd)| (fst * s_enable.clone(), snd))
                 .collect()
         });
+        }
 
         meta.lookup_any("mpt account destroy entry lookup", |meta| {
             let s_enable = meta.query_advice(self.proof_sel[4], Rotation::cur());
