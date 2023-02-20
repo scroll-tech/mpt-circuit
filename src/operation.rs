@@ -830,7 +830,7 @@ impl<'d, Fp: Hashable> TryFrom<(&'d serde::AccountData, Fp)> for Account<Fp> {
         let (acc, state_root) = acc_trace;
         let nonce = Fp::from(acc.nonce);
         let balance = bytes_to_fp(acc.balance.to_bytes_le()).map_err(TraceError::DeErr)?;
-        let buf = acc.keccak_code_hash.to_bytes_le();
+        let buf = acc.code_hash.to_bytes_le();
         let codehash = if buf.len() < 16 {
             (bytes_to_fp(buf).map_err(TraceError::DeErr)?, Fp::zero())
         } else {
