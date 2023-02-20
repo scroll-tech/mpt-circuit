@@ -15,9 +15,9 @@ use halo2_proofs::transcript::{
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
-const TEST_TRACE: &str = include_str!("./traces.json");
-const TEST_TRACE_SMALL: &str = include_str!("./token_traces.json");
-const TEST_TRACE_READONLY: &str = include_str!("./read_traces.json");
+const TEST_TRACE: &str = include_str!("./dual_code_hash/traces_1.json");
+const TEST_TRACE_SMALL: &str = include_str!("./dual_code_hash/traces_1.json");
+const TEST_TRACE_READONLY: &str = include_str!("./dual_code_hash/traces_1.json");
 
 #[test]
 fn trace_read_only() {
@@ -212,6 +212,7 @@ fn circuit_connection() {
     let vk = keygen_vk(&params, &hash_circuit).unwrap();
     let pk = keygen_pk(&params, vk, &hash_circuit).unwrap();
 
+    dbg!("");
     let mut transcript = PoseidonWrite::<_, _, Challenge255<_>>::init(vec![]);
     create_proof::<KZGCommitmentScheme<Bn256>, ProverSHPLONK<'_, Bn256>, _, _, _, _>(
         &params,

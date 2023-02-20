@@ -410,6 +410,10 @@ pub struct Account<Fp> {
     pub codehash: (Fp, Fp),
     /// the root of state trie
     pub state_root: Fp,
+    /// poseidon codehash
+    pub poseidon_codehash: Fp,
+    /// length of the code in bytes
+    pub code_size: Fp,
     /// cached traces
     pub hash_traces: Vec<(Fp, Fp, Fp)>,
 }
@@ -417,16 +421,19 @@ pub struct Account<Fp> {
 impl<Fp: FieldExt> Account<Fp> {
     /// calculating all traces ad-hoc with hasher function
     pub(crate) fn trace(mut self, mut hasher: impl FnMut(&Fp, &Fp) -> Fp) -> Self {
+        let codesize_and_nonce = self.code_size * Fp::from(1 << 32).square() + self.nonce;
         let h1 = hasher(&self.codehash.0, &self.codehash.1);
-        let h3 = hasher(&self.nonce, &self.balance);
-        let h2 = hasher(&h1, &self.state_root);
-        let h_final = hasher(&h3, &h2);
+        let h2 = hasher(&self.state_root, &h1);
+        let h3 = hasher(&codesize_and_nonce, &self.balance);
+        let h4 = hasher(&h3, &h2);
+        let h_final = hasher(&h4, &self.poseidon_codehash);
 
         self.hash_traces = vec![
             (self.codehash.0, self.codehash.1, h1),
-            (h1, self.state_root, h2),
-            (self.nonce, self.balance, h3),
-            (h3, h2, h_final),
+            (self.state_root, h1, h2),
+            (codesize_and_nonce, self.balance, h3),
+            (h3, h2, h4),
+            (h4, self.poseidon_codehash, h_final),
         ];
 
         self
@@ -455,8 +462,8 @@ impl<Fp: FieldExt> Account<Fp> {
         if self.hash_traces.is_empty() {
             Fp::zero()
         } else {
-            assert_eq!(self.hash_traces.len(), 4);
-            self.hash_traces[3].2
+            assert_eq!(self.hash_traces.len(), 5);
+            self.hash_traces[4].2
         }
     }
 }
@@ -832,14 +839,20 @@ impl<'d, Fp: Hashable> TryFrom<(&'d serde::AccountData, Fp)> for Account<Fp> {
                 bytes_to_fp(Vec::from(&buf[0..16])).map_err(TraceError::DeErr)?,
             )
         };
+        let code_size = Fp::from(acc.code_size);
+        let poseidon_codehash =
+            bytes_to_fp(acc.poseidon_code_hash.to_bytes_le()).map_err(TraceError::DeErr)?;
 
         let acc = Self {
             nonce,
             balance,
             codehash,
             state_root,
-            ..Default::default()
+            poseidon_codehash,
+            code_size,
+            hash_traces: vec![],
         };
+
         Ok(acc.complete(|a, b| <Fp as Hashable>::hash([*a, *b])))
     }
 }
@@ -1113,7 +1126,7 @@ mod tests {
 
     #[test]
     fn trace_debug_convert() {
-        let example = r#"{"address":"0xb36feaeaf76c2a33335b73bef9aef7a23d9af1e3","accountKey":"0xf59112e5670628682b1ec72767b1a6153096d47742e1d9455c175a955211e900","accountPath":[{"pathPart":"0xf5","root":"0xab4ef5db245d66748b2cbd6eb7f57ebd8fee61444130233546fcd196a0298706","path":[{"value":"0x26e297ed2c0265392eb4d55ca93464914535a3da6c1a70a5884bbf0048f2bc11","sibling":"0x8251455b38bef426b8c56ad1e5c4b2004d0a57cf8af0aa499329e502f3a5022b"},{"value":"0x08eaa42867286da95ec7cf88e17ee86fdbc158b6c631365eab3f00f20ac7a029","sibling":"0xe582f6c510f1bf05d68badf1284b17ab9b44408e12f7c46b09c9260dd572fa2e"},{"value":"0xfee9e393c454b03ebe8c59988ee4c4a7224fdd133d211f1057131253610aa91d","sibling":"0x0000000000000000000000000000000000000000000000000000000000000000"},{"value":"0x01198505cc61e6be5421ed71bb380cb85f7d77af957c30d9a79478f236c4802b","sibling":"0x0000000000000000000000000000000000000000000000000000000000000000"},{"value":"0xd91419a365920d5a3bd771e9d354abd558d0f9ff429a37d002ebfd122833ea2c","sibling":"0x0000000000000000000000000000000000000000000000000000000000000000"},{"value":"0x6af55a02e1b2435ebbbc58bf8e9b83efc4b4fd10dad2c739ba6be95119781e00","sibling":"0x559653b52296e19fe878d6430dbc748ebcd3046b463aa32689eac16c29702607"},{"value":"0x34a4740b27bec9410f659ec6134d6f7c9c933f35143152c374b125e2bce7ac2a","sibling":"0x0000000000000000000000000000000000000000000000000000000000000000"},{"value":"0x7368c8ebabb8fd55758c492232e6302b66efe9ce03c3eb22e9b7540eb15c8a1c","sibling":"0x0498324f694fc9f300d1600f78e054657dcb9ce620358beba8c1e847a14dc203"}],"leaf":{"value":"0x33c5435c783d711eca3cb21179f8afaf6dd0be8ca0f066d0daace28b17fc281d","sibling":"0xf59112e5670628682b1ec72767b1a6153096d47742e1d9455c175a955211e900"}},{"pathPart":"0xf5","root":"0x04048d2ce5b611be0de990f0c5575a8b82ded0e33f2ba624a823736426ff5d05","path":[{"value":"0xc5f6457f340dd71b3f30227f969df9d219f85f0f85f615d97610e56e5dd3e911","sibling":"0x8251455b38bef426b8c56ad1e5c4b2004d0a57cf8af0aa499329e502f3a5022b"},{"value":"0x21ce60ff0a0d9626c284cbc3c03774d0e4e07c2a900a3e1f16716d120f8a741c","sibling":"0xe582f6c510f1bf05d68badf1284b17ab9b44408e12f7c46b09c9260dd572fa2e"},{"value":"0xd93364b73307c4e85309140e10b36b36dfcaba10d45c2c3b6108493ab1dea520","sibling":"0x0000000000000000000000000000000000000000000000000000000000000000"},{"value":"0xc97d843eac19493e6e1b34e7c425d8943fb412cb71ba0a8344b435c04819ee08","sibling":"0x0000000000000000000000000000000000000000000000000000000000000000"},{"value":"0x5c1745a0c67b60a9d36e163e22afd69fe79d51d10c4e4a2f6a8376c55cbc2d27","sibling":"0x0000000000000000000000000000000000000000000000000000000000000000"},{"value":"0x23560d93412c108a1903015d54cb1239d4d6c9819347af5f735df983c3eb9b24","sibling":"0x559653b52296e19fe878d6430dbc748ebcd3046b463aa32689eac16c29702607"},{"value":"0x9dee92127fa400bfd4e158b546f343c75ca5eab55b8438900a4f35d8eaaa5020","sibling":"0x0000000000000000000000000000000000000000000000000000000000000000"},{"value":"0x2c05e2bb4aa93790418fb89c3bb0eb8030cf7dc178054de03fb225145db3c32e","sibling":"0x0498324f694fc9f300d1600f78e054657dcb9ce620358beba8c1e847a14dc203"}],"leaf":{"value":"0xdc1171e525a47eb17a5042b0d5fee68b08c8f7fe9377be7db8f3a06227ef3327","sibling":"0xf59112e5670628682b1ec72767b1a6153096d47742e1d9455c175a955211e900"}}],"accountUpdate":[{"nonce":1,"balance":"0x0","codeHash":"0x0000000000000000000000000000000000000000000000000000000000000000"},{"nonce":1,"balance":"0x0","codeHash":"0x0000000000000000000000000000000000000000000000000000000000000000"}],"stateKey":"0x6448b64684ee39a823d5fe5fd52431dc81e4817bf2c3ea3cab9e239efbf59820","statePath":[{"pathPart":"0x0","root":"0x0000000000000000000000000000000000000000000000000000000000000000"},{"pathPart":"0x0","root":"0x2b6a9e4dba68659fcc19b9b88240a96b06fa558578ff60317af9406e48621f09","leaf":{"value":"0xc37dd2b463aad7591be6403c921fdc58c12e28469ad81e28d08ad1582210d911","sibling":"0x6448b64684ee39a823d5fe5fd52431dc81e4817bf2c3ea3cab9e239efbf59820"}}],"stateUpdate":[null,{"key":"0x0000000000000000000000000000000000000000000000000000000000000000","value":"0x00000000000000000000000033b5ddf9b5e82bb958eb885f5f241e783a113f18"}]}"#;
+        let example = include_str!("../tests/dual_code_hash/trace_1.json");
         let trace: serde::SMTTrace = serde_json::from_str(example).unwrap();
 
         println!("{:?}", trace.state_path[0]);
@@ -1178,15 +1191,6 @@ mod tests {
         println!("{:?}", final_data);
     }
 
-    #[test]
-    fn trace_convert_insert_op() {
-        let example = r#"{"address":"0xb36feaeaf76c2a33335b73bef9aef7a23d9af1e3","accountKey":"0xf59112e5670628682b1ec72767b1a6153096d47742e1d9455c175a955211e900","accountPath":[{"pathPart":"0x35","root":"0xebb00990cd20ab357e0e2115c0e301b8f4b0e0ee80b0500b3071e25c15770708","path":[{"value":"0x637a3f9434eddbed4a74ccf9472cf0e0d2806efe6100c42787fc9e19e1bf8028","sibling":"0x8251455b38bef426b8c56ad1e5c4b2004d0a57cf8af0aa499329e502f3a5022b"},{"value":"0xb1ca958b3030d92b8a07ea6b1733c2e015a11b80612b22bbf8be572b237ac308","sibling":"0xe582f6c510f1bf05d68badf1284b17ab9b44408e12f7c46b09c9260dd572fa2e"},{"value":"0x44947e33abac81c9d1cdbdc1eddf1646c042d5ba09a2096e38b280995a1fe805","sibling":"0x0000000000000000000000000000000000000000000000000000000000000000"},{"value":"0x706201d8f8e421382bc72b45f9f6bda4a4686ca7c8f83fd6cd548dc55d6cfd07","sibling":"0x0000000000000000000000000000000000000000000000000000000000000000"},{"value":"0x060d011c93edea04679826c4ca35f903e85f3d255b124cf327d331b9a256bf0e","sibling":"0x0000000000000000000000000000000000000000000000000000000000000000"},{"value":"0x0498324f694fc9f300d1600f78e054657dcb9ce620358beba8c1e847a14dc203","sibling":"0x559653b52296e19fe878d6430dbc748ebcd3046b463aa32689eac16c29702607"}],"leaf":{"value":"0xebda5e259838533294ae6548ea49d9ef6c13113fac4f311890821345d3cb3617","sibling":"0x7581e431a68d0fa641e14a7d29a6c2b150db6da1d13f59dee6f7f492a0bebd29"}},{"pathPart":"0xf5","root":"0xab4ef5db245d66748b2cbd6eb7f57ebd8fee61444130233546fcd196a0298706","path":[{"value":"0x26e297ed2c0265392eb4d55ca93464914535a3da6c1a70a5884bbf0048f2bc11","sibling":"0x8251455b38bef426b8c56ad1e5c4b2004d0a57cf8af0aa499329e502f3a5022b"},{"value":"0x08eaa42867286da95ec7cf88e17ee86fdbc158b6c631365eab3f00f20ac7a029","sibling":"0xe582f6c510f1bf05d68badf1284b17ab9b44408e12f7c46b09c9260dd572fa2e"},{"value":"0xfee9e393c454b03ebe8c59988ee4c4a7224fdd133d211f1057131253610aa91d","sibling":"0x0000000000000000000000000000000000000000000000000000000000000000"},{"value":"0x01198505cc61e6be5421ed71bb380cb85f7d77af957c30d9a79478f236c4802b","sibling":"0x0000000000000000000000000000000000000000000000000000000000000000"},{"value":"0xd91419a365920d5a3bd771e9d354abd558d0f9ff429a37d002ebfd122833ea2c","sibling":"0x0000000000000000000000000000000000000000000000000000000000000000"},{"value":"0x6af55a02e1b2435ebbbc58bf8e9b83efc4b4fd10dad2c739ba6be95119781e00","sibling":"0x559653b52296e19fe878d6430dbc748ebcd3046b463aa32689eac16c29702607"},{"value":"0x34a4740b27bec9410f659ec6134d6f7c9c933f35143152c374b125e2bce7ac2a","sibling":"0x0000000000000000000000000000000000000000000000000000000000000000"},{"value":"0x7368c8ebabb8fd55758c492232e6302b66efe9ce03c3eb22e9b7540eb15c8a1c","sibling":"0x0498324f694fc9f300d1600f78e054657dcb9ce620358beba8c1e847a14dc203"}],"leaf":{"value":"0x33c5435c783d711eca3cb21179f8afaf6dd0be8ca0f066d0daace28b17fc281d","sibling":"0xf59112e5670628682b1ec72767b1a6153096d47742e1d9455c175a955211e900"}}],"accountUpdate":[null,{"nonce":1,"balance":"0x0","codeHash":"0x0000000000000000000000000000000000000000000000000000000000000000"}],"commonStateRoot":"0x0000000000000000000000000000000000000000000000000000000000000000","statePath":[null,null],"stateUpdate":[null,null]}"#;
-        let trace: serde::SMTTrace = serde_json::from_str(example).unwrap();
-
-        let data: AccountOp<Fp> = (&trace).try_into().unwrap();
-        println!("{:?}", data);
-    }
-
     // verify the calculation of account data's root
     #[test]
     fn trace_account_data() {
@@ -1204,12 +1208,12 @@ mod tests {
 
         let data = data.complete(|a, b| <Fp as Hashable>::hash([*a, *b]));
 
-        //0x227e285425906a1f84d43e6e821bd3d49225e39e8395e9aa680a1574ff5f1eb8
         assert_eq!(
             data.account_hash(),
-            Fp::from_str_vartime(
-                "15601537920438488782505741155807773419253320959345191889201535312143566446264"
-            )
+            Fp::from_repr([
+                126, 203, 154, 3, 71, 162, 190, 236, 230, 29, 176, 63, 91, 228, 231, 94, 163, 96,
+                33, 135, 2, 7, 36, 186, 115, 180, 229, 183, 158, 198, 83, 37,
+            ])
             .unwrap()
         );
 
@@ -1239,12 +1243,13 @@ mod tests {
         let data = data.complete(|a, b| <Fp as Hashable>::hash([*a, *b]));
         println!("{:?}", data);
 
-        //0x282e0113717ea7f0d515b8db9adaf15741c4ace339965482b771062e1f969fb6
+        dbg!(data.account_hash().to_repr());
         assert_eq!(
             data.account_hash(),
-            Fp::from_str_vartime(
-                "18173796334248186903004954824637212553607820157797929507368343926106786013110"
-            )
+            Fp::from_repr([
+                218, 231, 151, 124, 176, 138, 65, 42, 5, 114, 140, 246, 99, 183, 88, 21, 216, 106,
+                58, 128, 26, 49, 220, 169, 60, 7, 233, 70, 48, 75, 211, 19,
+            ])
             .unwrap()
         );
     }

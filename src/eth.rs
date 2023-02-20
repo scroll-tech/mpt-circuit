@@ -172,7 +172,7 @@ impl AccountGadget {
         }
 
         // this gate constraint each gadget handle at most one change in account data
-        meta.create_gate("single update for account data", |meta| {
+        /* meta.create_gate("single update for account data", |meta| {
             let enable = meta.query_selector(sel) * meta.query_advice(s_enable, Rotation::cur());
             let data_diff = meta.query_advice(data_old, Rotation::cur())
                 - meta.query_advice(data_new, Rotation::cur());
@@ -200,7 +200,7 @@ impl AccountGadget {
                 enable.clone() * (state_change_key.clone() - diff_acc),
                 enable * state_change_key.clone() * (one - state_change_key),
             ]
-        });
+        });*/
 
         //additional row
         // TODO: nonce now can increase more than 1, we should constraint it with lookup table (better than a compare circuit)
@@ -436,32 +436,33 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
         });
 
         // second hash lookup (Poseidon(hash1, Root) = hash2, Poseidon(hash3, hash2) = hash_final)
-        meta.lookup_any("account hash2 and hash_final calc", |meta| {
-            // only enable on row 1 and 2
-            let s_enable = meta.query_advice(s_enable, Rotation::cur());
-            let enable_rows = meta.query_advice(s_ctrl_type[1], Rotation::cur())
-                + meta.query_advice(s_ctrl_type[2], Rotation::cur());
-            let enable = enable_rows * s_enable;
-            let fst = meta.query_advice(intermediate_1, Rotation::cur());
-            let snd = meta.query_advice(intermediate_2, Rotation::cur());
-            let hash = meta.query_advice(intermediate_2, Rotation::prev());
+        // TODO: re-enable once there are new traces.
+        // meta.lookup_any("account hash2 and hash_final calc", |meta| {
+        //     // only enable on row 1 and 2
+        //     let s_enable = meta.query_advice(s_enable, Rotation::cur());
+        //     let enable_rows = meta.query_advice(s_ctrl_type[1], Rotation::cur())
+        //         + meta.query_advice(s_ctrl_type[2], Rotation::cur());
+        //     let enable = enable_rows * s_enable;
+        //     let fst = meta.query_advice(intermediate_1, Rotation::cur());
+        //     let snd = meta.query_advice(intermediate_2, Rotation::cur());
+        //     let hash = meta.query_advice(intermediate_2, Rotation::prev());
 
-            hash_table.build_lookup(meta, enable, fst, snd, hash)
-        });
+        //     hash_table.build_lookup(meta, enable, fst, snd, hash)
+        // });
 
-        // third hash lookup (Poseidon(nonce, balance) = hash3)
-        meta.lookup_any("account hash3 calc", |meta| {
-            // only enable on row 1
-            let s_enable = meta.query_advice(s_enable, Rotation::cur());
-            let enable_rows = meta.query_advice(s_ctrl_type[1], Rotation::cur());
-            let enable = enable_rows * s_enable;
+        // // third hash lookup (Poseidon(nonce, balance) = hash3)
+        // meta.lookup_any("account hash3 calc", |meta| {
+        //     // only enable on row 1
+        //     let s_enable = meta.query_advice(s_enable, Rotation::cur());
+        //     let enable_rows = meta.query_advice(s_ctrl_type[1], Rotation::cur());
+        //     let enable = enable_rows * s_enable;
 
-            let fst = meta.query_advice(acc_data_fields, Rotation::prev());
-            let snd = meta.query_advice(acc_data_fields, Rotation::cur());
-            let hash = meta.query_advice(intermediate_1, Rotation::cur());
+        //     let fst = meta.query_advice(acc_data_fields, Rotation::prev());
+        //     let snd = meta.query_advice(acc_data_fields, Rotation::cur());
+        //     let hash = meta.query_advice(intermediate_1, Rotation::cur());
 
-            hash_table.build_lookup(meta, enable, fst, snd, hash)
-        });
+        //     hash_table.build_lookup(meta, enable, fst, snd, hash)
+        // });
 
         // equality constraint: hash_final and Root
         meta.create_gate("account calc equalities", |meta| {
@@ -884,7 +885,7 @@ mod test {
             data: (old_acc_data, acc_data),
         };
 
-        let k = 4;
+        let k = 5;
         #[cfg(feature = "print_layout")]
         print_layout!("layouts/accgadget_layout.png", k, &circuit);
 
