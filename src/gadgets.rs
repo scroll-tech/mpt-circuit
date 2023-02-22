@@ -12,7 +12,7 @@ mod poseidon;
 mod storage_leaf;
 mod storage_parents;
 
-trait Gadget<F: Field> {
+trait LookupTable<F: Field> {
     type Config: Clone;
     type Witness;
     type Lookups;
@@ -23,32 +23,32 @@ trait Gadget<F: Field> {
         -> Result<(), Error>;
 }
 
-// #[derive(Default)]
-// struct CircuitZero<F: Field, T: Default + Gadget<F, Dependencies = ()>> {
-//     inner: T,
-//     marker: PhantomData<F>,
-// }
+#[derive(Default)]
+struct L0<F: Field, T: Default + LookupTable<F, Lookups = ()>> {
+    inner: T,
+    marker: PhantomData<F>,
+}
 
-// impl<F: Field, T: Default + Gadget<F, Dependencies = ()>> Circuit<F> for CircuitZero<F, T> {
-//     type Config = T::Config;
-//     type FloorPlanner = SimpleFloorPlanner;
+impl<F: Field, T: Default + LookupTable<F, Lookups = ()>> Circuit<F> for L0<F, T> {
+    type Config = T::Config;
+    type FloorPlanner = SimpleFloorPlanner;
 
-//     fn without_witnesses(&self) -> Self {
-//         Self::default()
-//     }
+    fn without_witnesses(&self) -> Self {
+        Self::default()
+    }
 
-//     fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
-//         T::configure(meta, &())
-//     }
+    fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
+        T::configure(meta, &())
+    }
 
-//     fn synthesize(
-//         &self,
-//         config: Self::Config,
-//         mut layouter: impl Layouter<F>,
-//     ) -> Result<(), Error> {
-//         unimplemented!();
-//     }
-// }
+    fn synthesize(
+        &self,
+        config: Self::Config,
+        mut layouter: impl Layouter<F>,
+    ) -> Result<(), Error> {
+        unimplemented!();
+    }
+}
 
 // #[derive(Default)]
 // struct RecursiveCircuit<F: Field, T: Default + Gadget<F>> {
