@@ -50,6 +50,12 @@ impl<F: Field, T: Default + LookupTable<F, Lookups = ()>> Circuit<F> for L0<F, T
     }
 }
 
+#[derive(Default)]
+struct L1<F: Field, T: Default + LookupTable<F, Lookups = L0>> {
+    inner: T,
+    marker: PhantomData<F>,
+}
+
 // #[derive(Default)]
 // struct RecursiveCircuit<F: Field, T: Default + Gadget<F>> {
 //     inner: T,
