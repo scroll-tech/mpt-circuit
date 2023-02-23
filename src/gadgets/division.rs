@@ -1,10 +1,3 @@
-// use halo2_proofs::{
-//     arithmetic::Field,
-//     circuit::{Layouter, SimpleFloorPlanner},
-//     plonk::{Circuit, ConstraintSystem, Error},
-// };
-// use std::marker::PhantomData;
-
 use halo2_proofs::{
     arithmetic::{Field, FieldExt},
     circuit::{Chip, Layouter, Region, Value},
@@ -14,18 +7,30 @@ use halo2_proofs::{
     poly::Rotation,
 };
 
-// mod account_node;
-// mod account_parents;
-// mod key;
-mod division;
-mod poseidon;
-mod storage_leaf;
-mod storage_parents;
+// The field modulus for Fr 2^ 253 < P < 2^254
+// Proves that dividend = 2^248 * quotient + remainder, with the following constraints:
+//   1) dividend = 2^248 * quotient + remainder mod P
+//   2) 0 <= remainder < 2^248
+//   3) 0 <= quotient  <= 2^5
+// there will be quotients that are between 2^5 and 2^6 though?
+// what are the leading bits of the field modulus? it's fine if it's 0xb100000000.... with enough leading 0's.
 
-// #[derive(Clone, Copy, Debug)]
-// struct RangeCheckConfig(Column<Fixed>);
+// 1) implies that dividend = 2^248 * quotient + remainder + n * P for some integer n.
+// we want show to n is 0...
 
-// impl ByteRangeCheckConfig {
+// n * P = dividend - 2^248 * quotient + remainder
+// 0 <= n * P < 2^254 + 2^254 = 2^255 so n is 0 or 1.... but we need it to be 0
+// what if you
+//                        P < 2^256 +
+// 0 <= dividend < P < 2^256, so there is exactly 1 quotient
+
+struct DivisionConfig {
+    dividend: Column<Advice>,
+    quotient: Column<Advice>,
+    remainder: [Column<Advice>; 31],
+}
+
+// impl DivisionConfig {
 //     fn configure<F: Field>(meta: &mut ConstraintSystem<F>) -> Self {
 //         Self(meta.fixed_column())
 //     }
