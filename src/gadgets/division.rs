@@ -53,3 +53,18 @@ struct DivisionConfig {
 //         vec![meta.query_fixed(self.0, Rotation::cur())]
 //     }
 // }
+
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use halo2_proofs::{
+        circuit::SimpleFloorPlanner, dev::MockProver, halo2curves::bn256::Fr, plonk::Circuit,
+    };
+
+    #[test]
+    fn circuit() {
+        dbg!(Fr::modulus);
+        panic!();
+    }
+}
