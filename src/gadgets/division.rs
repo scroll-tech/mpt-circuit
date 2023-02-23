@@ -54,17 +54,35 @@ struct DivisionConfig {
 //     }
 // }
 
-
 #[cfg(test)]
 mod test {
     use super::*;
+    use ethers_core::types::U256;
+    use ethers_core::k256::elliptic_curve::PrimeField;
     use halo2_proofs::{
         circuit::SimpleFloorPlanner, dev::MockProver, halo2curves::bn256::Fr, plonk::Circuit,
     };
 
     #[test]
-    fn circuit() {
-        dbg!(Fr::modulus);
+    fn mason() {
+        let modulus = U256([
+            0x43e1f593f0000001,
+            0x2833e84879b97091,
+            0xb85045b68181585d,
+            0x30644e72e131a029,
+        ]);
+
+        dbg!(U256::from(Fr::MODULUS));
+        dbg!(U256::from("0x1000"));
+        dbg!(U256::one().0, modulus, Fr::one(), (Fr::zero() - Fr::one()).to_repr());
+
+        // let x = Fr::from_bytes(4);
+
+        assert_eq!(modulus.bits(), 254);
+        dbg!(modulus - U256::from(2).pow(253.into()));
+        assert_eq!((modulus - U256::from(2).pow(253.into())).bits(), 254);
+
+        dbg!(modulus.bits());
         panic!();
     }
 }
