@@ -59,35 +59,83 @@ impl ByteRangeCheckConfig {
 
 struct ConstraintBuilder<F: Field> {
     constraints: Vec<(&'static str, Query<F>)>,
+    n_selectors: usize,
+    n_fixed_columns: usize,
+    n_advice_columns: usize,
 }
 
+// #[derive(Clone, Copy)]
+// enum Column {
+//     Advice(usize),
+//     Fixed(usize),
+// }
+
 impl<F: Field> ConstraintBuilder<F> {
+    // fn advice_column(&mut self) -> Column {
+    //     let advice = Column::Advice(self.n_advice_columns);
+    //     self.n_advice_columns += 1;
+    //     advice
+    // }
+
+    // fn fixed_column(&mut self) -> Column {
+    //     let fixed = Column::Fixed(self.n_fixed_columns);
+    //     self.n_fixed_columns += 1;
+    //     fixed
+    // }
+
     fn add_constraint<T: Into<Query<F>>>(&mut self, name: &'static str, t: T) {
         self.constraints.push((name, t.into()))
     }
 
     fn build(self, cs: &mut ConstraintSystem<F>) {
+        let selectors: Vec<_> = (0..self.n_advice_columns).map(|_| cs.selector()).collect();
+        let fixed_columns: Vec<_> = (0..self.n_advice_columns)
+            .map(|_| cs.fixed_column())
+            .collect();
+        let advice_columns: Vec<_> = (0..self.n_advice_columns)
+            .map(|_| cs.advice_column())
+            .collect();
         for (name, query) in self.constraints {
-            cs.create_gate(&name, |meta| vec![query.0(meta)])
+            cs.create_gate(&name, |meta| {
+                vec![query.0(meta, &selectors, &fixed_columns, &advice_columns)]
+            })
         }
     }
 }
 
-struct Query<F: Field>(Box<dyn FnOnce(&mut VirtualCells<'_, F>) -> Expression<F>>);
+struct Query<F: Field>(
+    Box<
+        dyn FnOnce(
+            &mut VirtualCells<'_, F>,
+            &[Selector],
+            &[Column<Fixed>],
+            &[Column<Advice>],
+        ) -> Expression<F>,
+    >,
+);
 
 impl<F: FieldExt> From<u64> for Query<F> {
     fn from(x: u64) -> Self {
         let f: F = x.into();
-        Self(Box::new(move |meta| Expression::Constant(f)))
+        Self(Box::new(move |meta, _, _, _| Expression::Constant(f)))
     }
 }
+
+// impl<F: FieldExt> From<Column> for Query<F> {
+//     fn from(x: Column) -> Self {
+//         let f: F = x.into();
+//         Self(Box::new(move |meta| Expression::Constant(f)))
+//     }
+// }
 
 impl<F: Field, T: Into<Query<F>>> std::ops::Add<T> for Query<F> {
     type Output = Self;
     fn add(self, other: T) -> Self::Output {
         let left = self.0;
         let right = other.into().0;
-        Self(Box::new(move |meta| left(meta) + right(meta)))
+        Self(Box::new(move |meta, s, f, a| {
+            left(meta, s, f, a) + right(meta, s, f, a)
+        }))
     }
 }
 
@@ -96,7 +144,9 @@ impl<F: Field, T: Into<Query<F>>> std::ops::Sub<T> for Query<F> {
     fn sub(self, other: T) -> Self::Output {
         let left = self.0;
         let right = other.into().0;
-        Self(Box::new(move |meta| left(meta) - right(meta)))
+        Self(Box::new(move |meta, s, f, a| {
+            left(meta, s, f, a) - right(meta, s, f, a)
+        }))
     }
 }
 
@@ -105,16 +155,27 @@ impl<F: Field, T: Into<Query<F>>> std::ops::Mul<T> for Query<F> {
     fn mul(self, other: T) -> Self::Output {
         let left = self.0;
         let right = other.into().0;
-        Self(Box::new(move |meta| left(meta) * right(meta)))
+        Self(Box::new(move |meta, s, f, a| {
+            left(meta, s, f, a) * right(meta, s, f, a)
+        }))
     }
 }
 
 // trait IntoQuery<F: Field> {
-//     fn into_query(self) -> Box<dyn FnOnce(&mut VirtualCells<'_, F>) -> Expression<F>>;
+//     fn into_query(
+//         self,
+//     ) -> Box<
+//         dyn FnOnce(
+//             &mut VirtualCells<'_, F>,
+//             &[Selector],
+//             &[Column<Fixed>],
+//             &[Column<Advice>],
+//         ) -> Expression<F>,
+//     >;
 // }
 
 // impl<F: Field, T: Into<F>> IntoQuery<F> for T {
-//     fn into_query(self) -> Box<dyn FnOnce(&mut VirtualCells<'_, F>) -> Expression<F>> {
+//     fn into_query(self) -> Box {
 //         let f: F = self.into();
 //         Box::new(move |meta| Expression::Constant(f))
 //     }
