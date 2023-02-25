@@ -9,6 +9,7 @@
 
 pub use crate::serde::{Hash, Row, RowDeError};
 
+mod constraint_builder;
 mod eth;
 mod gadgets;
 mod layers;
