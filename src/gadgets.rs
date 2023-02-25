@@ -70,18 +70,36 @@ struct ConstraintBuilder<F: Field> {
 //     Fixed(usize),
 // }
 
-impl<F: Field> ConstraintBuilder<F> {
-    // fn advice_column(&mut self) -> Column {
-    //     let advice = Column::Advice(self.n_advice_columns);
-    //     self.n_advice_columns += 1;
-    //     advice
-    // }
+#[derive(Clone, Copy)]
+struct AdviceColumn(usize);
 
-    // fn fixed_column(&mut self) -> Column {
-    //     let fixed = Column::Fixed(self.n_fixed_columns);
-    //     self.n_fixed_columns += 1;
-    //     fixed
-    // }
+impl AdviceColumn {
+    fn rotation<F: Field>(self, i: i32) -> Query<F> {
+        Query(Box::new(move |meta, _, _, a| {
+            let index = self.0;
+            meta.query_advice(
+                *a.get(index)
+                    .expect(&format!("index = {index} n_advice_columns = {}", a.len())),
+                Rotation(i),
+            )
+        }))
+    }
+
+    fn current<F: Field>(self) -> Query<F> {
+        self.rotation(0)
+    }
+
+    fn previous<F: Field>(self) -> Query<F> {
+        self.rotation(-1)
+    }
+}
+
+impl<F: Field> ConstraintBuilder<F> {
+    fn advice_column(&mut self) -> AdviceColumn {
+        let column = AdviceColumn(self.n_advice_columns);
+        self.n_advice_columns += 1;
+        column
+    }
 
     fn add_constraint<T: Into<Query<F>>>(&mut self, name: &'static str, t: T) {
         self.constraints.push((name, t.into()))
@@ -121,13 +139,6 @@ impl<F: FieldExt> From<u64> for Query<F> {
     }
 }
 
-// impl<F: FieldExt> From<Column> for Query<F> {
-//     fn from(x: Column) -> Self {
-//         let f: F = x.into();
-//         Self(Box::new(move |meta| Expression::Constant(f)))
-//     }
-// }
-
 impl<F: Field, T: Into<Query<F>>> std::ops::Add<T> for Query<F> {
     type Output = Self;
     fn add(self, other: T) -> Self::Output {
@@ -160,26 +171,6 @@ impl<F: Field, T: Into<Query<F>>> std::ops::Mul<T> for Query<F> {
         }))
     }
 }
-
-// trait IntoQuery<F: Field> {
-//     fn into_query(
-//         self,
-//     ) -> Box<
-//         dyn FnOnce(
-//             &mut VirtualCells<'_, F>,
-//             &[Selector],
-//             &[Column<Fixed>],
-//             &[Column<Advice>],
-//         ) -> Expression<F>,
-//     >;
-// }
-
-// impl<F: Field, T: Into<F>> IntoQuery<F> for T {
-//     fn into_query(self) -> Box {
-//         let f: F = self.into();
-//         Box::new(move |meta| Expression::Constant(f))
-//     }
-// }
 
 // enum Cell {
 //     One,
