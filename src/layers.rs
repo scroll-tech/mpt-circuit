@@ -180,7 +180,7 @@ impl LayerGadget {
                 .reduce(|exp, col_exp| exp + col_exp)
                 .map(|sum_exp| sel.clone() * (Expression::Constant(Fp::one()) - sum_exp));
 
-            let ctrl_type_cond = s_ctrl
+            let _ctrl_type_cond = s_ctrl
                 .into_iter()
                 .enumerate()
                 .map(|(idx, col_exp)| Expression::Constant(Fp::from(idx as u64)) * col_exp)

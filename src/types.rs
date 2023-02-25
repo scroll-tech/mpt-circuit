@@ -143,7 +143,7 @@ impl From<&SMTTrace> for ClaimKind {
                         new_value: Some(u256_from_hex(new.value)),
                     });
                 }
-                [Some(old), None] => {
+                [Some(_old), None] => {
                     unimplemented!("SELFDESTRUCT")
                 }
             }
@@ -178,7 +178,7 @@ impl From<&SMTTrace> for ClaimKind {
                 };
                 ClaimKind::Write(write)
             }
-            [Some(old), None] => unimplemented!("SELFDESTRUCT"),
+            [Some(_old), None] => unimplemented!("SELFDESTRUCT"),
             [Some(old), Some(new)] => {
                 let write = match (
                     old.nonce != new.nonce,
@@ -233,7 +233,7 @@ impl From<SMTTrace> for Proof {
             (Some(storage_root), None, [None, None], Some([None, None])) => {
                 ([storage_root; 2].map(fr), None, None)
             }
-            (None, Some(key), [Some(open), Some(close)], Some(storage_updates)) => {
+            (None, Some(key), [Some(open), Some(close)], Some(_storage_updates)) => {
                 let leaf_hashes = [open, close].map(|path| {
                     path.leaf
                         .as_ref()
@@ -355,7 +355,7 @@ fn get_internal_hash_traces(
     open_hash_traces: &[SMTNode],
     close_hash_traces: &[SMTNode],
 ) -> Vec<(bool, Fr, Fr, Fr, bool, bool)> {
-    let path_length = std::cmp::max(open_hash_traces.len(), close_hash_traces.len());
+    let _path_length = std::cmp::max(open_hash_traces.len(), close_hash_traces.len());
 
     let mut address_hash_traces = vec![];
     for (i, e) in open_hash_traces
@@ -445,7 +445,7 @@ impl Proof {
         }
 
         // old and new roots are correct
-        if let Some((direction, open, close, sibling, is_padding_open, is_padding_close)) =
+        if let Some((direction, open, close, sibling, _is_padding_open, _is_padding_close)) =
             self.address_hash_traces.last()
         {
             if *direction {
@@ -512,7 +512,7 @@ impl Proof {
         }
 
         // storage root is correct, if needed.
-        if let Some(storage_update) = &self.storage_hash_traces {
+        if let Some(_storage_update) = &self.storage_hash_traces {
             if let Some((direction, open, close, sibling, _, _)) =
                 self.storage_hash_traces.as_ref().unwrap().last()
             {

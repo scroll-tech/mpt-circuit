@@ -1,10 +1,8 @@
 use super::poseidon::Config as PoseidonConfig;
-use ethers_core::types::U256;
-use halo2_proofs::circuit::Layouter;
+
 use halo2_proofs::{
     arithmetic::Field,
-    circuit::{Chip, Region, Value},
-    plonk::{Advice, Column, ConstraintSystem, Error, Expression, Selector},
+    plonk::{Advice, Column, ConstraintSystem, Expression, Selector},
     poly::Rotation,
 };
 

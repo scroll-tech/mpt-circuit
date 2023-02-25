@@ -1,11 +1,6 @@
 use halo2_proofs::{
     arithmetic::{Field, FieldExt},
-    circuit::{Chip, Layouter, Region, Value},
-    plonk::{
-        Advice, Column, ConstraintSystem, Error, Expression, Fixed, Selector, TableColumn,
-        VirtualCells,
-    },
-    poly::Rotation,
+    plonk::{Advice, Column, Expression, Fixed, Selector, VirtualCells},
 };
 
 pub struct Query<F: Field>(
@@ -34,7 +29,7 @@ impl<F: Field> Query<F> {
 impl<F: FieldExt> From<u64> for Query<F> {
     fn from(x: u64) -> Self {
         let f: F = x.into();
-        Self(Box::new(move |meta, _, _, _| Expression::Constant(f)))
+        Self(Box::new(move |_meta, _, _, _| Expression::Constant(f)))
     }
 }
 

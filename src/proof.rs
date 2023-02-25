@@ -1,15 +1,14 @@
-use ethers_core::types::{Address, U256};
-use halo2_proofs::{arithmetic::FieldExt, halo2curves::bn256::Fr};
+use ethers_core::types::U256;
+use halo2_proofs::halo2curves::bn256::Fr;
 use itertools::{EitherOrBoth, Itertools};
-use num_bigint::BigUint;
+
 use num_traits::identities::Zero;
 
 use crate::{
-    operation::{Account, SMTPathParse},
-    serde::{AccountData, HexBytes, SMTNode, SMTPath, SMTTrace, StateData},
+    operation::Account,
+    serde::{AccountData, SMTNode, SMTPath, SMTTrace, StateData},
     types::Claim,
     util::{balance_convert, fr, hash, hi_lo, split_word, u256_from_hex, Bit},
-    Hashable,
 };
 
 struct Proof {
@@ -156,7 +155,7 @@ fn get_internal_hash_traces(
     open_hash_traces: &[SMTNode],
     close_hash_traces: &[SMTNode],
 ) -> Vec<(bool, Fr, Fr, Fr, bool, bool)> {
-    let path_length = std::cmp::max(open_hash_traces.len(), close_hash_traces.len());
+    let _path_length = std::cmp::max(open_hash_traces.len(), close_hash_traces.len());
 
     let mut address_hash_traces = vec![];
     for (i, e) in open_hash_traces
@@ -233,7 +232,7 @@ fn get_storage_leaf_hash_traces(state_data: Option<StateData>, leaf: SMTNode) ->
 }
 
 fn get_account_hash_traces(
-    key: Fr,
+    _key: Fr,
     account_data: Option<AccountData>,
     storage_root: Fr, // this is actually optional? what if there is no account?
     leaf: SMTNode,

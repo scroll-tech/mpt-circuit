@@ -1,15 +1,11 @@
 use halo2_proofs::{
-    arithmetic::{Field, FieldExt},
-    circuit::{Chip, Layouter, Region, Value},
-    plonk::{
-        Advice, Column, ConstraintSystem, Error, Expression, Selector, TableColumn, VirtualCells,
-    },
+    arithmetic::Field,
+    circuit::{Layouter, Value},
+    plonk::{Advice, Column, ConstraintSystem, Error, Expression, VirtualCells},
     poly::Rotation,
 };
 
 // use halo2curves::bn256::Fr
-
-use crate::proof::HashTrace;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Config {

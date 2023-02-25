@@ -425,7 +425,7 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
 
     fn configure(
         meta: &mut ConstraintSystem<Fp>,
-        sel: Selector,
+        _sel: Selector,
         s_enable: Column<Advice>,
         s_ctrl_type: [Column<Advice>; N_CONTROL_TYPES],
         acc_data_fields: Column<Advice>,

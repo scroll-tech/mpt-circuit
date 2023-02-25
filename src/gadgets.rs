@@ -7,11 +7,8 @@
 
 use halo2_proofs::{
     arithmetic::{Field, FieldExt},
-    circuit::{Chip, Layouter, Region, Value},
-    plonk::{
-        Advice, Column, ConstraintSystem, Error, Expression, Fixed, Selector, TableColumn,
-        VirtualCells,
-    },
+    circuit::{Layouter, Value},
+    plonk::{Column, ConstraintSystem, Error, Expression, Fixed, VirtualCells},
     poly::Rotation,
 };
 

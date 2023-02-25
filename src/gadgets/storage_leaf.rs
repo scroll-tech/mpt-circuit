@@ -3,9 +3,7 @@ use ethers_core::types::U256;
 use halo2_proofs::circuit::Layouter;
 use halo2_proofs::{
     arithmetic::Field,
-    circuit::{Chip, Region, Value},
-    plonk::{Advice, Column, ConstraintSystem, Error, Expression, Selector},
-    poly::Rotation,
+    plonk::{Advice, Column, ConstraintSystem, Error, Selector},
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -51,8 +49,8 @@ impl Config {
 
     fn assign<F: Field>(
         &self,
-        layouter: &mut impl Layouter<F>,
-        storage_entry: &[(U256, U256)],
+        _layouter: &mut impl Layouter<F>,
+        _storage_entry: &[(U256, U256)],
     ) -> Result<(), Error> {
         Ok(())
     }

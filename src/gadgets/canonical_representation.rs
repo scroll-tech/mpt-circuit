@@ -1,11 +1,8 @@
 use halo2_proofs::{
     arithmetic::{Field, FieldExt},
-    circuit::{Chip, Layouter, Region, Value},
+    circuit::Layouter,
     halo2curves::bn256::Fr,
-    plonk::{
-        Advice, Column, ConstraintSystem, Error, Expression, Fixed, Selector, TableColumn,
-        VirtualCells,
-    },
+    plonk::{Advice, Column, ConstraintSystem, Error, Expression, Fixed, Selector},
     poly::Rotation,
 };
 
@@ -29,7 +26,7 @@ struct CanonicalRepresentationConfig {
 struct ByteLookupTable {}
 
 impl CanonicalRepresentationConfig {
-    fn configure<F: FieldExt>(meta: &mut ConstraintSystem<F>, lookups: ByteLookupTable) -> Self {
+    fn configure<F: FieldExt>(meta: &mut ConstraintSystem<F>, _lookups: ByteLookupTable) -> Self {
         let selector = meta.selector();
         let [value, byte, difference, difference_inverse_or_zero, differences_are_zero_so_far] =
             [0; 5].map(|_| meta.advice_column());
@@ -87,7 +84,7 @@ impl CanonicalRepresentationConfig {
                 let difference_inverse_or_zero =
                     meta.query_advice(difference_inverse_or_zero, Rotation::cur());
                 let difference_is_zero =
-                    (Expression::Constant(F::one()) - difference * difference_inverse_or_zero);
+                    Expression::Constant(F::one()) - difference * difference_inverse_or_zero;
 
                 vec![
                     index_is_zero.clone()
@@ -114,8 +111,8 @@ impl CanonicalRepresentationConfig {
 
     fn assign<F: Field>(
         &self,
-        layouter: &mut impl Layouter<F>,
-        values: &[Fr],
+        _layouter: &mut impl Layouter<F>,
+        _values: &[Fr],
     ) -> Result<(), Error> {
         Ok(())
     }
