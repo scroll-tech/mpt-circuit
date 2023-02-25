@@ -2,8 +2,6 @@ use ethers_core::types::U256;
 use halo2_proofs::halo2curves::bn256::Fr;
 use itertools::{EitherOrBoth, Itertools};
 
-use num_traits::identities::Zero;
-
 use crate::{
     operation::Account,
     serde::{AccountData, SMTNode, SMTPath, SMTTrace, StateData},
@@ -199,8 +197,7 @@ fn get_internal_hash_traces(
 
 fn get_root(direction: bool, value: Fr, sibling: Fr, is_padding: bool) -> Fr {
     if is_padding {
-        panic!(); // this is dead code i think
-        value
+        unreachable!(); // this is dead code i think
     } else if direction {
         hash(sibling, value)
     } else {
