@@ -76,8 +76,15 @@ impl<F: Field> ConstraintBuilder<F> {
     }
 }
 
-trait IntoQuery<F: Field>: Clone {
-    fn into_query(&self) -> Box<dyn FnOnce(&mut VirtualCells<'_, F>) -> Expression<F>>;
+trait IntoQuery<F: Field> {
+    fn into_query(self) -> Box<dyn FnOnce(&mut VirtualCells<'_, F>) -> Expression<F>>;
+}
+
+impl<F: Field, T: Into<F>> IntoQuery<F> for T {
+    fn into_query(self) -> Box<dyn FnOnce(&mut VirtualCells<'_, F>) -> Expression<F>> {
+        let f: F = self.into();
+        Box::new(move |meta| Expression::Constant(f))
+    }
 }
 
 // enum Cell {
