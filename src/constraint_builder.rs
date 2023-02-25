@@ -3,7 +3,7 @@ use halo2_proofs::{arithmetic::Field, plonk::ConstraintSystem};
 mod column;
 mod query;
 
-use column::Advice as AdviceColumn;
+use column::{Advice, Fixed, Selector};
 use query::Query;
 
 struct ConstraintBuilder<F: Field> {
@@ -14,9 +14,21 @@ struct ConstraintBuilder<F: Field> {
 }
 
 impl<F: Field> ConstraintBuilder<F> {
-    fn advice_column(&mut self) -> AdviceColumn {
-        let column = AdviceColumn(self.n_advice_columns);
+    fn advice_column(&mut self) -> Advice {
+        let column = Advice(self.n_advice_columns);
         self.n_advice_columns += 1;
+        column
+    }
+
+    fn fixed_column(&mut self) -> Fixed {
+        let column = Fixed(self.n_fixed_columns);
+        self.n_fixed_columns += 1;
+        column
+    }
+
+    fn selector(&mut self) -> Selector {
+        let column = Selector(self.n_selectors);
+        self.n_selectors += 1;
         column
     }
 

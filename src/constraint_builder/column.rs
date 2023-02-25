@@ -2,26 +2,17 @@ use super::Query;
 use halo2_proofs::{arithmetic::Field, poly::Rotation};
 
 #[derive(Clone, Copy)]
-pub struct Advice(pub usize);
+pub struct Selector(pub usize);
 
-impl Advice {
-    fn rotation<F: Field>(self, i: i32) -> Query<F> {
-        Query(Box::new(move |meta, _, _, a| {
+impl Selector {
+    fn current<F: Field>(self) -> Query<F> {
+        Query(Box::new(move |meta, s, _, _| {
             let index = self.0;
-            meta.query_advice(
-                *a.get(index)
-                    .expect(&format!("index = {index} n_advice_columns = {}", a.len())),
-                Rotation(i),
+            meta.query_selector(
+                *s.get(index)
+                    .expect(&format!("index = {index} n_selectors = {}", s.len())),
             )
         }))
-    }
-
-    fn current<F: Field>(self) -> Query<F> {
-        self.rotation(0)
-    }
-
-    fn previous<F: Field>(self) -> Query<F> {
-        self.rotation(-1)
     }
 }
 
@@ -50,16 +41,25 @@ impl Fixed {
 }
 
 #[derive(Clone, Copy)]
-pub struct Selector(pub usize);
+pub struct Advice(pub usize);
 
-impl Selector {
-    fn current<F: Field>(self) -> Query<F> {
-        Query(Box::new(move |meta, s, _, _| {
+impl Advice {
+    fn rotation<F: Field>(self, i: i32) -> Query<F> {
+        Query(Box::new(move |meta, _, _, a| {
             let index = self.0;
-            meta.query_selector(
-                *s.get(index)
-                    .expect(&format!("index = {index} n_selectors = {}", s.len())),
+            meta.query_advice(
+                *a.get(index)
+                    .expect(&format!("index = {index} n_advice_columns = {}", a.len())),
+                Rotation(i),
             )
         }))
+    }
+
+    fn current<F: Field>(self) -> Query<F> {
+        self.rotation(0)
+    }
+
+    fn previous<F: Field>(self) -> Query<F> {
+        self.rotation(-1)
     }
 }
