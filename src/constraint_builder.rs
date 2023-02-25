@@ -1,18 +1,10 @@
+use halo2_proofs::{arithmetic::Field, plonk::ConstraintSystem};
+
 mod column;
 mod query;
 
 use column::Advice as AdviceColumn;
 use query::Query;
-
-use halo2_proofs::{
-    arithmetic::{Field, FieldExt},
-    circuit::{Chip, Layouter, Region, Value},
-    plonk::{
-        Advice, Column, ConstraintSystem, Error, Expression, Fixed, Selector, TableColumn,
-        VirtualCells,
-    },
-    poly::Rotation,
-};
 
 struct ConstraintBuilder<F: Field> {
     constraints: Vec<(&'static str, Query<F>)>,

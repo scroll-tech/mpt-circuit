@@ -1,9 +1,5 @@
 use super::Query;
-use halo2_proofs::{
-    arithmetic::Field,
-    plonk::{Expression, Fixed, Selector, TableColumn, VirtualCells},
-    poly::Rotation,
-};
+use halo2_proofs::{arithmetic::Field, poly::Rotation};
 
 #[derive(Clone, Copy)]
 pub struct Advice(pub usize);
