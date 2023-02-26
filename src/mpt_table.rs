@@ -232,8 +232,12 @@ pub enum MPTProofType {
     NonceChanged = 1,
     /// balance
     BalanceChanged,
-    /// codehash updated
+    /// keccak codehash updated
     CodeHashExists,
+    /// poseidon codehash updated
+    PoseidonCodeHashExists,
+    /// code size updated
+    CodeSizeExists,
     /// non exist proof for account
     AccountDoesNotExist,
     /// account destructed
@@ -242,10 +246,6 @@ pub enum MPTProofType {
     StorageChanged,
     /// non exist proof for storage
     StorageDoesNotExist,
-    /// poseidon code hash
-    PoseidonCodeHashExists,
-    /// code length, in bytes
-    CodeSizeExists,
 }
 
 /// the Entry for mpt table
