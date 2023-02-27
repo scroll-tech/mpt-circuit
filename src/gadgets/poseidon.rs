@@ -77,6 +77,7 @@ impl Config {
 
 #[cfg(test)]
 mod test {
+    use super::super::super::proof::HashTrace;
     use super::*;
     use halo2_proofs::{
         circuit::SimpleFloorPlanner, dev::MockProver, halo2curves::bn256::Fr, plonk::Circuit,
