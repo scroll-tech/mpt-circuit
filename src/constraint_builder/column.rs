@@ -85,3 +85,36 @@ impl AdviceColumn {
             .expect("failed assign_advice");
     }
 }
+
+#[derive(Clone, Copy)]
+pub struct IsZeroColumn(pub AdviceColumn);
+
+// probably a better name for this is IsZeroConfig
+impl IsZeroColumn {
+    pub fn rotation<F: Field>(self, i: i32) -> Query<F> {
+        self.0.rotation(i)
+    }
+
+    pub fn current<F: Field>(self) -> Query<F> {
+        self.0.current()
+    }
+
+    pub fn previous<F: Field>(self) -> Query<F> {
+        self.0.previous()
+    }
+
+    pub fn assign<F: Field, T: Copy + TryInto<F>>(
+        &self,
+        region: &mut Region<'_, F>,
+        offset: usize,
+        value: T,
+    ) where
+        <T as TryInto<F>>::Error: Debug,
+    {
+        self.0.assign(
+            region,
+            offset,
+            value.try_into().unwrap().invert().unwrap_or(F::zero()),
+        );
+    }
+}

@@ -18,7 +18,7 @@ struct CanonicalRepresentationCircuit {
 
 #[derive(Clone)]
 struct CanonicalRepresentationConfig {
-    selector: SelectorColumn,
+    selector: SelectorColumn, // always enabled selector for constraints we want always enabled.
 
     // Lookup columns
     value: AdviceColumn, // We're proving value.to_le_bytes()[i] = byte in this gadget
@@ -75,30 +75,19 @@ impl Circuit<Fr> for CanonicalRepresentationCircuit {
                     .map(|i| byte.rotation(i))
                     .fold(Query::zero(), |acc, x| acc * 256 + x),
         );
-
-        // cb.add_constraint(
-        //     "differences_are_zero_so_far is 1 iff previous is 1 and difference is 0",
-        //     let index_is_zero = meta.query_fixed(index_is_zero, Rotation::cur());
-        //         let differences_are_zero_so_far_cur =
-        //             meta.query_advice(differences_are_zero_so_far, Rotation::cur());
-        //         let differences_are_zero_so_far_prev =
-        //             meta.query_advice(differences_are_zero_so_far, Rotation::prev());
-
-        //         let difference = meta.query_advice(difference, Rotation::cur());
-        //         let difference_inverse_or_zero =
-        //             meta.query_advice(difference_inverse_or_zero, Rotation::cur());
-        //         let difference_is_zero =
-        //             Expression::Constant(F::one()) - difference * difference_inverse_or_zero;
-
-        //         vec![
-        //             Query::not(index_is_zero.current())
-        //                 * (differences_are_zero_so_far.current() - difference_is_zero.clone()),
-        //             (Expression::Constant(F::one()) - index_is_zero)
-        //                 * (differences_are_zero_so_far_cur
-        //                     - differences_are_zero_so_far_prev * difference_is_zero),
-        //         ]
-        //     },
-        // );
+        cb.add_constraint(
+            "differences_are_zero_so_far = difference is 0 when index = 0",
+            index_is_zero.current(),
+            differences_are_zero_so_far.current()
+                - (Query::one() - difference.current() * difference_inverse_or_zero.current()),
+        );
+        cb.add_constraint(
+            "differences_are_zero_so_far = difference is 0 * differences_are_zero_so_far.previous() when index != 0",
+            !index_is_zero.current(),
+            differences_are_zero_so_far.current()
+                - differences_are_zero_so_far.previous()
+                    * (Query::one() - difference.current() * difference_inverse_or_zero.current()),
+        );
 
         cb.build(cs);
 

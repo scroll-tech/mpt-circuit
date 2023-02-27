@@ -5,7 +5,7 @@ mod column;
 mod query;
 
 pub use binary_query::BinaryQuery;
-pub use column::{AdviceColumn, FixedColumn, SelectorColumn};
+pub use column::{AdviceColumn, FixedColumn, SelectorColumn, IsZeroColumn};
 pub use query::Query;
 
 pub struct ConstraintBuilder<F: FieldExt> {
@@ -33,6 +33,21 @@ impl<F: FieldExt> ConstraintBuilder<F> {
 
     pub fn add_lookup(&mut self, name: &'static str, lookup: Vec<(Query<F>, Query<F>)>) {
         self.lookups.push((name, lookup))
+    }
+
+    pub fn is_zero_gadget(
+        &mut self,
+        cs: &mut ConstraintSystem<F>,
+        selector: BinaryQuery<F>,
+        query: Query<F>,
+    ) -> IsZeroColumn {
+        let column = IsZeroColumn(AdviceColumn(cs.advice_column()));
+        self.add_constraint(
+            "is_zero_gadget",
+            selector,
+            query * (Query::from(1) - query * column.0.current()),
+        );
+        column
     }
 
     pub fn build_columns<const A: usize, const B: usize, const C: usize>(
