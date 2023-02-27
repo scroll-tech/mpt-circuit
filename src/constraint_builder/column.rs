@@ -1,4 +1,4 @@
-use super::Query;
+use super::{BinaryQuery, Query};
 use halo2_proofs::{
     arithmetic::Field,
     circuit::{Region, Value},
@@ -11,8 +11,8 @@ use std::fmt::Debug;
 pub struct SelectorColumn(pub Selector);
 
 impl SelectorColumn {
-    pub fn current<F: Field>(self) -> Query<F> {
-        Query(Box::new(move |meta| meta.query_selector(self.0)))
+    pub fn current<F: Field>(self) -> BinaryQuery<F> {
+        BinaryQuery(Query(Box::new(move |meta| meta.query_selector(self.0))))
     }
 }
 
@@ -47,7 +47,7 @@ impl FixedColumn {
                 offset,
                 || Value::known(value.try_into().unwrap()),
             )
-            .expect("failed assign_advice");
+            .expect("failed assign_fixed");
     }
 }
 
@@ -65,5 +65,23 @@ impl AdviceColumn {
 
     pub fn previous<F: Field>(self) -> Query<F> {
         self.rotation(-1)
+    }
+
+    pub fn assign<F: Field, T: Copy + TryInto<F>>(
+        &self,
+        region: &mut Region<'_, F>,
+        offset: usize,
+        value: T,
+    ) where
+        <T as TryInto<F>>::Error: Debug,
+    {
+        region
+            .assign_advice(
+                || "",
+                self.0,
+                offset,
+                || Value::known(value.try_into().unwrap()),
+            )
+            .expect("failed assign_advice");
     }
 }

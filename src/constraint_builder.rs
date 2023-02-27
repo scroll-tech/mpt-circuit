@@ -1,33 +1,41 @@
-use halo2_proofs::{arithmetic::Field, plonk::ConstraintSystem};
+use halo2_proofs::{arithmetic::FieldExt, plonk::ConstraintSystem};
 
+mod binary_query;
 mod column;
 mod query;
 
-use column::{AdviceColumn, FixedColumn, SelectorColumn};
-use query::Query;
+pub use binary_query::BinaryQuery;
+pub use column::{AdviceColumn, FixedColumn, SelectorColumn};
+pub use query::Query;
 
-struct ConstraintBuilder<F: Field> {
+pub struct ConstraintBuilder<F: FieldExt> {
     constraints: Vec<(&'static str, Query<F>)>,
     lookups: Vec<(&'static str, Vec<(Query<F>, Query<F>)>)>,
 }
 
-impl<F: Field> ConstraintBuilder<F> {
-    fn new() -> Self {
+impl<F: FieldExt> ConstraintBuilder<F> {
+    pub fn new() -> Self {
         Self {
             constraints: vec![],
             lookups: vec![],
         }
     }
 
-    fn add_constraint(&mut self, name: &'static str, q: Query<F>) {
-        self.constraints.push((name, q))
+    pub fn add_constraint(
+        &mut self,
+        name: &'static str,
+        selector: BinaryQuery<F>,
+        constraint: Query<F>,
+    ) {
+        self.constraints
+            .push((name, selector.condition(constraint)))
     }
 
-    fn add_lookup(&mut self, name: &'static str, lookup: Vec<(Query<F>, Query<F>)>) {
+    pub fn add_lookup(&mut self, name: &'static str, lookup: Vec<(Query<F>, Query<F>)>) {
         self.lookups.push((name, lookup))
     }
 
-    fn build_columns<const A: usize, const B: usize, const C: usize>(
+    pub fn build_columns<const A: usize, const B: usize, const C: usize>(
         &self,
         cs: &mut ConstraintSystem<F>,
     ) -> ([SelectorColumn; A], [FixedColumn; B], [AdviceColumn; C]) {
@@ -37,7 +45,7 @@ impl<F: Field> ConstraintBuilder<F> {
         (selectors, fixed_columns, advice_columns)
     }
 
-    fn build(self, cs: &mut ConstraintSystem<F>) {
+    pub fn build(self, cs: &mut ConstraintSystem<F>) {
         for (name, query) in self.constraints {
             cs.create_gate(&name, |meta| vec![query.run(meta)])
         }
