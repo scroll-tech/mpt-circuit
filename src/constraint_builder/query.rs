@@ -1,6 +1,6 @@
 use halo2_proofs::{
     arithmetic::{Field, FieldExt},
-    plonk::{Advice, Column, Expression, Fixed, Selector, VirtualCells},
+    plonk::{Expression, VirtualCells},
 };
 
 pub struct Query<F: Field>(pub Box<dyn FnOnce(&mut VirtualCells<'_, F>) -> Expression<F>>);

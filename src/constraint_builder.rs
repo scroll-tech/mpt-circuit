@@ -1,4 +1,4 @@
-use halo2_proofs::{arithmetic::Field, plonk, plonk::ConstraintSystem};
+use halo2_proofs::{arithmetic::Field, plonk::ConstraintSystem};
 
 mod column;
 mod query;
@@ -8,17 +8,23 @@ use query::Query;
 
 struct ConstraintBuilder<F: Field> {
     constraints: Vec<(&'static str, Query<F>)>,
+    lookups: Vec<(&'static str, Vec<(Query<F>, Query<F>)>)>,
 }
 
 impl<F: Field> ConstraintBuilder<F> {
     fn new() -> Self {
         Self {
             constraints: vec![],
+            lookups: vec![],
         }
     }
 
-    fn add_constraint<T: Into<Query<F>>>(&mut self, name: &'static str, t: T) {
-        self.constraints.push((name, t.into()))
+    fn add_constraint(&mut self, name: &'static str, q: Query<F>) {
+        self.constraints.push((name, q))
+    }
+
+    fn add_lookup(&mut self, name: &'static str, lookup: Vec<(Query<F>, Query<F>)>) {
+        self.lookups.push((name, lookup))
     }
 
     fn build_columns<const A: usize, const B: usize, const C: usize>(
@@ -34,6 +40,14 @@ impl<F: Field> ConstraintBuilder<F> {
     fn build(self, cs: &mut ConstraintSystem<F>) {
         for (name, query) in self.constraints {
             cs.create_gate(&name, |meta| vec![query.run(meta)])
+        }
+        for (name, lookup) in self.lookups {
+            cs.lookup_any(&name, |meta| {
+                lookup
+                    .into_iter()
+                    .map(|(left, right)| (left.run(meta), right.run(meta)))
+                    .collect()
+            });
         }
     }
 }
