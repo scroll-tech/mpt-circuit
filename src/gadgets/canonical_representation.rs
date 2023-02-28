@@ -79,9 +79,26 @@ impl Circuit<Fr> for CanonicalRepresentationCircuit {
         // cb.add_constraint(
         //     "differences_are_zero_so_far = difference is 0 * differences_are_zero_so_far.previous() when index != 0",
         //     !index_is_zero.current(),
-        //     differences_are_zero_so_far.current()
-        //         - differences_are_zero_so_far.previous() * difference_is_zero.current()
+        //     differences_are_zero_so_far.current() - differences_are_zero_so_far.current(),
+        //     // differences_are_zero_so_far.current()
+        //         // - differences_are_zero_so_far.previous() * difference_is_zero.current()
         // );
+
+        cb.add_constraint(
+            "test_a",
+            index_is_zero.current(),
+            value.current() - value.current(),
+            // differences_are_zero_so_far.current()
+                // - differences_are_zero_so_far.previous() * difference_is_zero.current()
+        );
+
+        cb.add_constraint(
+            "test_b",
+            selector.current().and(!index_is_zero.current()),
+            value.current() - value.current(),
+            // differences_are_zero_so_far.current()
+                // - differences_are_zero_so_far.previous() * difference_is_zero.current()
+        );
 
         cb.build(cs);
 
@@ -114,6 +131,7 @@ impl Circuit<Fr> for CanonicalRepresentationCircuit {
                 for value in &self.values {
                     let mut bytes = value.to_bytes();
                     bytes.reverse();
+                    let mut differences_are_zero_so_far = true;
                     for (index, (byte, modulus_byte)) in
                         bytes.iter().zip_eq(&modulus_bytes).enumerate()
                     {
@@ -129,9 +147,6 @@ impl Circuit<Fr> for CanonicalRepresentationCircuit {
 
                         let difference =
                             Fr::from(u64::from(*modulus_byte)) - Fr::from(u64::from(*byte));
-                        if index == 0 {
-                            dbg!(difference);
-                        }
                         config.difference.assign(&mut region, offset, difference);
                         config
                             .difference_is_zero
@@ -139,18 +154,17 @@ impl Circuit<Fr> for CanonicalRepresentationCircuit {
 
                         if index.is_zero() {
                             config.index_is_zero.enable(&mut region, offset);
-                            config.differences_are_zero_so_far.assign(
-                                &mut region,
-                                offset,
-                                difference.is_zero_vartime(),
-                            );
-                        } else {
-                            config.differences_are_zero_so_far.assign(
-                                &mut region,
-                                offset,
-                                difference == Fr::zero(),
-                            );
                         }
+
+                        config.differences_are_zero_so_far.assign(
+                            &mut region,
+                            offset,
+                            difference.is_zero_vartime() // && differences_are_zero_so_far,
+                            // 5u64
+                            // 1u64
+                        );
+                        differences_are_zero_so_far &= difference.is_zero_vartime();
+
                         config.value.assign(&mut region, offset, *value);
 
                         offset += 1
@@ -162,9 +176,6 @@ impl Circuit<Fr> for CanonicalRepresentationCircuit {
     }
 }
 
-// 0x2f62377b272b4228d9ce9998097951308cb2d371a1dae8e39277eb20db000001
-// 0x2f62377b272b4228d9ce9998097951308cb2d371a1dae8e39277eb20db000001
-
 #[cfg(test)]
 mod test {
     use super::*;
@@ -172,15 +183,14 @@ mod test {
 
     #[test]
     fn masonnnnnnn() {
-        let x = Fr::from(0x30);
-        let inverse = x.invert().unwrap_or(Fr::zero());
-        dbg!(x, inverse, x * inverse);
-
+        // let x = Fr::from(0x30);
+        // let inverse = x.invert().unwrap_or(Fr::zero());
+        // dbg!(x, inverse, x * inverse);
         let circuit = CanonicalRepresentationCircuit {
             values: vec![
-                Fr::one(),
-                Fr::from(2342),
-                Fr::zero() - Fr::one()
+            Fr::one(),
+            // Fr::from(2342),
+            // Fr::zero() - Fr::one()
             ],
         };
         let prover = MockProver::<Fr>::run(8, &circuit, vec![]).unwrap();
