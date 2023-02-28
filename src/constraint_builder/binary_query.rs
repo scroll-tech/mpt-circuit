@@ -17,11 +17,11 @@ impl<F: FieldExt> BinaryQuery<F> {
     }
 
     pub fn and(self, other: Self) -> Self {
-        !((!self).or(!other))
+        Self(self.0 * other.0)
     }
 
     pub fn or(self, other: Self) -> Self {
-        Self(self.0 * other.0)
+        !((!self).and(!other))
     }
 
     pub fn condition(self, constraint: Query<F>) -> Query<F> {
@@ -38,6 +38,7 @@ impl<F: Field> BinaryQuery<F> {
 impl<F: FieldExt> std::ops::Not for BinaryQuery<F> {
     type Output = Self;
 
+    // In general this can cause a ConstraintPoisoned. You need to add a selector column that's all ones to be safe.
     fn not(self) -> Self::Output {
         Self(Query::one() - self.0)
     }

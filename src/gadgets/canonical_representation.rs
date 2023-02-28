@@ -74,30 +74,13 @@ impl Circuit<Fr> for CanonicalRepresentationCircuit {
         cb.add_constraint(
             "differences_are_zero_so_far = difference is 0 when index = 0",
             index_is_zero.current(),
-            differences_are_zero_so_far.current() - difference_is_zero.current(), // x = 0 or x = 1
+            differences_are_zero_so_far.current() - difference_is_zero.current(),
         );
-        // cb.add_constraint(
-        //     "differences_are_zero_so_far = difference is 0 * differences_are_zero_so_far.previous() when index != 0",
-        //     !index_is_zero.current(),
-        //     differences_are_zero_so_far.current() - differences_are_zero_so_far.current(),
-        //     // differences_are_zero_so_far.current()
-        //         // - differences_are_zero_so_far.previous() * difference_is_zero.current()
-        // );
-
         cb.add_constraint(
-            "test_a",
-            index_is_zero.current(),
-            value.current() - value.current(),
-            // differences_are_zero_so_far.current()
-                // - differences_are_zero_so_far.previous() * difference_is_zero.current()
-        );
-
-        cb.add_constraint(
-            "test_b",
-            selector.current().and(!index_is_zero.current()),
-            value.current() - value.current(),
-            // differences_are_zero_so_far.current()
-                // - differences_are_zero_so_far.previous() * difference_is_zero.current()
+            "differences_are_zero_so_far = difference is 0 * differences_are_zero_so_far.previous() when index != 0",
+            selector.current().and(!index_is_zero.current()), // TODO: need to throw in selector here to avoid ConstraintPoisoned error.
+            differences_are_zero_so_far.current()
+                - differences_are_zero_so_far.previous() * difference_is_zero.current()
         );
 
         cb.build(cs);
@@ -144,6 +127,9 @@ impl Circuit<Fr> for CanonicalRepresentationCircuit {
                         config
                             .index
                             .assign(&mut region, offset, u64::try_from(index).unwrap());
+                        if index.is_zero() {
+                            config.index_is_zero.enable(&mut region, offset);
+                        }
 
                         let difference =
                             Fr::from(u64::from(*modulus_byte)) - Fr::from(u64::from(*byte));
@@ -152,16 +138,10 @@ impl Circuit<Fr> for CanonicalRepresentationCircuit {
                             .difference_is_zero
                             .assign(&mut region, offset, difference);
 
-                        if index.is_zero() {
-                            config.index_is_zero.enable(&mut region, offset);
-                        }
-
                         config.differences_are_zero_so_far.assign(
                             &mut region,
                             offset,
-                            difference.is_zero_vartime() // && differences_are_zero_so_far,
-                            // 5u64
-                            // 1u64
+                            difference.is_zero_vartime() && differences_are_zero_so_far,
                         );
                         differences_are_zero_so_far &= difference.is_zero_vartime();
 
@@ -184,11 +164,7 @@ mod test {
     #[test]
     fn test_canonical_representation() {
         let circuit = CanonicalRepresentationCircuit {
-            values: vec![
-            Fr::one(),
-            // Fr::from(2342),
-            // Fr::zero() - Fr::one()
-            ],
+            values: vec![Fr::one(), Fr::from(2342), Fr::zero() - Fr::one()],
         };
         let prover = MockProver::<Fr>::run(8, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
