@@ -3,7 +3,7 @@ use super::super::constraint_builder::{
 };
 use ethers_core::types::U256;
 use halo2_proofs::{
-    arithmetic::FieldExt,
+    arithmetic::{Field, FieldExt},
     circuit::{Layouter, SimpleFloorPlanner},
     halo2curves::bn256::Fr,
     plonk::{Circuit, ConstraintSystem, Error},
@@ -69,12 +69,13 @@ impl Circuit<Fr> for CanonicalRepresentationCircuit {
                     .map(|i| byte.rotation(i))
                     .fold(Query::zero(), |acc, x| acc * 256 + x),
         );
+
         let difference_is_zero = cb.is_zero_gadget(cs, selector.current(), difference);
-        // cb.add_constraint(
-        //     "differences_are_zero_so_far = difference is 0 when index = 0",
-        //     index_is_zero.current(),
-        //     differences_are_zero_so_far.current() - difference_is_zero.current(), // x = 0 or x = 1
-        // );
+        cb.add_constraint(
+            "differences_are_zero_so_far = difference is 0 when index = 0",
+            index_is_zero.current(),
+            differences_are_zero_so_far.current() - difference_is_zero.current(), // x = 0 or x = 1
+        );
         // cb.add_constraint(
         //     "differences_are_zero_so_far = difference is 0 * differences_are_zero_so_far.previous() when index != 0",
         //     !index_is_zero.current(),
@@ -128,7 +129,9 @@ impl Circuit<Fr> for CanonicalRepresentationCircuit {
 
                         let difference =
                             Fr::from(u64::from(*modulus_byte)) - Fr::from(u64::from(*byte));
-                        dbg!(difference);
+                        if index == 0 {
+                            dbg!(difference);
+                        }
                         config.difference.assign(&mut region, offset, difference);
                         config
                             .difference_is_zero
@@ -139,7 +142,7 @@ impl Circuit<Fr> for CanonicalRepresentationCircuit {
                             config.differences_are_zero_so_far.assign(
                                 &mut region,
                                 offset,
-                                Fr::zero(),
+                                difference.is_zero_vartime(),
                             );
                         } else {
                             config.differences_are_zero_so_far.assign(
@@ -159,19 +162,25 @@ impl Circuit<Fr> for CanonicalRepresentationCircuit {
     }
 }
 
+// 0x2f62377b272b4228d9ce9998097951308cb2d371a1dae8e39277eb20db000001
+// 0x2f62377b272b4228d9ce9998097951308cb2d371a1dae8e39277eb20db000001
+
 #[cfg(test)]
 mod test {
     use super::*;
-
     use halo2_proofs::dev::MockProver;
 
     #[test]
     fn masonnnnnnn() {
+        let x = Fr::from(0x30);
+        let inverse = x.invert().unwrap_or(Fr::zero());
+        dbg!(x, inverse, x * inverse);
+
         let circuit = CanonicalRepresentationCircuit {
             values: vec![
                 Fr::one(),
-                // Fr::from(2342),
-                // Fr::zero() - Fr::one()
+                Fr::from(2342),
+                Fr::zero() - Fr::one()
             ],
         };
         let prover = MockProver::<Fr>::run(8, &circuit, vec![]).unwrap();

@@ -43,9 +43,9 @@ impl<F: FieldExt> ConstraintBuilder<F> {
     ) -> IsZeroColumn {
         let inverse_or_zero = AdviceColumn(cs.advice_column());
         self.add_constraint(
-            "is_zero_gadget",
+            "value is 0 or inverse_or_zero is inverse of value",
             selector,
-            value.current() * (Query::from(1) - value.current() * inverse_or_zero.current()),
+            value.current() * (Query::one() - value.current() * inverse_or_zero.current()),
         );
         IsZeroColumn {
             value,

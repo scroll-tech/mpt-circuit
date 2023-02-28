@@ -103,7 +103,7 @@ pub struct IsZeroColumn {
 // probably a better name for this is IsZeroConfig
 impl IsZeroColumn {
     pub fn current<F: FieldExt>(self) -> BinaryQuery<F> {
-        BinaryQuery(Query::one() - self.value.current() - self.inverse_or_zero.current())
+        BinaryQuery(Query::one() - self.value.current() * self.inverse_or_zero.current())
     }
 
     pub fn assign<F: FieldExt, T: Copy + TryInto<F>>(
@@ -114,6 +114,8 @@ impl IsZeroColumn {
     ) where
         <T as TryInto<F>>::Error: Debug,
     {
+        let x: F = value.try_into().unwrap();
+        // dbg!(x, x.invert().unwrap_or(F::zero()));
         self.inverse_or_zero.assign(
             region,
             offset,
