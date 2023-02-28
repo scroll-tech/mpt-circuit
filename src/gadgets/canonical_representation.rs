@@ -30,7 +30,7 @@ struct CanonicalRepresentationConfig {
     modulus_byte: FixedColumn,     // (0..32).repeat().map(|i| Fr::MODULUS.to_le_bytes()[i])
     difference: AdviceColumn,      // modulus_byte - byte
     difference_is_zero: IsZeroColumn,
-    differences_are_zero_so_far: AdviceColumn, // difference[0] ... difference[index] are all 0.
+    differences_are_zero_so_far: AdviceColumn, // difference[0] ... difference[index - 1] are all 0.
 
     byte_lookup: FixedColumn,
 }
@@ -78,15 +78,24 @@ impl Circuit<Fr> for CanonicalRepresentationCircuit {
 
         let difference_is_zero = cb.is_zero_gadget(cs, selector.current(), difference);
         cb.add_constraint(
-            "differences_are_zero_so_far = difference is 0 when index = 0",
+            "differences_are_zero_so_far = 1 when index = 0",
             index_is_zero.current(),
-            differences_are_zero_so_far.current() - difference_is_zero.current(),
+            differences_are_zero_so_far.current() - 1,
         );
         cb.add_constraint(
             "differences_are_zero_so_far = difference is 0 * differences_are_zero_so_far.previous() when index != 0",
             selector.current().and(!index_is_zero.current()), // TODO: need to throw in selector here to avoid ConstraintPoisoned error.
             differences_are_zero_so_far.current()
-                - differences_are_zero_so_far.previous() * difference_is_zero.current()
+                - differences_are_zero_so_far.previous() * difference_is_zero.previous()
+        );
+        cb.add_lookup(
+            "if differences are 0 so far, either current difference is 0, or it is the first and 1 <= difference < 257",
+            // We already know the stronger fact that difference < 256 because difference = modulus_byte - byte which are both 8 bit.
+            // There do not exist two 8 bit numbers which subtract to give 256 mod P.
+            vec![(
+                differences_are_zero_so_far.current() * (Query::one() - difference_is_zero.current()) * (difference.current() - 1),
+                byte_lookup.current(),
+            )],
         );
 
         cb.build(cs);
@@ -153,7 +162,7 @@ impl Circuit<Fr> for CanonicalRepresentationCircuit {
                         config.differences_are_zero_so_far.assign(
                             &mut region,
                             offset,
-                            difference.is_zero_vartime() && differences_are_zero_so_far,
+                            differences_are_zero_so_far,
                         );
                         differences_are_zero_so_far &= difference.is_zero_vartime();
 
@@ -176,7 +185,7 @@ mod test {
     #[test]
     fn test_canonical_representation() {
         let circuit = CanonicalRepresentationCircuit {
-            values: vec![Fr::one(), Fr::from(2342), Fr::zero() - Fr::one()],
+            values: vec![Fr::zero(), Fr::one(), Fr::from(256), Fr::zero() - Fr::one()],
         };
         let prover = MockProver::<Fr>::run(10, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));

@@ -106,6 +106,10 @@ impl IsZeroColumn {
         BinaryQuery(Query::one() - self.value.current() * self.inverse_or_zero.current())
     }
 
+    pub fn previous<F: FieldExt>(self) -> BinaryQuery<F> {
+        BinaryQuery(Query::one() - self.value.previous() * self.inverse_or_zero.previous())
+    }
+
     pub fn assign<F: FieldExt, T: Copy + TryInto<F>>(
         &self,
         region: &mut Region<'_, F>,
