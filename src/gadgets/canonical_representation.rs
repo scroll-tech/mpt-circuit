@@ -31,6 +31,8 @@ struct CanonicalRepresentationConfig {
     difference: AdviceColumn,      // modulus_byte - byte
     difference_is_zero: IsZeroColumn,
     differences_are_zero_so_far: AdviceColumn, // difference[0] ... difference[index] are all 0.
+
+    byte_lookup: FixedColumn,
 }
 
 impl Circuit<Fr> for CanonicalRepresentationCircuit {
@@ -46,7 +48,7 @@ impl Circuit<Fr> for CanonicalRepresentationCircuit {
 
         let (
             [selector, index_is_zero],
-            [index, modulus_byte],
+            [index, modulus_byte, byte_lookup],
             [value, byte, difference, differences_are_zero_so_far],
         ) = cb.build_columns(cs);
 
@@ -68,6 +70,10 @@ impl Circuit<Fr> for CanonicalRepresentationCircuit {
                 - (0..32)
                     .map(|i| byte.rotation(i))
                     .fold(Query::zero(), |acc, x| acc * 256 + x),
+        );
+        cb.add_lookup(
+            "0 <= byte < 256",
+            vec![(byte.current(), byte_lookup.current())],
         );
 
         let difference_is_zero = cb.is_zero_gadget(cs, selector.current(), difference);
@@ -95,6 +101,7 @@ impl Circuit<Fr> for CanonicalRepresentationCircuit {
             difference,
             difference_is_zero,
             differences_are_zero_so_far,
+            byte_lookup,
         }
     }
 
@@ -110,6 +117,11 @@ impl Circuit<Fr> for CanonicalRepresentationCircuit {
         layouter.assign_region(
             || "",
             |mut region| {
+                for offset in 0..256 {
+                    config
+                        .byte_lookup
+                        .assign(&mut region, offset, u64::try_from(offset).unwrap());
+                }
                 let mut offset = 0;
                 for value in &self.values {
                     let mut bytes = value.to_bytes();
@@ -166,7 +178,7 @@ mod test {
         let circuit = CanonicalRepresentationCircuit {
             values: vec![Fr::one(), Fr::from(2342), Fr::zero() - Fr::one()],
         };
-        let prover = MockProver::<Fr>::run(8, &circuit, vec![]).unwrap();
+        let prover = MockProver::<Fr>::run(10, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
     }
 }
