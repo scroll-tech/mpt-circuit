@@ -1,6 +1,6 @@
 use super::{BinaryQuery, Query};
 use halo2_proofs::{
-    arithmetic::Field,
+    arithmetic::FieldExt,
     circuit::{Region, Value},
     plonk::{Advice, Column, Fixed, Selector},
     poly::Rotation,
@@ -8,11 +8,19 @@ use halo2_proofs::{
 use std::fmt::Debug;
 
 #[derive(Clone, Copy)]
-pub struct SelectorColumn(pub Selector);
+pub struct SelectorColumn(pub Column<Fixed>);
 
 impl SelectorColumn {
-    pub fn current<F: Field>(self) -> BinaryQuery<F> {
-        BinaryQuery(Query(Box::new(move |meta| meta.query_selector(self.0))))
+    pub fn current<F: FieldExt>(self) -> BinaryQuery<F> {
+        BinaryQuery(Query(Box::new(move |meta| {
+            meta.query_fixed(self.0, Rotation::cur())
+        })))
+    }
+
+    pub fn enable<F: FieldExt>(&self, region: &mut Region<'_, F>, offset: usize) {
+        region
+            .assign_fixed(|| "", self.0, offset, || Value::known(F::one()))
+            .expect("failed enable selector");
     }
 }
 
@@ -20,19 +28,19 @@ impl SelectorColumn {
 pub struct FixedColumn(pub Column<Fixed>);
 
 impl FixedColumn {
-    pub fn rotation<F: Field>(self, i: i32) -> Query<F> {
+    pub fn rotation<F: FieldExt>(self, i: i32) -> Query<F> {
         Query(Box::new(move |meta| meta.query_fixed(self.0, Rotation(i))))
     }
 
-    pub fn current<F: Field>(self) -> Query<F> {
+    pub fn current<F: FieldExt>(self) -> Query<F> {
         self.rotation(0)
     }
 
-    pub fn previous<F: Field>(self) -> Query<F> {
+    pub fn previous<F: FieldExt>(self) -> Query<F> {
         self.rotation(-1)
     }
 
-    pub fn assign<F: Field, T: Copy + TryInto<F>>(
+    pub fn assign<F: FieldExt, T: Copy + TryInto<F>>(
         &self,
         region: &mut Region<'_, F>,
         offset: usize,
@@ -55,19 +63,19 @@ impl FixedColumn {
 pub struct AdviceColumn(pub Column<Advice>);
 
 impl AdviceColumn {
-    pub fn rotation<F: Field>(self, i: i32) -> Query<F> {
+    pub fn rotation<F: FieldExt>(self, i: i32) -> Query<F> {
         Query(Box::new(move |meta| meta.query_advice(self.0, Rotation(i))))
     }
 
-    pub fn current<F: Field>(self) -> Query<F> {
+    pub fn current<F: FieldExt>(self) -> Query<F> {
         self.rotation(0)
     }
 
-    pub fn previous<F: Field>(self) -> Query<F> {
+    pub fn previous<F: FieldExt>(self) -> Query<F> {
         self.rotation(-1)
     }
 
-    pub fn assign<F: Field, T: Copy + TryInto<F>>(
+    pub fn assign<F: FieldExt, T: Copy + TryInto<F>>(
         &self,
         region: &mut Region<'_, F>,
         offset: usize,
@@ -87,23 +95,18 @@ impl AdviceColumn {
 }
 
 #[derive(Clone, Copy)]
-pub struct IsZeroColumn(pub AdviceColumn);
+pub struct IsZeroColumn {
+    pub value: AdviceColumn,
+    pub inverse_or_zero: AdviceColumn,
+}
 
 // probably a better name for this is IsZeroConfig
 impl IsZeroColumn {
-    pub fn rotation<F: Field>(self, i: i32) -> Query<F> {
-        self.0.rotation(i)
+    pub fn current<F: FieldExt>(self) -> BinaryQuery<F> {
+        BinaryQuery(Query::one() - self.value.current() - self.inverse_or_zero.current())
     }
 
-    pub fn current<F: Field>(self) -> Query<F> {
-        self.0.current()
-    }
-
-    pub fn previous<F: Field>(self) -> Query<F> {
-        self.0.previous()
-    }
-
-    pub fn assign<F: Field, T: Copy + TryInto<F>>(
+    pub fn assign<F: FieldExt, T: Copy + TryInto<F>>(
         &self,
         region: &mut Region<'_, F>,
         offset: usize,
@@ -111,7 +114,7 @@ impl IsZeroColumn {
     ) where
         <T as TryInto<F>>::Error: Debug,
     {
-        self.0.assign(
+        self.inverse_or_zero.assign(
             region,
             offset,
             value.try_into().unwrap().invert().unwrap_or(F::zero()),
