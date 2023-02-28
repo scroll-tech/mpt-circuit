@@ -182,10 +182,7 @@ mod test {
     use halo2_proofs::dev::MockProver;
 
     #[test]
-    fn masonnnnnnn() {
-        // let x = Fr::from(0x30);
-        // let inverse = x.invert().unwrap_or(Fr::zero());
-        // dbg!(x, inverse, x * inverse);
+    fn test_canonical_representation() {
         let circuit = CanonicalRepresentationCircuit {
             values: vec![
             Fr::one(),
