@@ -71,6 +71,11 @@ impl Circuit<Fr> for CanonicalRepresentationCircuit {
                     .map(|i| byte.rotation(i))
                     .fold(Query::zero(), |acc, x| acc * 256 + x),
         );
+        cb.add_constraint(
+            "value only changes when index = 0",
+            selector.current().and(!index_is_zero.current()),
+            value.current() - value.previous()
+        );
         cb.add_lookup(
             "0 <= byte < 256",
             vec![(byte.current(), byte_lookup.current())],
@@ -90,8 +95,8 @@ impl Circuit<Fr> for CanonicalRepresentationCircuit {
         );
         cb.add_lookup(
             "if differences are 0 so far, either current difference is 0, or it is the first and 1 <= difference < 257",
-            // We already know the stronger fact that difference < 256 because difference = modulus_byte - byte which are both 8 bit.
-            // There do not exist two 8 bit numbers which subtract to give 256 mod P.
+            // We already know that difference < 256 because difference = modulus_byte - byte which are both 8 bit.
+            // There do not exist two 8 bit numbers whose difference is 256 in Fr.
             vec![(
                 differences_are_zero_so_far.current() * (Query::one() - difference_is_zero.current()) * (difference.current() - 1),
                 byte_lookup.current(),
