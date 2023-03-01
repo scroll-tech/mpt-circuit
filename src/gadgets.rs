@@ -12,7 +12,9 @@ use halo2_proofs::{
     poly::Rotation,
 };
 
+mod byte_bit;
 mod canonical_representation;
+mod key_bit;
 mod poseidon;
 mod storage_leaf;
 mod storage_parents;

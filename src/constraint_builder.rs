@@ -35,6 +35,16 @@ impl<F: FieldExt> ConstraintBuilder<F> {
         self.lookups.push((name, lookup))
     }
 
+    pub fn add_lookup_2<const N: usize>(
+        &mut self,
+        name: &'static str,
+        left: [Query<F>; N],
+        right: [Query<F>; N],
+    ) {
+        let lookup = left.into_iter().zip(right.into_iter()).collect();
+        self.lookups.push((name, lookup))
+    }
+
     pub fn is_zero_gadget(
         &mut self,
         cs: &mut ConstraintSystem<F>,
@@ -57,7 +67,7 @@ impl<F: FieldExt> ConstraintBuilder<F> {
         &self,
         cs: &mut ConstraintSystem<F>,
     ) -> ([SelectorColumn; A], [FixedColumn; B], [AdviceColumn; C]) {
-        let selectors = [0; A].map(|_| SelectorColumn(cs.fixed_column())); // halo2 doesn't allow subtraction for simple selectors
+        let selectors = [0; A].map(|_| SelectorColumn(cs.fixed_column()));
         let fixed_columns = [0; B].map(|_| FixedColumn(cs.fixed_column()));
         let advice_columns = [0; C].map(|_| AdviceColumn(cs.advice_column()));
         (selectors, fixed_columns, advice_columns)

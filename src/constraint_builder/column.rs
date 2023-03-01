@@ -2,7 +2,7 @@ use super::{BinaryQuery, Query};
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Region, Value},
-    plonk::{Advice, Column, Fixed, Selector},
+    plonk::{Advice, Column, Fixed},
     poly::Rotation,
 };
 use std::fmt::Debug;
@@ -118,8 +118,6 @@ impl IsZeroColumn {
     ) where
         <T as TryInto<F>>::Error: Debug,
     {
-        let x: F = value.try_into().unwrap();
-        // dbg!(x, x.invert().unwrap_or(F::zero()));
         self.inverse_or_zero.assign(
             region,
             offset,

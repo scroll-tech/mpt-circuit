@@ -1,6 +1,7 @@
 use super::super::constraint_builder::{
     AdviceColumn, ConstraintBuilder, FixedColumn, IsZeroColumn, Query, SelectorColumn,
 };
+use super::byte_bit::{ByteBitGadget, ByteBitLookup, RangeCheck256Lookup, RangeCheck8Lookup};
 use ethers_core::types::U256;
 use halo2_proofs::{
     arithmetic::{Field, FieldExt},
@@ -35,17 +36,20 @@ struct CanonicalRepresentationConfig {
     byte_lookup: FixedColumn,
 }
 
-impl Circuit<Fr> for CanonicalRepresentationCircuit {
-    type Config = CanonicalRepresentationConfig;
-    type FloorPlanner = SimpleFloorPlanner;
-
-    fn without_witnesses(&self) -> Self {
-        Self::default()
+impl CanonicalRepresentationConfig {
+    pub fn lookup<F: FieldExt>(&self) -> [Query<F>; 3] {
+        [
+            self.value.current(),
+            self.index.current(),
+            self.byte.current(),
+        ]
     }
 
-    fn configure(cs: &mut ConstraintSystem<Fr>) -> Self::Config {
-        let mut cb = ConstraintBuilder::new();
-
+    fn configure(
+        cs: &mut ConstraintSystem<Fr>,
+        cb: &mut ConstraintBuilder<Fr>,
+        range_check: &impl RangeCheck256Lookup,
+    ) -> Self {
         let (
             [selector, index_is_zero],
             [index, modulus_byte, byte_lookup],
@@ -74,7 +78,7 @@ impl Circuit<Fr> for CanonicalRepresentationCircuit {
         cb.add_constraint(
             "value only changes when index = 0",
             selector.current().and(!index_is_zero.current()),
-            value.current() - value.previous()
+            value.current() - value.previous(),
         );
         cb.add_lookup(
             "0 <= byte < 256",
@@ -93,19 +97,17 @@ impl Circuit<Fr> for CanonicalRepresentationCircuit {
             differences_are_zero_so_far.current()
                 - differences_are_zero_so_far.previous() * difference_is_zero.previous()
         );
-        cb.add_lookup(
+        cb.add_lookup_2(
             "if differences are 0 so far, either current difference is 0, or it is the first and 1 <= difference < 257",
             // We already know that difference < 256 because difference = modulus_byte - byte which are both 8 bit.
             // There do not exist two 8 bit numbers whose difference is 256 in Fr.
-            vec![(
-                differences_are_zero_so_far.current() * (Query::one() - difference_is_zero.current()) * (difference.current() - 1),
-                byte_lookup.current(),
-            )],
+            [
+                differences_are_zero_so_far.current() * (Query::one() - difference_is_zero.current()) * (difference.current() - 1)],
+            range_check.lookup(),
+
         );
 
-        cb.build(cs);
-
-        Self::Config {
+        Self {
             selector,
             value,
             index,
@@ -117,6 +119,23 @@ impl Circuit<Fr> for CanonicalRepresentationCircuit {
             differences_are_zero_so_far,
             byte_lookup,
         }
+    }
+}
+
+impl Circuit<Fr> for CanonicalRepresentationCircuit {
+    type Config = CanonicalRepresentationConfig;
+    type FloorPlanner = SimpleFloorPlanner;
+
+    fn without_witnesses(&self) -> Self {
+        Self::default()
+    }
+
+    fn configure(cs: &mut ConstraintSystem<Fr>) -> Self::Config {
+        let mut cb = ConstraintBuilder::new();
+        let range_check = ByteBitGadget::configure(cs, &mut cb);
+        let config = Self::Config::configure(cs, &mut cb, &range_check);
+        cb.build(cs);
+        config
     }
 
     fn synthesize(
