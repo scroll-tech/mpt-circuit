@@ -1,7 +1,7 @@
 use super::super::constraint_builder::{
     AdviceColumn, ConstraintBuilder, FixedColumn, IsZeroColumn, Query, SelectorColumn,
 };
-use super::byte_bit::{ByteBitGadget, ByteBitLookup, RangeCheck256Lookup, RangeCheck8Lookup};
+use super::byte_bit::{ByteBitGadget, RangeCheck256Lookup};
 use ethers_core::types::U256;
 use halo2_proofs::{
     arithmetic::{Field, FieldExt},

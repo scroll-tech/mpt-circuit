@@ -1,16 +1,4 @@
-use super::super::constraint_builder::{
-    AdviceColumn, ConstraintBuilder, FixedColumn, IsZeroColumn, Query, SelectorColumn,
-};
-use super::byte_bit::{ByteBitLookup, RangeCheck256Lookup, RangeCheck8Lookup};
-use ethers_core::types::U256;
-use halo2_proofs::{
-    arithmetic::{Field, FieldExt},
-    circuit::{Layouter, SimpleFloorPlanner},
-    halo2curves::bn256::Fr,
-    plonk::{Circuit, ConstraintSystem, Error},
-};
-use itertools::Itertools;
-use num_traits::Zero;
+use super::super::constraint_builder::{AdviceColumn, SelectorColumn};
 
 #[derive(Clone)]
 struct KeyBitGadgetConfig {

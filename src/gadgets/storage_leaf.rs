@@ -85,8 +85,8 @@ mod test {
 
         fn synthesize(
             &self,
-            config: Self::Config,
-            mut layouter: impl Layouter<Fr>,
+            _config: Self::Config,
+            _layouter: impl Layouter<Fr>,
         ) -> Result<(), Error> {
             // config.assign(&mut layouter, &self.traces);
 

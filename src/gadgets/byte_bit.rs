@@ -1,16 +1,7 @@
-use super::super::constraint_builder::{
-    AdviceColumn, ConstraintBuilder, FixedColumn, IsZeroColumn, Query, SelectorColumn,
-};
-use ethers_core::types::U256;
+use super::super::constraint_builder::{ConstraintBuilder, FixedColumn, Query};
+
 use halo2_proofs::circuit::Region;
-use halo2_proofs::{
-    arithmetic::{Field, FieldExt},
-    circuit::{Layouter, SimpleFloorPlanner},
-    halo2curves::bn256::Fr,
-    plonk::{Circuit, ConstraintSystem, Error},
-};
-use itertools::Itertools;
-use num_traits::Zero;
+use halo2_proofs::{arithmetic::FieldExt, plonk::ConstraintSystem};
 
 #[derive(Clone)]
 pub struct ByteBitGadget {

@@ -717,8 +717,6 @@ impl Bit for Fr {
 mod test {
     use super::*;
 
-    use crate::{operation::Account, serde::AccountData};
-
     const EMPTY_ACCOUNT_TRACE: &str = include_str!("../tests/empty_account.json");
     const EMPTY_STORAGE_TRACE: &str = include_str!("../tests/empty_storage.json");
     const TRACES: &str = include_str!("../tests/traces.json");
@@ -738,7 +736,7 @@ mod test {
         for s in [TRACES, READ_TRACES, TOKEN_TRACES] {
             let traces: Vec<SMTTrace> = serde_json::from_str::<Vec<_>>(s).unwrap();
             for trace in traces {
-                let address = Address::from(trace.address.0);
+                let _address = Address::from(trace.address.0);
                 let [open, close] = trace.account_path;
 
                 // not always true for deploy traces because account comes into existence.
@@ -827,7 +825,7 @@ mod test {
             let traces: Vec<SMTTrace> = serde_json::from_str::<Vec<_>>(s).unwrap();
             for trace in traces {
                 let address = trace.address.0.into();
-                for (path, account) in trace.account_path.iter().zip_eq(trace.account_update) {
+                for (path, _account) in trace.account_path.iter().zip_eq(trace.account_update) {
                     assert!(
                         contains(
                             &bits(

@@ -48,7 +48,7 @@ mod test {
     }
 
     fn check_trace(trace: serde::SMTTrace) {
-        let [storage_root_before, storage_root_after] = storage_roots(&trace);
+        let [storage_root_before, _storage_root_after] = storage_roots(&trace);
 
         if let Some(account_before) = trace.account_update[0].clone() {
             dbg!("yess????");
@@ -84,7 +84,7 @@ mod test {
         // let storage_root = trace.common_state_root.or().unwrap()
         // let [account_hash_after, account_hash_before] = trace.account_update.iter().zip(trace.state)map(||)account_hash()
 
-        let [state_root_before, state_root_after] = trace.account_path.map(path_root);
+        let [_state_root_before, _state_root_after] = trace.account_path.map(path_root);
     }
 
     fn storage_roots(trace: &serde::SMTTrace) -> [Fr; 2] {

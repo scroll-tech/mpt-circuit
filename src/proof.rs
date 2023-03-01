@@ -273,14 +273,14 @@ mod test {
     fn check_empty_storage() {
         let empty_storage = include_str!("../tests/empty_storage.json");
         let trace: SMTTrace = serde_json::from_str(empty_storage).unwrap();
-        let proof = Proof::from(trace);
+        let _proof = Proof::from(trace);
     }
 
     #[test]
     fn empty_account() {
         let empty_storage = include_str!("../tests/empty_account.json");
         let trace: SMTTrace = serde_json::from_str(empty_storage).unwrap();
-        let proof = Proof::from(trace);
+        let _proof = Proof::from(trace);
     }
 
     #[test]
@@ -288,7 +288,7 @@ mod test {
         for s in [READ_TRACES] {
             let traces: Vec<SMTTrace> = serde_json::from_str::<Vec<_>>(s).unwrap();
             for trace in traces {
-                let proof = Proof::from(trace);
+                let _proof = Proof::from(trace);
             }
         }
     }
@@ -298,7 +298,7 @@ mod test {
         for s in [DEPLOY_TRACES] {
             let traces: Vec<SMTTrace> = serde_json::from_str::<Vec<_>>(s).unwrap();
             for trace in traces {
-                let proof = Proof::from(trace);
+                let _proof = Proof::from(trace);
             }
         }
     }
@@ -308,7 +308,7 @@ mod test {
         for s in [TOKEN_TRACES] {
             let traces: Vec<SMTTrace> = serde_json::from_str::<Vec<_>>(s).unwrap();
             for trace in traces {
-                let proof = Proof::from(trace);
+                let _proof = Proof::from(trace);
             }
         }
     }
