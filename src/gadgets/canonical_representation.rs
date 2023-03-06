@@ -1,7 +1,10 @@
 use super::super::constraint_builder::{
-    AdviceColumn, ConstraintBuilder, FixedColumn, IsZeroColumn, Query, SelectorColumn,
+    AdviceColumn, ConstraintBuilder, FixedColumn, Query, SelectorColumn,
 };
-use super::byte_bit::{ByteBitGadget, RangeCheck256Lookup};
+use super::{
+    byte_bit::{ByteBitGadget, RangeCheck256Lookup},
+    is_zero::IsZeroGadget,
+};
 use ethers_core::types::U256;
 use halo2_proofs::{
     arithmetic::{Field, FieldExt},
@@ -30,7 +33,7 @@ struct CanonicalRepresentationConfig {
     index_is_zero: SelectorColumn, // (0..32).repeat().map(|i| i == 0)
     modulus_byte: FixedColumn,     // (0..32).repeat().map(|i| Fr::MODULUS.to_le_bytes()[i])
     difference: AdviceColumn,      // modulus_byte - byte
-    difference_is_zero: IsZeroColumn,
+    difference_is_zero: IsZeroGadget,
     differences_are_zero_so_far: AdviceColumn, // difference[0] ... difference[index - 1] are all 0.
 
     byte_lookup: FixedColumn,
@@ -80,12 +83,9 @@ impl CanonicalRepresentationConfig {
             selector.current().and(!index_is_zero.current()),
             value.current() - value.previous(),
         );
-        cb.add_lookup(
-            "0 <= byte < 256",
-            vec![(byte.current(), byte_lookup.current())],
-        );
+        cb.add_lookup_2("0 <= byte < 256", [byte.current()], [byte_lookup.current()]);
 
-        let difference_is_zero = cb.is_zero_gadget(cs, selector.current(), difference);
+        let difference_is_zero = IsZeroGadget::configure(cs, cb, selector.current(), difference);
         cb.add_constraint(
             "differences_are_zero_so_far = 1 when index = 0",
             index_is_zero.current(),
@@ -102,7 +102,10 @@ impl CanonicalRepresentationConfig {
             // We already know that difference < 256 because difference = modulus_byte - byte which are both 8 bit.
             // There do not exist two 8 bit numbers whose difference is 256 in Fr.
             [
-                differences_are_zero_so_far.current() * (Query::one() - difference_is_zero.current()) * (difference.current() - 1)],
+                differences_are_zero_so_far.current() *
+                !difference_is_zero.current() *
+                (difference.current() - 1)
+                ],
             range_check.lookup(),
 
         );

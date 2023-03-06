@@ -14,6 +14,7 @@ use halo2_proofs::{
 
 mod byte_bit;
 mod canonical_representation;
+mod is_zero;
 mod key_bit;
 mod poseidon;
 mod storage_leaf;

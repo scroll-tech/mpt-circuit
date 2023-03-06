@@ -5,7 +5,7 @@ mod column;
 mod query;
 
 pub use binary_query::BinaryQuery;
-pub use column::{AdviceColumn, FixedColumn, IsZeroColumn, SelectorColumn};
+pub use column::{AdviceColumn, FixedColumn, SelectorColumn};
 pub use query::Query;
 
 pub struct ConstraintBuilder<F: FieldExt> {
@@ -31,10 +31,6 @@ impl<F: FieldExt> ConstraintBuilder<F> {
             .push((name, selector.condition(constraint)))
     }
 
-    pub fn add_lookup(&mut self, name: &'static str, lookup: Vec<(Query<F>, Query<F>)>) {
-        self.lookups.push((name, lookup))
-    }
-
     pub fn add_lookup_2<const N: usize>(
         &mut self,
         name: &'static str,
@@ -43,24 +39,6 @@ impl<F: FieldExt> ConstraintBuilder<F> {
     ) {
         let lookup = left.into_iter().zip(right.into_iter()).collect();
         self.lookups.push((name, lookup))
-    }
-
-    pub fn is_zero_gadget(
-        &mut self,
-        cs: &mut ConstraintSystem<F>,
-        selector: BinaryQuery<F>,
-        value: AdviceColumn, // TODO: make this a query once Query is clonable/copyable.....
-    ) -> IsZeroColumn {
-        let inverse_or_zero = AdviceColumn(cs.advice_column());
-        self.add_constraint(
-            "value is 0 or inverse_or_zero is inverse of value",
-            selector,
-            value.current() * (Query::one() - value.current() * inverse_or_zero.current()),
-        );
-        IsZeroColumn {
-            value,
-            inverse_or_zero,
-        }
     }
 
     pub fn build_columns<const A: usize, const B: usize, const C: usize>(
