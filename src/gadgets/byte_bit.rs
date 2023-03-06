@@ -38,7 +38,7 @@ impl ByteBitGadget {
                 self.byte.assign(region, offset, byte);
                 self.index.assign(region, offset, index);
                 self.bit.assign(region, offset, byte & (1 << index) != 0);
-                offset += 1
+                offset += 1;
             }
         }
     }
@@ -65,41 +65,3 @@ impl ByteBitLookup for ByteBitGadget {
         ]
     }
 }
-
-// impl Circuit<Fr> for ByteBitGadget {
-//     type Config = CanonicalRepresentationConfig;
-//     type FloorPlanner = SimpleFloorPlanner;
-
-//     fn without_witnesses(&self) -> Self {
-//         Self::default()
-//     }
-
-//     fn configure(cs: &mut ConstraintSystem<Fr>, &mut cb: ConstraintBuilder<F>) -> Self::Config {
-//         let ([], [byte, index, bit], []) = cb.build_columns(cs);
-
-//         Self::Config { byte, index, bit }
-//     }
-
-//     fn synthesize(
-//         &self,
-//         config: Self::Config,
-//         mut layouter: impl Layouter<Fr>,
-//     ) -> Result<(), Error> {
-//         Ok(config.assign()(layouter))
-//     }
-// }
-
-// #[cfg(test)]
-// mod test {
-//     use super::*;
-//     use halo2_proofs::dev::MockProver;
-
-//     #[test]
-//     fn byte_bit() {
-//         let circuit = CanonicalRepresentationCircuit {
-//             values: vec![Fr::zero(), Fr::one(), Fr::from(256), Fr::zero() - Fr::one()],
-//         };
-//         let prover = MockProver::<Fr>::run(10, &circuit, vec![]).unwrap();
-//         assert_eq!(prover.verify(), Ok(()));
-//     }
-// }

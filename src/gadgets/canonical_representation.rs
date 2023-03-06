@@ -8,17 +8,12 @@ use super::{
 use ethers_core::types::U256;
 use halo2_proofs::{
     arithmetic::{Field, FieldExt},
-    circuit::{Layouter, SimpleFloorPlanner},
+    circuit::{Layouter, Region, SimpleFloorPlanner},
     halo2curves::bn256::Fr,
     plonk::{Circuit, ConstraintSystem, Error},
 };
 use itertools::Itertools;
 use num_traits::Zero;
-
-#[derive(Clone, Default, Debug)]
-struct CanonicalRepresentationCircuit {
-    values: Vec<Fr>,
-}
 
 #[derive(Clone)]
 struct CanonicalRepresentationConfig {
@@ -35,8 +30,6 @@ struct CanonicalRepresentationConfig {
     difference: AdviceColumn,      // modulus_byte - byte
     difference_is_zero: IsZeroGadget,
     differences_are_zero_so_far: AdviceColumn, // difference[0] ... difference[index - 1] are all 0.
-
-    byte_lookup: FixedColumn,
 }
 
 impl CanonicalRepresentationConfig {
@@ -55,7 +48,7 @@ impl CanonicalRepresentationConfig {
     ) -> Self {
         let (
             [selector, index_is_zero],
-            [index, modulus_byte, byte_lookup],
+            [index, modulus_byte],
             [value, byte, difference, differences_are_zero_so_far],
         ) = cb.build_columns(cs);
 
@@ -83,7 +76,7 @@ impl CanonicalRepresentationConfig {
             selector.current().and(!index_is_zero.current()),
             value.current() - value.previous(),
         );
-        cb.add_lookup_2("0 <= byte < 256", [byte.current()], [byte_lookup.current()]);
+        cb.add_lookup_2("0 <= byte < 256", [byte.current()], range_check.lookup());
 
         let difference_is_zero = IsZeroGadget::configure(cs, cb, selector.current(), difference);
         cb.add_constraint(
@@ -101,13 +94,10 @@ impl CanonicalRepresentationConfig {
             "if differences are 0 so far, either current difference is 0, or it is the first and 1 <= difference < 257",
             // We already know that difference < 256 because difference = modulus_byte - byte which are both 8 bit.
             // There do not exist two 8 bit numbers whose difference is 256 in Fr.
-            [
-                differences_are_zero_so_far.current() *
-                !difference_is_zero.current() *
-                (difference.current() - 1)
-                ],
+            [differences_are_zero_so_far.current()
+                * !difference_is_zero.current()
+                * (difference.current() - 1)],
             range_check.lookup(),
-
         );
 
         Self {
@@ -120,13 +110,57 @@ impl CanonicalRepresentationConfig {
             difference,
             difference_is_zero,
             differences_are_zero_so_far,
-            byte_lookup,
+        }
+    }
+
+    fn assign(&self, region: &mut Region<'_, Fr>, values: &[Fr]) {
+        let modulus = U256::from_str_radix(Fr::MODULUS, 16).unwrap();
+        let mut modulus_bytes = [0u8; 32];
+        modulus.to_big_endian(&mut modulus_bytes);
+
+        let mut offset = 0;
+        for value in values {
+            let mut bytes = value.to_bytes();
+            bytes.reverse();
+            let mut differences_are_zero_so_far = true;
+            for (index, (byte, modulus_byte)) in bytes.iter().zip_eq(&modulus_bytes).enumerate() {
+                self.selector.enable(region, offset);
+                self.byte.assign(region, offset, u64::from(*byte));
+                self.modulus_byte
+                    .assign(region, offset, u64::from(*modulus_byte));
+
+                self.index
+                    .assign(region, offset, u64::try_from(index).unwrap());
+                if index.is_zero() {
+                    self.index_is_zero.enable(region, offset);
+                }
+
+                let difference = Fr::from(u64::from(*modulus_byte)) - Fr::from(u64::from(*byte));
+                self.difference.assign(region, offset, difference);
+                self.difference_is_zero.assign(region, offset, difference);
+
+                self.differences_are_zero_so_far.assign(
+                    region,
+                    offset,
+                    differences_are_zero_so_far,
+                );
+                differences_are_zero_so_far &= difference.is_zero_vartime();
+
+                self.value.assign(region, offset, *value);
+
+                offset += 1
+            }
         }
     }
 }
 
-impl Circuit<Fr> for CanonicalRepresentationCircuit {
-    type Config = CanonicalRepresentationConfig;
+#[derive(Clone, Default, Debug)]
+struct TestCircuit {
+    values: Vec<Fr>,
+}
+
+impl Circuit<Fr> for TestCircuit {
+    type Config = (ByteBitGadget, CanonicalRepresentationConfig);
     type FloorPlanner = SimpleFloorPlanner;
 
     fn without_witnesses(&self) -> Self {
@@ -135,10 +169,11 @@ impl Circuit<Fr> for CanonicalRepresentationCircuit {
 
     fn configure(cs: &mut ConstraintSystem<Fr>) -> Self::Config {
         let mut cb = ConstraintBuilder::new();
-        let range_check = ByteBitGadget::configure(cs, &mut cb);
-        let config = Self::Config::configure(cs, &mut cb, &range_check);
+        let byte_bit = ByteBitGadget::configure(cs, &mut cb);
+        let canonical_representation =
+            CanonicalRepresentationConfig::configure(cs, &mut cb, &byte_bit);
         cb.build(cs);
-        config
+        (byte_bit, canonical_representation)
     }
 
     fn synthesize(
@@ -146,58 +181,11 @@ impl Circuit<Fr> for CanonicalRepresentationCircuit {
         config: Self::Config,
         mut layouter: impl Layouter<Fr>,
     ) -> Result<(), Error> {
-        let modulus = U256::from_str_radix(Fr::MODULUS, 16).unwrap();
-        let mut modulus_bytes = [0u8; 32];
-        modulus.to_big_endian(&mut modulus_bytes);
-
         layouter.assign_region(
             || "",
             |mut region| {
-                for offset in 0..256 {
-                    config
-                        .byte_lookup
-                        .assign(&mut region, offset, u64::try_from(offset).unwrap());
-                }
-                let mut offset = 0;
-                for value in &self.values {
-                    let mut bytes = value.to_bytes();
-                    bytes.reverse();
-                    let mut differences_are_zero_so_far = true;
-                    for (index, (byte, modulus_byte)) in
-                        bytes.iter().zip_eq(&modulus_bytes).enumerate()
-                    {
-                        config.selector.enable(&mut region, offset);
-                        config.byte.assign(&mut region, offset, u64::from(*byte));
-                        config
-                            .modulus_byte
-                            .assign(&mut region, offset, u64::from(*modulus_byte));
-
-                        config
-                            .index
-                            .assign(&mut region, offset, u64::try_from(index).unwrap());
-                        if index.is_zero() {
-                            config.index_is_zero.enable(&mut region, offset);
-                        }
-
-                        let difference =
-                            Fr::from(u64::from(*modulus_byte)) - Fr::from(u64::from(*byte));
-                        config.difference.assign(&mut region, offset, difference);
-                        config
-                            .difference_is_zero
-                            .assign(&mut region, offset, difference);
-
-                        config.differences_are_zero_so_far.assign(
-                            &mut region,
-                            offset,
-                            differences_are_zero_so_far,
-                        );
-                        differences_are_zero_so_far &= difference.is_zero_vartime();
-
-                        config.value.assign(&mut region, offset, *value);
-
-                        offset += 1
-                    }
-                }
+                config.0.assign(&mut region);
+                config.1.assign(&mut region, &self.values);
                 Ok(())
             },
         )
@@ -211,10 +199,10 @@ mod test {
 
     #[test]
     fn test_canonical_representation() {
-        let circuit = CanonicalRepresentationCircuit {
+        let circuit = TestCircuit {
             values: vec![Fr::zero(), Fr::one(), Fr::from(256), Fr::zero() - Fr::one()],
         };
-        let prover = MockProver::<Fr>::run(10, &circuit, vec![]).unwrap();
+        let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
     }
 }
