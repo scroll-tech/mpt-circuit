@@ -1,13 +1,11 @@
 use super::super::constraint_builder::{ConstraintBuilder, FixedColumn, Query};
-
-use halo2_proofs::circuit::Region;
-use halo2_proofs::{arithmetic::FieldExt, plonk::ConstraintSystem};
+use halo2_proofs::{arithmetic::FieldExt, circuit::Region, plonk::ConstraintSystem};
 
 #[derive(Clone)]
 pub struct ByteBitGadget {
-    byte: FixedColumn, // This lookup table can be used to show that byte[i] = bit in this gadget
-    index: FixedColumn, // (0..8).repeat()
-    bit: FixedColumn,  // we need to prove that bytes form the canonical representation of value.
+    byte: FixedColumn,
+    index: FixedColumn,
+    bit: FixedColumn,
 }
 
 pub trait RangeCheck8Lookup {

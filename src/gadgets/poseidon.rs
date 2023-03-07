@@ -5,6 +5,10 @@ use halo2_proofs::{
     poly::Rotation,
 };
 
+pub trait PoseidonLookup {
+    fn lookup<F: FieldExt>(&self) -> [Query<F>; 3];
+}
+
 // use halo2curves::bn256::Fr
 
 #[derive(Clone, Copy, Debug)]

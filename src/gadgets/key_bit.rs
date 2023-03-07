@@ -1,7 +1,11 @@
 use super::super::constraint_builder::{AdviceColumn, SelectorColumn};
 
+pub trait KeyBitLookup {
+    fn lookup<F: FieldExt>(&self) -> [Query<F>; 3];
+}
+
 #[derive(Clone)]
-struct KeyBitGadgetConfig {
+struct KeyBitConfig {
     selector: SelectorColumn, // always enabled selector for constraints we want always enabled.
 
     // Lookup columns

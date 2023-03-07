@@ -16,6 +16,7 @@ mod byte_bit;
 mod canonical_representation;
 mod is_zero;
 mod key_bit;
+mod mpt_update;
 mod poseidon;
 mod storage_leaf;
 mod storage_parents;

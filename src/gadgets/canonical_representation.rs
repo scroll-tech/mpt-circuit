@@ -1,16 +1,13 @@
 use super::super::constraint_builder::{
     AdviceColumn, ConstraintBuilder, FixedColumn, Query, SelectorColumn,
 };
-use super::{
-    byte_bit::{ByteBitGadget, RangeCheck256Lookup},
-    is_zero::IsZeroGadget,
-};
+use super::{byte_bit::RangeCheck256Lookup, is_zero::IsZeroGadget};
 use ethers_core::types::U256;
 use halo2_proofs::{
     arithmetic::{Field, FieldExt},
-    circuit::{Layouter, Region, SimpleFloorPlanner},
+    circuit::Region,
     halo2curves::bn256::Fr,
-    plonk::{Circuit, ConstraintSystem, Error},
+    plonk::ConstraintSystem,
 };
 use itertools::Itertools;
 use num_traits::Zero;
@@ -154,48 +151,52 @@ impl CanonicalRepresentationConfig {
     }
 }
 
-#[derive(Clone, Default, Debug)]
-struct TestCircuit {
-    values: Vec<Fr>,
-}
-
-impl Circuit<Fr> for TestCircuit {
-    type Config = (ByteBitGadget, CanonicalRepresentationConfig);
-    type FloorPlanner = SimpleFloorPlanner;
-
-    fn without_witnesses(&self) -> Self {
-        Self::default()
-    }
-
-    fn configure(cs: &mut ConstraintSystem<Fr>) -> Self::Config {
-        let mut cb = ConstraintBuilder::new();
-        let byte_bit = ByteBitGadget::configure(cs, &mut cb);
-        let canonical_representation =
-            CanonicalRepresentationConfig::configure(cs, &mut cb, &byte_bit);
-        cb.build(cs);
-        (byte_bit, canonical_representation)
-    }
-
-    fn synthesize(
-        &self,
-        config: Self::Config,
-        mut layouter: impl Layouter<Fr>,
-    ) -> Result<(), Error> {
-        layouter.assign_region(
-            || "",
-            |mut region| {
-                config.0.assign(&mut region);
-                config.1.assign(&mut region, &self.values);
-                Ok(())
-            },
-        )
-    }
-}
-
 #[cfg(test)]
 mod test {
-    use super::*;
-    use halo2_proofs::dev::MockProver;
+    use super::{super::byte_bit::ByteBitGadget, *};
+    use halo2_proofs::{
+        circuit::{Layouter, SimpleFloorPlanner},
+        dev::MockProver,
+        plonk::{Circuit, Error},
+    };
+
+    #[derive(Clone, Default, Debug)]
+    struct TestCircuit {
+        values: Vec<Fr>,
+    }
+
+    impl Circuit<Fr> for TestCircuit {
+        type Config = (ByteBitGadget, CanonicalRepresentationConfig);
+        type FloorPlanner = SimpleFloorPlanner;
+
+        fn without_witnesses(&self) -> Self {
+            Self::default()
+        }
+
+        fn configure(cs: &mut ConstraintSystem<Fr>) -> Self::Config {
+            let mut cb = ConstraintBuilder::new();
+            let byte_bit = ByteBitGadget::configure(cs, &mut cb);
+            let canonical_representation =
+                CanonicalRepresentationConfig::configure(cs, &mut cb, &byte_bit);
+            cb.build(cs);
+            (byte_bit, canonical_representation)
+        }
+
+        fn synthesize(
+            &self,
+            config: Self::Config,
+            mut layouter: impl Layouter<Fr>,
+        ) -> Result<(), Error> {
+            layouter.assign_region(
+                || "",
+                |mut region| {
+                    config.0.assign(&mut region);
+                    config.1.assign(&mut region, &self.values);
+                    Ok(())
+                },
+            )
+        }
+    }
 
     #[test]
     fn test_canonical_representation() {
