@@ -1,6 +1,6 @@
 use halo2_proofs::{
-    arithmetic::{Field, FieldExt},
     circuit::{Layouter, Value},
+    ff::{Field, FromUniformBytes, PrimeField},
     plonk::{Advice, Column, ConstraintSystem, Error, Expression, TableColumn, VirtualCells},
     poly::Rotation,
 };
@@ -35,7 +35,7 @@ pub(crate) struct Chip<F: Field, const N: usize> {
     _marker: PhantomData<F>,
 }
 
-impl<F: FieldExt, const N: usize> Chip<F, N> {
+impl<F: PrimeField + FromUniformBytes<64> + Ord, const N: usize> Chip<F, N> {
     const RANGE: usize = 1 << N;
 
     pub fn construct(config: Config<N>) -> Self {

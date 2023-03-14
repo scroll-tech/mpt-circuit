@@ -1,6 +1,6 @@
 use halo2_proofs::{
-    arithmetic::FieldExt,
     circuit::{Region, Value},
+    ff::{FromUniformBytes, PrimeField},
     plonk::{Advice, Column, ConstraintSystem, Error, Expression, Selector},
     poly::Rotation,
 };
@@ -12,7 +12,7 @@ pub(crate) struct Config {
 }
 
 impl Config {
-    pub fn configure<F: FieldExt, const N: usize>(
+    pub fn configure<F: PrimeField + FromUniformBytes<64> + Ord, const N: usize>(
         meta: &mut ConstraintSystem<F>,
         sel: Selector,
         rep: &[Column<Advice>; N],
@@ -49,7 +49,7 @@ impl Config {
         Self { rep_hi, rep_lo }
     }
 
-    pub fn assign<F: FieldExt>(
+    pub fn assign<F: PrimeField + FromUniformBytes<64> + Ord>(
         &self,
         region: &mut Region<'_, F>,
         offset: usize,
@@ -67,12 +67,12 @@ impl Config {
         Ok(true)
     }
 
-    pub fn flush<F: FieldExt>(
+    pub fn flush<F: PrimeField + FromUniformBytes<64> + Ord>(
         &self,
         region: &mut Region<'_, F>,
         offset: usize,
     ) -> Result<bool, Error> {
-        self.assign(region, offset, &(F::zero(), F::zero()))
+        self.assign(region, offset, &(F::ZERO, F::ZERO))
     }
 }
 
@@ -124,7 +124,7 @@ mod test {
                 let val = meta.query_advice(val, Rotation::cur());
                 vec![
                     meta.query_selector(sel)
-                        * rep.bind_rlc_value(meta, val, Expression::Constant(Fp::one()), None),
+                        * rep.bind_rlc_value(meta, val, Expression::Constant(Fp::ONE), None),
                 ]
             });
 

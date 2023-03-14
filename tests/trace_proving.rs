@@ -12,6 +12,7 @@ use halo2_proofs::transcript::{
     Blake2bRead, Blake2bWrite, Challenge255, PoseidonRead, PoseidonWrite, TranscriptRead,
     TranscriptReadBuffer, TranscriptWriterBuffer,
 };
+use halo2_proofs::SerdeFormat::RawBytesUnchecked;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
@@ -94,14 +95,14 @@ fn vk_validity() {
     let vk1 = keygen_vk(&params, &circuit).unwrap();
 
     let mut vk1_buf: Vec<u8> = Vec::new();
-    vk1.write(&mut vk1_buf).unwrap();
+    vk1.write(&mut vk1_buf, RawBytesUnchecked).unwrap();
 
     let data: EthTrie<Fp> = Default::default();
     let (circuit, _) = data.to_circuits((200, None), &[]);
     let vk2 = keygen_vk(&params, &circuit).unwrap();
 
     let mut vk2_buf: Vec<u8> = Vec::new();
-    vk2.write(&mut vk2_buf).unwrap();
+    vk2.write(&mut vk2_buf, RawBytesUnchecked).unwrap();
 
     assert_eq!(vk1_buf, vk2_buf);
 }

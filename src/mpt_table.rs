@@ -1,7 +1,8 @@
 use crate::operation::{AccountOp, KeyValue};
 use halo2_proofs::{
-    arithmetic::{Field, FieldExt},
+    arithmetic::Field,
     circuit::{Layouter, Value},
+    ff::{FromUniformBytes, PrimeField},
     plonk::{Advice, Column, ConstraintSystem, Error, Expression, Selector, VirtualCells},
     poly::Rotation,
 };
@@ -48,7 +49,7 @@ impl Config {
         self.address.index()
     }
 
-    pub fn bind_mpt_circuit<F: FieldExt>(
+    pub fn bind_mpt_circuit<F: PrimeField + FromUniformBytes<64> + Ord>(
         &self,
         meta: &mut ConstraintSystem<F>,
         gadget_id: Column<Advice>,
@@ -179,15 +180,15 @@ impl Config {
         });
 
         if false {
-        meta.lookup_any("mpt account not exist entry lookup", |meta| {
-            let s_enable = meta.query_advice(self.proof_sel[3], Rotation::cur());
+            meta.lookup_any("mpt account not exist entry lookup", |meta| {
+                let s_enable = meta.query_advice(self.proof_sel[3], Rotation::cur());
 
-            build_entry_lookup_common(meta, (3, 0))
-                .into_iter()
-                .chain(build_entry_lookup_not_exist(meta))
-                .map(|(fst, snd)| (fst * s_enable.clone(), snd))
-                .collect()
-        });
+                build_entry_lookup_common(meta, (3, 0))
+                    .into_iter()
+                    .chain(build_entry_lookup_not_exist(meta))
+                    .map(|(fst, snd)| (fst * s_enable.clone(), snd))
+                    .collect()
+            });
         }
 
         meta.lookup_any("mpt account destroy entry lookup", |meta| {
@@ -258,7 +259,7 @@ pub(crate) struct MPTEntry<F: Field> {
     old_value: KeyValue<F>,
 }
 
-impl<F: FieldExt> MPTEntry<F> {
+impl<F: PrimeField<Repr = [u8; 32]> + FromUniformBytes<64> + Ord> MPTEntry<F> {
     // detect proof type from op data itself, just mocking,
     // not always correct
     pub fn mock_from_op(op: &AccountOp<F>, randomness: F) -> Self {
@@ -353,7 +354,7 @@ impl<F: FieldExt> MPTEntry<F> {
                 ret.old_value.u8_rlc(randomness),
                 ret.new_value.u8_rlc(randomness),
             ),
-            _ => (F::zero(), F::zero()),
+            _ => (F::ZERO, F::ZERO),
         };
 
         ret.base = [
@@ -400,7 +401,7 @@ pub(crate) struct MPTTable<F: Field> {
     rows: usize,
 }
 
-impl<F: FieldExt> MPTTable<F> {
+impl<F: PrimeField<Repr = [u8; 32]> + FromUniformBytes<64> + Ord> MPTTable<F> {
     pub fn construct(
         config: Config,
         entries: impl IntoIterator<Item = MPTEntry<F>>,
@@ -470,7 +471,7 @@ impl<F: FieldExt> MPTTable<F> {
                     // each col is boolean
                     // when enabled, it must equal to proof_type
                     vec![
-                        sel.clone() * col.clone() * (Expression::Constant(F::one()) - col.clone()),
+                        sel.clone() * col.clone() * (Expression::Constant(F::ONE) - col.clone()),
                         sel * col * (Expression::Constant(F::from(index as u64 + 1)) - proof_type),
                     ]
                 });
@@ -486,7 +487,7 @@ impl<F: FieldExt> MPTTable<F> {
                 .reduce(|acc, col_exp| acc + col_exp)
                 .expect("not null");
 
-            vec![sel * total_enalbed.clone() * (Expression::Constant(F::one()) - total_enalbed)]
+            vec![sel * total_enalbed.clone() * (Expression::Constant(F::ONE) - total_enalbed)]
         });
 
         Config {
@@ -526,9 +527,9 @@ impl<F: FieldExt> MPTTable<F> {
                             offset,
                             || {
                                 Value::known(if index + 1 == entry.proof_type as usize {
-                                    F::one()
+                                    F::ONE
                                 } else {
-                                    F::zero()
+                                    F::ZERO
                                 })
                             },
                         )?;
@@ -625,7 +626,7 @@ impl<F: FieldExt> MPTTable<F> {
                             || "flush rows",
                             col,
                             row,
-                            || Value::known(F::zero()),
+                            || Value::known(F::ZERO),
                         )?;
                     }
 
@@ -783,7 +784,7 @@ mod test {
             proof_type: MPTProofType::BalanceChanged,
             base: [
                 address,
-                Fp::zero(),
+                Fp::ZERO,
                 Fp::from(MPTProofType::BalanceChanged as u64),
                 rand_fp(),
                 rand_fp(),
@@ -818,13 +819,13 @@ mod test {
         let entry3 = MPTEntry {
             proof_type: MPTProofType::AccountDoesNotExist,
             base: [
-                address + Fp::one(),
-                Fp::zero(),
+                address + Fp::ONE,
+                Fp::ZERO,
                 Fp::from(MPTProofType::AccountDoesNotExist as u64),
                 entry2.base[4].unwrap(),
                 entry2.base[4].unwrap(),
-                Fp::zero(),
-                Fp::zero(),
+                Fp::ZERO,
+                Fp::ZERO,
             ]
             .map(Some),
             storage_key: Default::default(),
@@ -835,13 +836,13 @@ mod test {
         let entry4 = MPTEntry {
             proof_type: MPTProofType::PoseidonCodeHashExists,
             base: [
-                address + Fp::one(),
-                Fp::zero(),
+                address + Fp::ONE,
+                Fp::ZERO,
                 Fp::from(MPTProofType::PoseidonCodeHashExists as u64),
                 rand_fp(),
                 rand_fp(),
-                Fp::one(),
-                Fp::one(),
+                Fp::ONE,
+                Fp::ONE,
             ]
             .map(Some),
             storage_key: Default::default(),
