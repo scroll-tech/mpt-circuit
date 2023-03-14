@@ -4,14 +4,14 @@
 
 use super::{eth, serde, HashType};
 use crate::hash::Hashable;
-use halo2_proofs::arithmetic::FieldExt;
+use halo2_proofs::ff::{FromUniformBytes, PrimeField};
 use num_bigint::BigUint;
 use std::cmp::Ordering;
 use std::convert::TryFrom;
 
 /// Indicate the current status of an MPTPath
 #[derive(Clone, Copy, Debug)]
-pub enum MPTPathStatus<Fp: FieldExt> {
+pub enum MPTPathStatus<Fp: PrimeField + FromUniformBytes<64> + Ord> {
     /// Path has empty leaf node
     Empty,
     /// Path has leaf node and the (key, keyImmediate) is tracked
@@ -26,7 +26,7 @@ pub enum MPTPathStatus<Fp: FieldExt> {
 /// according to the hash_type. It would be used for the layout of MPT
 /// circuit
 #[derive(Clone, Debug)]
-pub struct MPTPath<Fp: FieldExt> {
+pub struct MPTPath<Fp: PrimeField + FromUniformBytes<64> + Ord> {
     /// hash types from beginning of a path, start with HashType::Start
     pub hash_types: Vec<HashType>,
     /// hashes from beginning of path, from the root of MPT to leaf node
@@ -39,18 +39,18 @@ pub struct MPTPath<Fp: FieldExt> {
     pub status: MPTPathStatus<Fp>,
 }
 
-impl<Fp: FieldExt> Default for MPTPath<Fp> {
+impl<Fp: PrimeField + FromUniformBytes<64> + Ord> Default for MPTPath<Fp> {
     fn default() -> Self {
         Self {
             hash_types: vec![HashType::Start, HashType::Empty],
-            hashes: vec![Fp::zero(), Fp::zero()],
+            hashes: vec![Fp::ZERO, Fp::ZERO],
             hash_traces: Default::default(),
             status: MPTPathStatus::Empty,
         }
     }
 }
 
-impl<Fp: FieldExt> MPTPath<Fp> {
+impl<Fp: PrimeField + FromUniformBytes<64> + Ord> MPTPath<Fp> {
     /// the root of MPT
     pub fn root(&self) -> Fp {
         self.hashes[0]
@@ -113,7 +113,7 @@ impl<Fp: FieldExt> MPTPath<Fp> {
         assert!(self.hash_types.len() > 1, "can not extend empty path");
         let ins_pos = self.hash_types.len() - 1;
         // can only extend a path with leaf
-        let new_key_immediate = hasher(&Fp::one(), &self.key().expect("can only extend leaf"));
+        let new_key_immediate = hasher(&Fp::ONE, &self.key().expect("can only extend leaf"));
         let status = match self.status {
             MPTPathStatus::Leaf((fp, fp_immediate)) => MPTPathStatus::Extended((
                 (new_key, new_key_immediate),
@@ -134,7 +134,7 @@ impl<Fp: FieldExt> MPTPath<Fp> {
 
         // move the old value at last row to upper (row LeafExtFinal)
         addi_hashes.push(hashes[ins_pos]);
-        hashes[ins_pos] = Fp::zero();
+        hashes[ins_pos] = Fp::ZERO;
         drop(hashes.splice(ins_pos..ins_pos, addi_hashes));
 
         Self {
@@ -155,7 +155,7 @@ impl<Fp: FieldExt> MPTPath<Fp> {
         assert_eq!(path.len(), siblings.len());
 
         let (status, mut hashes, mut hash_types, mut hash_traces) = if let Some(fp) = leaf {
-            let one = Fp::one();
+            let one = Fp::ONE;
             let key_immediate = hasher(&one, &key);
 
             let leaf_hash = hasher(&key_immediate, &fp);
@@ -168,7 +168,7 @@ impl<Fp: FieldExt> MPTPath<Fp> {
         } else {
             (
                 MPTPathStatus::Empty,
-                vec![Fp::zero(), Fp::zero()],
+                vec![Fp::ZERO, Fp::ZERO],
                 vec![HashType::Empty],
                 Vec::new(),
             )
@@ -219,7 +219,7 @@ impl<Fp: Hashable> MPTPath<Fp> {
 
 /// Represent for a single operation
 #[derive(Clone, Debug, Default)]
-pub struct SingleOp<Fp: FieldExt> {
+pub struct SingleOp<Fp: PrimeField + FromUniformBytes<64> + Ord> {
     /// the key of operation
     pub key: Fp,
     /// the immediate in key hashing
@@ -236,7 +236,7 @@ pub struct SingleOp<Fp: FieldExt> {
     pub new: MPTPath<Fp>,
 }
 
-impl<Fp: FieldExt> SingleOp<Fp> {
+impl<Fp: PrimeField + FromUniformBytes<64> + Ord> SingleOp<Fp> {
     /// indicate rows would take in circuit layout
     pub fn use_rows(&self) -> usize {
         self.siblings.len() + 2
@@ -295,7 +295,7 @@ impl<Fp: FieldExt> SingleOp<Fp> {
             );
             let mut ret = Vec::new();
             let mut tested_key = key;
-            let invert_2 = Fp::one().double().invert().unwrap();
+            let invert_2 = Fp::ONE.double().invert().unwrap();
             for _ in 0..layers {
                 if tested_key.is_odd().unwrap_u8() == 1 {
                     tested_key = tested_key * invert_2 - invert_2;
@@ -322,7 +322,7 @@ impl<Fp: FieldExt> SingleOp<Fp> {
             .expect("must have immediate value for leaf node");
         let path: Vec<Fp> = path
             .into_iter()
-            .map(|b| if b { Fp::one() } else { Fp::zero() })
+            .map(|b| if b { Fp::ONE } else { Fp::ZERO })
             .collect();
 
         Self {
@@ -342,7 +342,7 @@ impl<Fp: FieldExt> SingleOp<Fp> {
         new_leaf: Fp,
         hasher: impl FnMut(&Fp, &Fp) -> Fp + Clone,
     ) -> Self {
-        let path_bool: Vec<bool> = self.path.iter().map(|v| *v != Fp::zero()).collect();
+        let path_bool: Vec<bool> = self.path.iter().map(|v| *v != Fp::ZERO).collect();
         let new = MPTPath::<Fp>::create_with_hasher(
             &path_bool,
             &self.siblings,
@@ -389,14 +389,16 @@ impl<Fp: Hashable> SingleOp<Fp> {
     }
 }
 
-fn bytes_to_fp<Fp: FieldExt>(mut bt: Vec<u8>) -> std::io::Result<Fp> {
+fn bytes_to_fp<Fp: PrimeField + FromUniformBytes<64> + Ord>(
+    mut bt: Vec<u8>,
+) -> std::io::Result<Fp> {
     // let expected_size = Fp::NUM_BITS as usize / 8 + if Fp::NUM_BITS % 8 == 0 { 0 } else { 1 };
     bt.resize(64, 0u8);
     let arr: [u8; 64] = bt
         .as_slice()
         .try_into()
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-    Ok(Fp::from_bytes_wide(&arr))
+    Ok(Fp::from_uniform_bytes(&arr))
 }
 
 /// Represent for a eth account
@@ -418,7 +420,7 @@ pub struct Account<Fp> {
     pub hash_traces: Vec<(Fp, Fp, Fp)>,
 }
 
-impl<Fp: FieldExt> Account<Fp> {
+impl<Fp: PrimeField + FromUniformBytes<64> + Ord> Account<Fp> {
     /// calculating all traces ad-hoc with hasher function
     pub(crate) fn trace(mut self, mut hasher: impl FnMut(&Fp, &Fp) -> Fp) -> Self {
         let codesize_and_nonce = self.code_size * Fp::from(1 << 32).square() + self.nonce;
@@ -451,7 +453,7 @@ impl<Fp: FieldExt> Account<Fp> {
     /// there is totally 4 of them and the last one calculate the final hash
     pub fn hash_traces(&self, i: usize) -> Fp {
         if self.hash_traces.is_empty() {
-            Fp::zero()
+            Fp::ZERO
         } else {
             self.hash_traces[i].2
         }
@@ -460,7 +462,7 @@ impl<Fp: FieldExt> Account<Fp> {
     /// the hash of account, which act as leaf value in account trie
     pub fn account_hash(&self) -> Fp {
         if self.hash_traces.is_empty() {
-            Fp::zero()
+            Fp::ZERO
         } else {
             assert_eq!(self.hash_traces.len(), 5);
             self.hash_traces[4].2
@@ -488,12 +490,12 @@ pub struct KeyValue<Fp> {
     data: (Fp, Fp, Fp), // (the first 16 bytes, the second 16 bytes, hash value)
 }
 
-impl<Fp: FieldExt> KeyValue<Fp> {
+impl<Fp: PrimeField<Repr = [u8; 32]> + FromUniformBytes<64> + Ord> KeyValue<Fp> {
     /// create object and omit the hash
     pub fn create_base(bytes32: (Fp, Fp)) -> Self {
         let (fst, snd) = bytes32;
         Self {
-            data: (fst, snd, Fp::zero()),
+            data: (fst, snd, Fp::ZERO),
         }
     }
 
@@ -514,8 +516,8 @@ impl<Fp: FieldExt> KeyValue<Fp> {
     /// the u256 is represented by le bytes and combined with randomness 1, o, o^2 ... o^31 on each
     /// and we calculate it from be represent
     pub fn u8_rlc(&self, randomness: Fp) -> Fp {
-        let u128_hi = self.data.0.get_lower_128();
-        let u128_lo = self.data.1.get_lower_128();
+        let u128_hi = u128::from_le_bytes(self.data.0.to_repr()[0..16].try_into().unwrap());
+        let u128_lo = u128::from_le_bytes(self.data.1.to_repr()[0..16].try_into().unwrap());
         u128_hi
             .to_be_bytes()
             .into_iter()
@@ -553,7 +555,7 @@ impl<Fp: Hashable> KeyValue<Fp> {
 
 /// Represent an operation in eth MPT, which update 2 layer of tries (state and account)
 #[derive(Clone, Debug, Default)]
-pub struct AccountOp<Fp: FieldExt> {
+pub struct AccountOp<Fp: PrimeField + FromUniformBytes<64> + Ord> {
     /// the operation on the account trie (first layer)
     pub acc_trie: SingleOp<Fp>,
     /// the operation on the state trie (second layer)
@@ -574,7 +576,7 @@ pub struct AccountOp<Fp: FieldExt> {
     pub store_key: Option<KeyValue<Fp>>,
 }
 
-impl<Fp: FieldExt> AccountOp<Fp> {
+impl<Fp: PrimeField + FromUniformBytes<64> + Ord> AccountOp<Fp> {
     /// indicate rows would take for whole operation
     pub fn use_rows(&self) -> usize {
         self.use_rows_account()
@@ -629,11 +631,7 @@ impl<Fp: FieldExt> AccountOp<Fp> {
 impl<Fp: Hashable> AccountOp<Fp> {
     /// providing the padding record for hash table
     pub fn padding_hash() -> (Fp, Fp, Fp) {
-        (
-            Fp::zero(),
-            Fp::zero(),
-            Hashable::hash([Fp::zero(), Fp::zero()]),
-        )
+        (Fp::ZERO, Fp::ZERO, Hashable::hash([Fp::ZERO, Fp::ZERO]))
     }
 
     /// iter all the hash traces inside an operation (may contain duplications)
@@ -664,14 +662,14 @@ pub enum TraceError {
 }
 
 // parse Trace data into MPTPath and additional data (siblings and path)
-struct SMTPathParse<Fp: FieldExt>(MPTPath<Fp>, Vec<Fp>, Vec<Fp>);
+struct SMTPathParse<Fp: PrimeField + FromUniformBytes<64> + Ord>(MPTPath<Fp>, Vec<Fp>, Vec<Fp>);
 
 impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTPath> for SMTPathParse<Fp> {
     type Error = TraceError;
     fn try_from(path_trace: &'d serde::SMTPath) -> Result<Self, Self::Error> {
         let mut siblings: Vec<Fp> = Vec::new();
         for n in &path_trace.path {
-            let s = Fp::from_bytes_wide(&n.sibling.cast());
+            let s = Fp::from_uniform_bytes(&n.sibling.cast());
             siblings.push(s);
         }
 
@@ -681,20 +679,20 @@ impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTPath> for SMTPathParse<Fp> {
         for i in 0..siblings.len() {
             let bit = (BigUint::from(1u64) << i) & &path_trace.path_part != BigUint::from(0u64);
             path_bits.push(bit);
-            path.push(if bit { Fp::one() } else { Fp::zero() });
+            path.push(if bit { Fp::ONE } else { Fp::ZERO });
         }
 
-        let mut key = Fp::zero();
+        let mut key = Fp::ZERO;
         let mut leaf = None;
         // notice when there is no leaf node, providing 0 key
         if let Some(leaf_node) = &path_trace.leaf {
-            key = Fp::from_bytes_wide(&leaf_node.sibling.cast());
-            leaf = Some(Fp::from_bytes_wide(&leaf_node.value.cast()));
+            key = Fp::from_uniform_bytes(&leaf_node.sibling.cast());
+            leaf = Some(Fp::from_uniform_bytes(&leaf_node.value.cast()));
         }
 
         let mpt_path = MPTPath::create(&path_bits, &siblings, key, leaf);
         // sanity check
-        let root = Fp::from_bytes_wide(&path_trace.root.cast());
+        let root = Fp::from_uniform_bytes(&path_trace.root.cast());
         assert_eq!(root, mpt_path.root());
 
         Ok(SMTPathParse(mpt_path, siblings, path))
@@ -710,7 +708,7 @@ impl<'d, Fp: Hashable> TryFrom<(&'d serde::SMTPath, &'d serde::SMTPath, serde::H
     ) -> Result<Self, Self::Error> {
         let (before, after, ref_key) = traces;
 
-        let key = Fp::from_bytes_wide(&ref_key.cast());
+        let key = Fp::from_uniform_bytes(&ref_key.cast());
         let before_parsed: SMTPathParse<Fp> = before.try_into()?;
         let after_parsed: SMTPathParse<Fp> = after.try_into()?;
         let mut old = before_parsed.0;
@@ -754,7 +752,7 @@ impl<'d, Fp: Hashable> TryFrom<(&'d serde::SMTPath, &'d serde::SMTPath, serde::H
 
                     if let Some(another_key) = old.key() {
                         // we need to make full path extension for both side, manually
-                        let invert_2 = Fp::one().double().invert().unwrap();
+                        let invert_2 = Fp::ONE.double().invert().unwrap();
                         let mut k1 = another_key;
                         let mut k2 = key;
                         let mut common_prefix_depth: usize = 0;
@@ -772,7 +770,7 @@ impl<'d, Fp: Hashable> TryFrom<(&'d serde::SMTPath, &'d serde::SMTPath, serde::H
                             common_prefix_depth += 1;
                             if common_prefix_depth > path.len() {
                                 path.push(Fp::from(k2_bit as u64));
-                                siblings.push(Fp::zero());
+                                siblings.push(Fp::ZERO);
                             }
                             assert_ne!(k1, k2);
                             k2_bit = k2.is_odd().unwrap_u8();
@@ -789,8 +787,8 @@ impl<'d, Fp: Hashable> TryFrom<(&'d serde::SMTPath, &'d serde::SMTPath, serde::H
                     }
 
                     // and also insert the required key hash trace
-                    let key_immediate = <Fp as Hashable>::hash([Fp::one(), key]);
-                    old.hash_traces.push((Fp::one(), key, key_immediate));
+                    let key_immediate = <Fp as Hashable>::hash([Fp::ONE, key]);
+                    old.hash_traces.push((Fp::ONE, key, key_immediate));
 
                     (siblings, path, key_immediate)
                 } else if old.key() == Some(key) {
@@ -832,7 +830,7 @@ impl<'d, Fp: Hashable> TryFrom<(&'d serde::AccountData, Fp)> for Account<Fp> {
         let balance = bytes_to_fp(acc.balance.to_bytes_le()).map_err(TraceError::DeErr)?;
         let buf = acc.code_hash.to_bytes_le();
         let codehash = if buf.len() < 16 {
-            (bytes_to_fp(buf).map_err(TraceError::DeErr)?, Fp::zero())
+            (bytes_to_fp(buf).map_err(TraceError::DeErr)?, Fp::ZERO)
         } else {
             (
                 bytes_to_fp(Vec::from(&buf[16..])).map_err(TraceError::DeErr)?,
@@ -909,8 +907,8 @@ impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTTrace> for AccountOp<Fp> {
             };
 
         let comm_state_root = match trace.common_state_root {
-            Some(h) => Fp::from_bytes_wide(&h.cast()),
-            None => Fp::zero(),
+            Some(h) => Fp::from_uniform_bytes(&h.cast()),
+            None => Fp::ZERO,
         };
 
         let account_before = if let Some(leaf) = acc_trie.old.leaf() {
@@ -988,30 +986,36 @@ impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTTrace> for AccountOp<Fp> {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct HashableField<Fp: FieldExt>(Fp);
+struct HashableField<Fp: PrimeField<Repr = [u8; 32]> + FromUniformBytes<64> + Ord>(Fp);
 
-impl<Fp: FieldExt> std::hash::Hash for HashableField<Fp> {
+impl<Fp: PrimeField<Repr = [u8; 32]> + FromUniformBytes<64> + Ord> std::hash::Hash
+    for HashableField<Fp>
+{
     fn hash<H>(&self, state: &mut H)
     where
         H: std::hash::Hasher,
     {
-        state.write_u128(self.0.get_lower_128());
+        state.write_u128(u128::from_le_bytes(
+            self.0.to_repr()[0..16].try_into().unwrap(),
+        ));
     }
 }
 
-impl<Fp: FieldExt> From<Fp> for HashableField<Fp> {
+impl<Fp: PrimeField<Repr = [u8; 32]> + FromUniformBytes<64> + Ord> From<Fp> for HashableField<Fp> {
     fn from(v: Fp) -> Self {
         Self(v)
     }
 }
 
 #[derive(Clone)]
-pub(crate) struct HashTracesSrc<T, Fp: FieldExt> {
+pub(crate) struct HashTracesSrc<T, Fp: PrimeField<Repr = [u8; 32]> + FromUniformBytes<64> + Ord> {
     source: T,
     deduplicator: std::collections::HashSet<HashableField<Fp>>,
 }
 
-impl<T, Fp: FieldExt> From<T> for HashTracesSrc<T, Fp> {
+impl<T, Fp: PrimeField<Repr = [u8; 32]> + FromUniformBytes<64> + Ord> From<T>
+    for HashTracesSrc<T, Fp>
+{
     fn from(source: T) -> Self {
         Self {
             source,
@@ -1023,7 +1027,7 @@ impl<T, Fp: FieldExt> From<T> for HashTracesSrc<T, Fp> {
 impl<'d, T, Fp> Iterator for HashTracesSrc<T, Fp>
 where
     T: Iterator<Item = &'d (Fp, Fp, Fp)>,
-    Fp: FieldExt,
+    Fp: PrimeField<Repr = [u8; 32]> + FromUniformBytes<64> + Ord,
 {
     type Item = &'d (Fp, Fp, Fp);
 
@@ -1045,7 +1049,7 @@ mod tests {
     use crate::test_utils::{rand_bytes_array, rand_gen, Fp};
     use halo2_proofs::halo2curves::group::ff::{Field, PrimeField};
 
-    impl<Fp: FieldExt> SingleOp<Fp> {
+    impl<Fp: PrimeField + FromUniformBytes<64> + Ord> SingleOp<Fp> {
         /// create an fully random update operation with leafs customable
         pub fn create_rand_op(
             layers: usize,
@@ -1067,7 +1071,7 @@ mod tests {
         }
     }
 
-    impl<Fp: FieldExt> KeyValue<Fp> {
+    impl<Fp: PrimeField + FromUniformBytes<64> + Ord> KeyValue<Fp> {
         /// create an fully random k/v
         pub fn create_rand(mut hasher: impl FnMut(&Fp, &Fp) -> Fp + Clone) -> Self {
             let a = Fp::from_u128(u128::from_be_bytes(rand_bytes_array::<16>()));
@@ -1078,10 +1082,13 @@ mod tests {
         }
     }
 
-    fn decompose<Fp: FieldExt>(inp: Fp, l: usize) -> (Vec<bool>, Fp) {
+    fn decompose<Fp: PrimeField + FromUniformBytes<64> + Ord>(
+        inp: Fp,
+        l: usize,
+    ) -> (Vec<bool>, Fp) {
         let mut ret = Vec::new();
         let mut tested_key = inp;
-        let invert_2 = Fp::one().double().invert().unwrap();
+        let invert_2 = Fp::ONE.double().invert().unwrap();
         for _ in 0..l {
             if tested_key.is_odd().unwrap_u8() == 1 {
                 tested_key = tested_key * invert_2 - invert_2;
@@ -1094,12 +1101,12 @@ mod tests {
         (ret, tested_key)
     }
 
-    fn recover<Fp: FieldExt>(path: &[bool], res: Fp) -> Fp {
-        let mut mask = Fp::one();
-        let mut ret = Fp::zero();
+    fn recover<Fp: PrimeField + FromUniformBytes<64> + Ord>(path: &[bool], res: Fp) -> Fp {
+        let mut mask = Fp::ONE;
+        let mut ret = Fp::ZERO;
 
         for b in path {
-            ret += if *b { mask } else { Fp::zero() };
+            ret += if *b { mask } else { Fp::ZERO };
             mask = mask.double();
         }
 
@@ -1197,7 +1204,7 @@ mod tests {
         let data: Account<Fp> = Account {
             balance: Fp::from(0u64),
             nonce: Fp::from(1u64),
-            codehash: (Fp::zero(), Fp::zero()),
+            codehash: (Fp::ZERO, Fp::ZERO),
             //0x20b24ebee7712fbbe84a15027eba4f1208e2e2df9f925de51b3382b86433e6a5
             state_root: Fp::from_str_vartime(
                 "14789053415173694845992038966920525110567435779704439275440571405364058384037",

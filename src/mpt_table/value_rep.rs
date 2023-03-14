@@ -71,7 +71,7 @@ impl<const N: usize, const EXP: usize> Config<N, EXP> {
         let le_bytes = val.to_repr();
         let limb_bytes = EXP / 8;
 
-        let mut out = [F::zero(); N];
+        let mut out = [F::ZERO; N];
 
         for i in 0..N {
             out[N - i - 1] = F::from(
@@ -109,7 +109,7 @@ impl<const N: usize, const EXP: usize> Config<N, EXP> {
         region: &mut Region<'_, F>,
         offset: usize,
     ) -> Result<bool, Error> {
-        self.assign(region, offset, [F::zero(); N].as_slice())
+        self.assign(region, offset, [F::ZERO; N].as_slice())
     }
 }
 

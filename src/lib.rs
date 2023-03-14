@@ -72,8 +72,8 @@ enum CtrlTransitionKind {
 
 use eth::AccountGadget;
 use halo2_proofs::{
-    arithmetic::FieldExt,
     circuit::{Layouter, SimpleFloorPlanner},
+    ff::{FromUniformBytes, PrimeField},
     plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Expression},
 };
 use hash::Hashable;
@@ -82,15 +82,19 @@ use mpt::MPTOpGadget;
 use operation::{AccountOp, HashTracesSrc, SingleOp};
 
 // building lagrange polynmials L for T so that L(n) = 1 when n = T else 0, n in [0, TO]
-fn lagrange_polynomial<Fp: FieldExt, const T: usize, const TO: usize>(
+fn lagrange_polynomial<
+    Fp: PrimeField + FromUniformBytes<64> + Ord,
+    const T: usize,
+    const TO: usize,
+>(
     ref_n: Expression<Fp>,
 ) -> Expression<Fp> {
     let mut denominators: Vec<Fp> = (0..=TO)
         .map(|v| Fp::from(T as u64) - Fp::from(v as u64))
         .collect();
     denominators.swap_remove(T);
-    let denominator = denominators.into_iter().fold(Fp::one(), |acc, v| v * acc);
-    assert_ne!(denominator, Fp::zero());
+    let denominator = denominators.into_iter().fold(Fp::ONE, |acc, v| v * acc);
+    assert_ne!(denominator, Fp::ZERO);
 
     let mut factors: Vec<Expression<Fp>> = (0..(TO + 1))
         .map(|v| ref_n.clone() - Expression::Constant(Fp::from(v as u64)))
@@ -112,7 +116,7 @@ pub struct SimpleTrieConfig {
 
 /// The chip for op on a simple trie
 #[derive(Clone, Default)]
-pub struct SimpleTrie<F: FieldExt> {
+pub struct SimpleTrie<F: PrimeField + FromUniformBytes<64> + Ord> {
     c_size: usize, //how many rows
     start_root: F,
     final_root: F,
@@ -122,7 +126,7 @@ pub struct SimpleTrie<F: FieldExt> {
 const OP_MPT: u32 = 1;
 const OP_PADDING: u32 = 0;
 
-impl<Fp: FieldExt> SimpleTrie<Fp> {
+impl<Fp: PrimeField + FromUniformBytes<64> + Ord> SimpleTrie<Fp> {
     /// create a new, empty circuit with specified size
     pub fn new(c_size: usize) -> Self {
         Self {
@@ -148,7 +152,7 @@ impl<Fp: FieldExt> SimpleTrie<Fp> {
     }
 }
 
-impl<Fp: FieldExt> Circuit<Fp> for SimpleTrie<Fp> {
+impl<Fp: PrimeField + FromUniformBytes<64> + Ord> Circuit<Fp> for SimpleTrie<Fp> {
     type Config = SimpleTrieConfig;
     type FloorPlanner = SimpleFloorPlanner;
 
@@ -311,7 +315,7 @@ impl EthTrieConfig {
     }
 
     /// configure for lite circuit (no mpt table included, for fast testing)
-    pub fn configure_base<Fp: FieldExt>(
+    pub fn configure_base<Fp: PrimeField<Repr = [u8; 32]> + FromUniformBytes<64> + Ord>(
         meta: &mut ConstraintSystem<Fp>,
         hash_tbl: [Column<Advice>; 5],
     ) -> Self {
@@ -398,13 +402,15 @@ impl EthTrieConfig {
     }
 
     /// configure for lite circuit (no mpt table included, for fast testing)
-    pub fn configure_lite<Fp: FieldExt>(meta: &mut ConstraintSystem<Fp>) -> Self {
+    pub fn configure_lite<Fp: PrimeField<Repr = [u8; 32]> + FromUniformBytes<64> + Ord>(
+        meta: &mut ConstraintSystem<Fp>,
+    ) -> Self {
         let hash_tbl = [0; 5].map(|_| meta.advice_column());
         Self::configure_base(meta, hash_tbl)
     }
 
     /// configure for full circuit
-    pub fn configure_sub<Fp: FieldExt>(
+    pub fn configure_sub<Fp: PrimeField<Repr = [u8; 32]> + FromUniformBytes<64> + Ord>(
         meta: &mut ConstraintSystem<Fp>,
         mpt_tbl: [Column<Advice>; 7],
         hash_tbl: [Column<Advice>; 5],
@@ -435,7 +441,7 @@ impl EthTrieConfig {
 
     /// synthesize the mpt table part, the randomness also specify
     /// if the base part of mpt table should be assigned
-    pub fn load_mpt_table<'d, Fp: Hashable>(
+    pub fn load_mpt_table<'d, Fp: Hashable + PrimeField<Repr = [u8; 32]>>(
         &self,
         layouter: &mut impl Layouter<Fp>,
         randomness: Option<Fp>,
@@ -461,7 +467,7 @@ impl EthTrieConfig {
 
     /// synthesize the hash table part, it is an development-only
     /// entry which just fill the hashes come from mpt circuit itself
-    pub fn dev_load_hash_table<'d, Fp: Hashable>(
+    pub fn dev_load_hash_table<'d, Fp: Hashable + PrimeField<Repr = [u8; 32]>>(
         &self,
         layouter: &mut impl Layouter<Fp>,
         hash_traces: impl Iterator<Item = &'d (Fp, Fp, Fp)> + Clone,
@@ -470,18 +476,14 @@ impl EthTrieConfig {
         self.hash_tbl.dev_fill_with_paddings(
             layouter,
             HashTracesSrc::from(hash_traces),
-            (
-                Fp::zero(),
-                Fp::zero(),
-                Hashable::hash([Fp::zero(), Fp::zero()]),
-            ),
+            (Fp::ZERO, Fp::ZERO, Hashable::hash([Fp::ZERO, Fp::ZERO])),
             rows,
         )
     }
 
     /// synthesize core part without advice tables (hash and mpt table),
     /// require a `Hashable` trait on the working field
-    pub fn synthesize_core<'d, Fp: Hashable>(
+    pub fn synthesize_core<'d, Fp: Hashable + PrimeField<Repr = [u8; 32]>>(
         &self,
         layouter: &mut impl Layouter<Fp>,
         ops: impl Iterator<Item = &'d AccountOp<Fp>> + Clone,
@@ -491,7 +493,7 @@ impl EthTrieConfig {
             .clone()
             .next()
             .map(|op| op.account_root_before())
-            .unwrap_or_else(Fp::zero);
+            .unwrap_or(Fp::ZERO);
 
         layouter.assign_region(
             || "main",
@@ -609,7 +611,7 @@ impl EthTrieConfig {
 }
 /// The chip for op on an storage trie
 #[derive(Clone, Default)]
-pub struct EthTrie<F: FieldExt> {
+pub struct EthTrie<F: PrimeField + FromUniformBytes<64> + Ord> {
     start_root: F,
     final_root: F,
     ops: Vec<AccountOp<F>>,
@@ -620,7 +622,7 @@ const OP_TRIE_STATE: u32 = 2;
 const OP_ACCOUNT: u32 = 3;
 const OP_STORAGE: u32 = 4;
 
-impl<Fp: FieldExt> EthTrie<Fp> {
+impl<Fp: PrimeField + FromUniformBytes<64> + Ord> EthTrie<Fp> {
     /// Obtain the wrapped operation sequence
     pub fn get_ops(&self) -> &[AccountOp<Fp>] {
         &self.ops
@@ -652,7 +654,7 @@ impl<Fp: FieldExt> EthTrie<Fp> {
 
 /// the mpt circuit type
 #[derive(Clone, Default, Debug)]
-pub struct EthTrieCircuit<F: FieldExt, const LITE: bool> {
+pub struct EthTrieCircuit<F: PrimeField + FromUniformBytes<64> + Ord, const LITE: bool> {
     /// the maxium records in circuits (would affect vk)
     pub calcs: usize,
     /// the operations in circuits
@@ -731,7 +733,7 @@ impl<Fp: Hashable> Circuit<Fp> for HashCircuit<Fp> {
     }
 }
 
-impl<Fp: Hashable> EthTrie<Fp> {
+impl<Fp: Hashable + PrimeField<Repr = [u8; 32]>> EthTrie<Fp> {
     /// export the hashes involved in current operation sequence
     pub fn hash_traces(&self) -> impl Iterator<Item = &(Fp, Fp, Fp)> + Clone {
         HashTracesSrc::from(self.ops.iter().flat_map(|op| op.hash_traces()))
@@ -833,7 +835,7 @@ impl CommitmentIndexs {
     }
 
     /// get commitment for lite circuit (no mpt)
-    pub fn new<Fp: Hashable>() -> Self {
+    pub fn new<Fp: Hashable + PrimeField<Repr = [u8; 32]>>() -> Self {
         let mut cs: ConstraintSystem<Fp> = Default::default();
         let config = EthTrieCircuit::<_, true>::configure(&mut cs);
 
@@ -848,7 +850,7 @@ impl CommitmentIndexs {
     }
 
     /// get commitment for full circuit
-    pub fn new_full_circuit<Fp: Hashable>() -> Self {
+    pub fn new_full_circuit<Fp: Hashable + PrimeField<Repr = [u8; 32]>>() -> Self {
         let mut cs: ConstraintSystem<Fp> = Default::default();
         let config = EthTrieCircuit::<_, false>::configure(&mut cs);
 
@@ -873,7 +875,9 @@ impl CommitmentIndexs {
 
 const TEMP_RANDOMNESS: u64 = 1;
 
-impl<Fp: Hashable, const LITE: bool> Circuit<Fp> for EthTrieCircuit<Fp, LITE> {
+impl<Fp: Hashable + PrimeField<Repr = [u8; 32]>, const LITE: bool> Circuit<Fp>
+    for EthTrieCircuit<Fp, LITE>
+{
     type Config = EthTrieConfig;
     type FloorPlanner = SimpleFloorPlanner;
 
