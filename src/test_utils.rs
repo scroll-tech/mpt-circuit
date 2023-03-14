@@ -1,4 +1,5 @@
-pub use halo2_proofs::arithmetic::{Field, FieldExt};
+pub use halo2_proofs::arithmetic::Field;
+use halo2_proofs::ff::PrimeField;
 pub use halo2_proofs::halo2curves::bn256::Fr as Fp;
 use lazy_static::lazy_static;
 use rand::{random, SeedableRng};
