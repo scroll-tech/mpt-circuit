@@ -33,7 +33,7 @@ impl<F: FieldExt> ConstraintBuilder<F> {
             .push((name, selector.condition(constraint)))
     }
 
-    pub fn add_lookup_2<const N: usize>(
+    pub fn add_lookup<const N: usize>(
         &mut self,
         name: &'static str,
         left: [Query<F>; N],

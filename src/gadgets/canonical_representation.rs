@@ -73,7 +73,7 @@ impl CanonicalRepresentationConfig {
             selector.current().and(!index_is_zero.current()),
             value.current() - value.previous(),
         );
-        cb.add_lookup_2("0 <= byte < 256", [byte.current()], range_check.lookup());
+        cb.add_lookup("0 <= byte < 256", [byte.current()], range_check.lookup());
 
         let difference_is_zero = IsZeroGadget::configure(cs, cb, selector.current(), difference);
         cb.add_constraint(
@@ -87,7 +87,7 @@ impl CanonicalRepresentationConfig {
             differences_are_zero_so_far.current()
                 - differences_are_zero_so_far.previous() * difference_is_zero.previous()
         );
-        cb.add_lookup_2(
+        cb.add_lookup(
             "if differences are 0 so far, either current difference is 0, or it is the first and 1 <= difference < 257",
             // We already know that difference < 256 because difference = modulus_byte - byte which are both 8 bit.
             // There do not exist two 8 bit numbers whose difference is 256 in Fr.
