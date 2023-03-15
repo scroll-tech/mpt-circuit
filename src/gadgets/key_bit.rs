@@ -1,4 +1,5 @@
-use super::super::constraint_builder::{AdviceColumn, SelectorColumn};
+use crate::constraint_builder::{AdviceColumn, Query, SelectorColumn};
+use halo2_proofs::arithmetic::FieldExt;
 
 pub trait KeyBitLookup {
     fn lookup<F: FieldExt>(&self) -> [Query<F>; 3];

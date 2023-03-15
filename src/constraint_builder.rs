@@ -1,9 +1,11 @@
 use halo2_proofs::{arithmetic::FieldExt, plonk::ConstraintSystem};
 
+mod binary_column;
 mod binary_query;
 mod column;
 mod query;
 
+pub use binary_column::BinaryColumn;
 pub use binary_query::BinaryQuery;
 pub use column::{AdviceColumn, FixedColumn, SelectorColumn};
 pub use query::Query;
@@ -65,68 +67,3 @@ impl<F: FieldExt> ConstraintBuilder<F> {
         }
     }
 }
-
-// #[cfg(test)]
-// mod test {
-//     use super::*;
-
-//     use super::super::proof::HashTrace;
-//     use halo2_proofs::{
-//         circuit::{Layouter, SimpleFloorPlanner},
-//         dev::MockProver,
-//         halo2curves::bn256::Fr,
-//         plonk::Circuit,
-//         plonk::{ConstraintSystem, Error, Expression, VirtualCells},
-//     };
-
-//     #[derive(Clone, Default, Debug)]
-//     struct TestCircuit {
-//         traces: Vec<u8>,
-//     }
-
-//     #[derive(Clone)]
-//     struct TestConfig {
-//         x: AdviceColumn,
-//         y: FixedColumn,
-//     }
-
-//     impl Circuit<Fr> for TestCircuit {
-//         type Config = TestConfig;
-//         type FloorPlanner = SimpleFloorPlanner;
-
-//         fn without_witnesses(&self) -> Self {
-//             Self::default()
-//         }
-
-//         fn configure(cs: &mut ConstraintSystem<Fr>) -> Self::Config {
-//             let mut cb = ConstraintBuilder::new();
-
-//             let ([], [y], [x]) = cb.build_columns(cs);
-
-//             cb.add_constraint("testtttt", x.current() + y.previous());
-//             cb.add_constraint("testtttt", x.current() - y.previous());
-//             cb.add_constraint("testtttt", y.current() * y.previous());
-//             cb.add_constraint("testtttt", x.previous() + 1);
-//             cb.add_constraint("testtttt", y.current() - 0);
-
-//             cb.build(cs);
-
-//             TestConfig { x, y }
-//         }
-
-//         fn synthesize(
-//             &self,
-//             config: Self::Config,
-//             mut layouter: impl Layouter<Fr>,
-//         ) -> Result<(), Error> {
-//             Ok(())
-//         }
-//     }
-
-//     #[test]
-//     fn masonnnnnnn() {
-//         let circuit = TestCircuit { traces: vec![] };
-//         let prover = MockProver::<Fr>::run(4, &circuit, vec![]).unwrap();
-//         assert_eq!(prover.verify(), Ok(()));
-//     }
-// }
