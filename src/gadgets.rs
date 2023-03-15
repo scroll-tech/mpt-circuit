@@ -5,13 +5,6 @@
 // };
 // use std::marker::PhantomData;
 
-use halo2_proofs::{
-    arithmetic::{Field, FieldExt},
-    circuit::{Layouter, Value},
-    plonk::{Column, ConstraintSystem, Error, Expression, Fixed, VirtualCells},
-    poly::Rotation,
-};
-
 mod account_update;
 mod byte_bit;
 mod canonical_representation;

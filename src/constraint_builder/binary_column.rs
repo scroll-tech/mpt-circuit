@@ -1,12 +1,11 @@
-use super::{BinaryQuery, Query, ConstraintBuilder};
+use super::{BinaryQuery, ConstraintBuilder, Query};
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Region, Value},
-    plonk::{Advice, Column, Fixed},
-    poly::Rotation,
     plonk::ConstraintSystem,
+    plonk::{Advice, Column},
+    poly::Rotation,
 };
-use std::fmt::Debug;
 
 #[derive(Clone, Copy)]
 pub struct BinaryColumn(pub Column<Advice>);
@@ -28,7 +27,7 @@ impl BinaryColumn {
 
     pub fn configure<F: FieldExt>(
         cs: &mut ConstraintSystem<F>,
-        cb: &mut ConstraintBuilder<F>,
+        _cb: &mut ConstraintBuilder<F>,
     ) -> Self {
         let advice_column = cs.advice_column();
         // cb.add_constraint()

@@ -1,16 +1,6 @@
-use crate::constraint_builder::{
-    AdviceColumn, ConstraintBuilder, FixedColumn, Query, SelectorColumn, BinaryColumn,
-};
-use crate::gadgets::{is_zero::IsZeroGadget, key_bit::KeyBitLookup, poseidon::PoseidonLookup};
-use ethers_core::types::U256;
-use halo2_proofs::{
-    arithmetic::{Field, FieldExt},
-    circuit::Region,
-    halo2curves::bn256::Fr,
-    plonk::ConstraintSystem,
-};
-use itertools::Itertools;
-use num_traits::Zero;
+use crate::constraint_builder::{AdviceColumn, BinaryColumn, FixedColumn, Query};
+
+use halo2_proofs::arithmetic::FieldExt;
 
 pub trait MptUpdateLookup {
     fn lookup<F: FieldExt>(&self) -> [Query<F>; 4];
