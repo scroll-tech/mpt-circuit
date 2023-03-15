@@ -53,6 +53,14 @@ impl<F: FieldExt> ConstraintBuilder<F> {
         (selectors, fixed_columns, advice_columns)
     }
 
+    pub fn advice_columns<const N: usize>(&self, cs: &mut ConstraintSystem<F>) -> [AdviceColumn; N] {
+        [0; N].map(|_| AdviceColumn(cs.advice_column()))
+    }
+
+    pub fn binary_columns<const N: usize>(&mut self, cs: &mut ConstraintSystem<F>) -> [BinaryColumn; N] {
+        [0; N].map(|_| BinaryColumn::configure::<F>(cs, self))
+    }
+
     pub fn build(self, cs: &mut ConstraintSystem<F>) {
         for (name, query) in self.constraints {
             cs.create_gate(&name, |meta| vec![query.run(meta)])

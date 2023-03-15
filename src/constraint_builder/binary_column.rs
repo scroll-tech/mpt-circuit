@@ -1,9 +1,10 @@
-use super::{BinaryQuery, Query};
+use super::{BinaryQuery, Query, ConstraintBuilder};
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Region, Value},
     plonk::{Advice, Column, Fixed},
     poly::Rotation,
+    plonk::ConstraintSystem,
 };
 use std::fmt::Debug;
 
@@ -23,6 +24,15 @@ impl BinaryColumn {
 
     pub fn previous<F: FieldExt>(self) -> BinaryQuery<F> {
         self.rotation(-1)
+    }
+
+    pub fn configure<F: FieldExt>(
+        cs: &mut ConstraintSystem<F>,
+        cb: &mut ConstraintBuilder<F>,
+    ) -> Self {
+        let advice_column = cs.advice_column();
+        // cb.add_constraint()
+        Self(advice_column)
     }
 
     pub fn assign<F: FieldExt>(&self, region: &mut Region<'_, F>, offset: usize, value: bool) {
