@@ -1,6 +1,8 @@
-use crate::constraint_builder::{AdviceColumn, BinaryColumn, FixedColumn, Query};
-
-use halo2_proofs::arithmetic::FieldExt;
+use super::{key_bit::KeyBitLookup, poseidon::PoseidonLookup};
+use crate::constraint_builder::{
+    AdviceColumn, BinaryColumn, ConstraintBuilder, SelectorColumn, Query,
+};
+use halo2_proofs::{arithmetic::FieldExt, plonk::ConstraintSystem};
 
 pub trait MptUpdateLookup {
     fn lookup<F: FieldExt>(&self) -> [Query<F>; 4];
@@ -14,7 +16,7 @@ pub trait MptUpdateLookup {
 }
 
 struct MptUpdateConfig {
-    selector: FixedColumn,
+    selector: SelectorColumn,
 
     // used for lookups
     old_hash: AdviceColumn,
@@ -39,69 +41,78 @@ struct MptUpdateConfig {
     is_storage_path: BinaryColumn,
 
     depth: AdviceColumn,
+    direction: AdviceColumn, // this actually must be binary because of a lookup
     key: AdviceColumn,
 
     sibling: AdviceColumn,
 }
 
-// impl MptUpdateConfig {
-//     fn configure(
-//         cs: &mut ConstraintSystem<Fr>,
-//         cb: &mut ConstraintBuilder<Fr>,
-//         poseidon: &impl PoseidonLookup,
-//         key_bit: &impl KeyBitLookup,
-//     ) -> Self {
-//         let (
-//             [selector],
-//             [],
-//             [is_common_path, old_hash_is_unchanged, new_hash_is_unchanged, account_key, old_hash, new_hash, sibling, depth, direction],
-//         ) = cb.build_columns(cs);
+impl MptUpdateConfig {
+    fn configure<F: FieldExt>(
+        cs: &mut ConstraintSystem<F>,
+        cb: &mut ConstraintBuilder<F>,
+        poseidon: &impl PoseidonLookup,
+        key_bit: &impl KeyBitLookup,
+    ) -> Self {
+        let ([selector], [], []) = cb.build_columns(cs);
 
-//         [is_common_path, old_hash_is_unchanged, new_hash_is_unchanged].map(|column| {
-//             cb.add_constraint(
-//                 "column is binary",
-//                 selector.current(),
-//                 column.current() * (Query::one() - column.current()),
-//             );
-//         });
-//         cb.add_constraint(
-//             "exactly one of is_common_path, old_hash_is_unchanged, and new_hash_is_unchanged is 1",
-//             selector.current(),
-//             is_common_path.current()
-//                 + old_hash_is_unchanged.current()
-//                 + new_hash_is_unchanged.current(),
-//         );
+        let [old_hash, new_hash] = cb.advice_columns(cs);
 
-//         // cb.add_constraint(
-//         // 	""
-//         // 	selector.current() * is_common_path.current()
-//         // 	)
+        let old_value = cb.advice_columns(cs);
+        let new_value = cb.advice_columns(cs);
+        let proof_type = cb.binary_columns(cs);
+        let address = cb.advice_columns(cs);
+        let storage_key = cb.advice_columns(cs);
 
-//         // cb.add_constraint(
-//         //     "if common_path, ")
+        let [is_common_path, old_hash_is_unchanged, new_hash_is_unchanged] = cb.binary_columns(cs);
+        let [is_account_path, is_account_leaf, is_storage_path] = cb.binary_columns(cs);
 
-//         Self {
-//             selector,
-//             is_common_path,
-//             old_hash_is_unchanged,
-//             new_hash_is_unchanged,
-//             depth,
-//             direction,
-//             account_key,
-//             old_hash,
-//             new_hash,
-//             sibling,
-//         }
-//     }
-// }
+        let [depth, direction, key, sibling] = cb.advice_columns(cs);
 
-// impl MptUpdateLookup for MptUpdateConfig {
-//     fn lookup<F: FieldExt>(&self) -> [Query<F>; 4] {
-//         [
-//             self.old_hash.current(),
-//             self.new_hash.current(),
-//             self.depth.current(),
-//             self.account_key.current(),
-//         ]
-//     }
-// }
+        [is_common_path, old_hash_is_unchanged, new_hash_is_unchanged].map(|column| {
+            cb.add_constraint(
+                "column is binary",
+                selector.current(),
+                Query::from(column.current()) * (Query::one() - column.current()),
+            );
+        });
+        cb.add_constraint(
+            "exactly one of is_common_path, old_hash_is_unchanged, and new_hash_is_unchanged is 1",
+            selector.current(),
+            Query::from(is_common_path.current())
+                + old_hash_is_unchanged.current()
+                + new_hash_is_unchanged.current(),
+        );
+
+        cb.add_constraint(
+            "exactly one of is_account_path, is_account_leaf, and is_storage_path is 1",
+            selector.current(),
+            Query::from(is_account_path.current())
+                + is_account_leaf.current()
+                + is_storage_path.current(),
+        );
+
+
+
+        Self {
+            selector,
+            old_hash,
+            new_hash,
+            old_value,
+            new_value,
+            proof_type,
+            address,
+            storage_key,
+            is_common_path,
+            old_hash_is_unchanged,
+            new_hash_is_unchanged,
+            is_account_path,
+            is_account_leaf,
+            is_storage_path,
+            depth,
+            direction,
+            key,
+            sibling,
+        }
+    }
+}
