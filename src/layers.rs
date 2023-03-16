@@ -19,8 +19,8 @@
 // circuit and we also call the rows for one step an "op block".
 
 use halo2_proofs::{
-    arithmetic::FieldExt,
     circuit::{Layouter, Region, Value},
+    ff::PrimeField,
     plonk::{Advice, Column, ConstraintSystem, Error, Expression, Selector, TableColumn},
     poly::Rotation,
 };
@@ -104,7 +104,7 @@ impl LayerGadget {
         self.sel
     }
 
-    pub fn configure<Fp: FieldExt>(
+    pub fn configure<Fp: PrimeField>(
         meta: &mut ConstraintSystem<Fp>,
         steps: usize,
         required_cols: usize,
@@ -143,7 +143,7 @@ impl LayerGadget {
             let series_delta = meta.query_advice(series, Rotation::cur())
                 - meta.query_advice(series, Rotation::prev());
             // delta ∈ {0, 1}
-            vec![sel * (Expression::Constant(Fp::one()) - series_delta.clone()) * series_delta]
+            vec![sel * (Expression::Constant(Fp::ONE) - series_delta.clone()) * series_delta]
         });
 
         meta.create_gate("op transition", |meta| {
@@ -152,10 +152,7 @@ impl LayerGadget {
                 - meta.query_advice(op_type, Rotation::prev());
             let op_delta_aux = meta.query_advice(op_delta_aux, Rotation::cur());
             // map op_delta_aux so we can obtain 1 while delta is not zero
-            vec![
-                sel * (Expression::Constant(Fp::one()) - op_delta_aux * op_delta.clone())
-                    * op_delta,
-            ]
+            vec![sel * (Expression::Constant(Fp::ONE) - op_delta_aux * op_delta.clone()) * op_delta]
         });
 
         meta.create_gate("s_ctrl flags", |meta| {
@@ -171,14 +168,14 @@ impl LayerGadget {
                 .collect();
 
             let bool_cond = s_ctrl.clone().into_iter().map(|col_exp| {
-                sel.clone() * col_exp.clone() * (Expression::Constant(Fp::one()) - col_exp)
+                sel.clone() * col_exp.clone() * (Expression::Constant(Fp::ONE) - col_exp)
             });
 
             let one_flag_cond = s_ctrl
                 .clone()
                 .into_iter()
                 .reduce(|exp, col_exp| exp + col_exp)
-                .map(|sum_exp| sel.clone() * (Expression::Constant(Fp::one()) - sum_exp));
+                .map(|sum_exp| sel.clone() * (Expression::Constant(Fp::ONE) - sum_exp));
 
             let ctrl_type_cond = s_ctrl
                 .into_iter()
@@ -194,7 +191,7 @@ impl LayerGadget {
                 .chain(ctrl_type_cond)
                 .collect::<Vec<_>>();
             if constraints.is_empty() {
-                vec![sel * Expression::Constant(Fp::zero())]
+                vec![sel * Expression::Constant(Fp::ZERO)]
             } else {
                 constraints
             }
@@ -210,7 +207,7 @@ impl LayerGadget {
 
             Vec::from([old_root_index, new_root_index, address_index].map(|col| {
                 sel.clone()
-                    * (Expression::Constant(Fp::one()) - series_delta.clone())
+                    * (Expression::Constant(Fp::ONE) - series_delta.clone())
                     * (meta.query_advice(col, Rotation::cur())
                         - meta.query_advice(col, Rotation::prev()))
             }))
@@ -239,7 +236,7 @@ impl LayerGadget {
 
             // notice all flag is constrainted to boolean, and total_flag is 1, so one and at most one col must be true
             // and only that flag whose op_type is corresponding to its step code can be true
-            exps.push(sel * (Expression::Constant(Fp::one()) - total_flag));
+            exps.push(sel * (Expression::Constant(Fp::ONE) - total_flag));
             exps
         });
 
@@ -251,7 +248,7 @@ impl LayerGadget {
         // lookup from control_table
         meta.lookup("layer intra-block border rule", |meta| {
             // condition 1 (intra-block transition) is only actived when series has not change
-            let series_delta_zero = Expression::Constant(Fp::one())
+            let series_delta_zero = Expression::Constant(Fp::ONE)
                 - meta.query_advice(series, Rotation::cur())
                 + meta.query_advice(series, Rotation::prev());
             let op_delta = meta.query_advice(op_type, Rotation::cur())
@@ -269,7 +266,7 @@ impl LayerGadget {
                 (ctrl_cur, control_table[1]),
                 (op_prev, control_table[2]),
                 (ctrl_prev, control_table[3]),
-                (Expression::Constant(Fp::zero()), control_table[4]),
+                (Expression::Constant(Fp::ZERO), control_table[4]),
             ]
         });
 
@@ -289,7 +286,7 @@ impl LayerGadget {
                 (ctrl_cur, control_table[1]),
                 (op_prev, control_table[2]),
                 (ctrl_prev, control_table[3]),
-                (Expression::Constant(Fp::one()), control_table[4]),
+                (Expression::Constant(Fp::ONE), control_table[4]),
             ]
         });
 
@@ -322,7 +319,7 @@ impl LayerGadget {
     }
 
     // LayerGadget must be first assigned, with other gadgets start from the offset it has returned
-    pub fn assign<Fp: FieldExt>(
+    pub fn assign<Fp: PrimeField>(
         &self,
         region: &mut Region<'_, Fp>,
         max_rows: usize,
@@ -331,23 +328,23 @@ impl LayerGadget {
         // current we flush the first row, and start other circuits's assignation from row 1
         self.free_cols.iter().try_for_each(|col| {
             region
-                .assign_advice(|| "flushing", *col, 0, || Value::known(Fp::zero()))
+                .assign_advice(|| "flushing", *col, 0, || Value::known(Fp::ZERO))
                 .map(|_| ())
         })?;
         self.s_stepflags.iter().try_for_each(|col| {
             region
-                .assign_advice(|| "flushing", *col, 0, || Value::known(Fp::zero()))
+                .assign_advice(|| "flushing", *col, 0, || Value::known(Fp::ZERO))
                 .map(|_| ())
         })?;
-        region.assign_advice_from_constant(|| "init series", self.series, 0, Fp::zero())?;
-        region.assign_advice_from_constant(|| "init series", self.series, 1, Fp::one())?;
+        region.assign_advice_from_constant(|| "init series", self.series, 0, Fp::ZERO)?;
+        region.assign_advice_from_constant(|| "init series", self.series, 1, Fp::ONE)?;
         region.assign_advice_from_constant(
             || "init op",
             self.op_type,
             0,
             Fp::from(self.start_op_code() as u64),
         )?;
-        region.assign_advice_from_constant(|| "init ctrl", self.ctrl_type, 0, Fp::zero())?;
+        region.assign_advice_from_constant(|| "init ctrl", self.ctrl_type, 0, Fp::ZERO)?;
         region.assign_advice(
             || "start root",
             self.new_root_index,
@@ -355,7 +352,7 @@ impl LayerGadget {
             || Value::known(init_root),
         )?;
         for col in [self.old_root_index, self.address_index] {
-            region.assign_advice(|| "index flush", col, 0, || Value::known(Fp::zero()))?;
+            region.assign_advice(|| "index flush", col, 0, || Value::known(Fp::ZERO))?;
         }
 
         for offset in 1..max_rows {
@@ -369,26 +366,26 @@ impl LayerGadget {
                     || "flushing last",
                     *col,
                     max_rows,
-                    || Value::known(Fp::zero()),
+                    || Value::known(Fp::ZERO),
                 )
                 .map(|_| ())
         })?;
         // begin padding and final flush for data_rows
         for col in [self.data_0, self.data_1, self.data_2] {
-            region.assign_advice(|| "begin padding", col, 0, || Value::known(Fp::zero()))?;
+            region.assign_advice(|| "begin padding", col, 0, || Value::known(Fp::ZERO))?;
 
             region.assign_advice(
                 || "last row flushing",
                 col,
                 max_rows,
-                || Value::known(Fp::zero()),
+                || Value::known(Fp::ZERO),
             )?;
         }
         region.assign_advice(
             || "terminalte series",
             self.series,
             max_rows,
-            || Value::known(Fp::zero()),
+            || Value::known(Fp::ZERO),
         )?;
 
         Ok(1)
@@ -397,7 +394,7 @@ impl LayerGadget {
     // pace has to be called before a working gadget is assigned on the specified offset, the rows
     // that working gadget would occpuy, and the result of the new root which gadget has output,
     // must be known before
-    pub fn pace_op<Fp: FieldExt>(
+    pub fn pace_op<Fp: PrimeField>(
         &self,
         region: &mut Region<'_, Fp>,
         offset: usize,
@@ -419,7 +416,7 @@ impl LayerGadget {
                 offset,
                 || {
                     Value::known(if prev_op == op_type.1 {
-                        Fp::zero()
+                        Fp::ZERO
                     } else {
                         op_delta.invert().unwrap()
                     })
@@ -428,12 +425,7 @@ impl LayerGadget {
             // flush all cols to avoid unassigned error
             self.free_cols.iter().try_for_each(|col| {
                 region
-                    .assign_advice(
-                        || "flushing free",
-                        *col,
-                        offset,
-                        || Value::known(Fp::zero()),
-                    )
+                    .assign_advice(|| "flushing free", *col, offset, || Value::known(Fp::ZERO))
                     .map(|_| ())
             })?;
             // flush all cols to avoid unassigned error
@@ -443,7 +435,7 @@ impl LayerGadget {
                         || "flushing op type flag",
                         *col,
                         offset,
-                        || Value::known(Fp::zero()),
+                        || Value::known(Fp::ZERO),
                     )
                     .map(|_| ())
             })?;
@@ -462,13 +454,13 @@ impl LayerGadget {
                         || "flushing exported",
                         *col,
                         offset,
-                        || Value::known(Fp::zero()),
+                        || Value::known(Fp::ZERO),
                     )
                     .map(|_| ())
             })?;
             self.s_stepflags.iter().try_for_each(|col| {
                 region
-                    .assign_advice(|| "flushing", *col, offset, || Value::known(Fp::zero()))
+                    .assign_advice(|| "flushing", *col, offset, || Value::known(Fp::ZERO))
                     .map(|_| ())
             })?;
 
@@ -480,7 +472,7 @@ impl LayerGadget {
 
     // complete block is called AFTER all working gadget has been assigned on the specified offset,
     // this entry fill whole block with series and index value
-    pub fn complete_block<Fp: FieldExt>(
+    pub fn complete_block<Fp: PrimeField>(
         &self,
         region: &mut Region<'_, Fp>,
         offset: usize,
@@ -520,7 +512,7 @@ impl LayerGadget {
 
     // set all transition rules
     // + end_op: is the last op code in your assignation, often just (<padding gadget's op type, usually 0>, 0)
-    pub fn set_op_border<Fp: FieldExt>(
+    pub fn set_op_border<Fp: PrimeField>(
         &self,
         layouter: &mut impl Layouter<Fp>,
         inter_op: &[OpBorder],
@@ -532,7 +524,7 @@ impl LayerGadget {
 
     // set all transition rules
     // + start_op: all possible starting op code and ctrl code
-    pub fn set_op_border_ex<Fp: FieldExt>(
+    pub fn set_op_border_ex<Fp: PrimeField>(
         &self,
         layouter: &mut impl Layouter<Fp>,
         inter_op: &[OpBorder],
@@ -547,62 +539,62 @@ impl LayerGadget {
                     || "default",
                     self.control_table[0],
                     0,
-                    || Value::known(Fp::zero()),
+                    || Value::known(Fp::ZERO),
                 )?;
                 table.assign_cell(
                     || "default",
                     self.control_table[1],
                     0,
-                    || Value::known(Fp::zero()),
+                    || Value::known(Fp::ZERO),
                 )?;
                 table.assign_cell(
                     || "default",
                     self.control_table[2],
                     0,
-                    || Value::known(Fp::zero()),
+                    || Value::known(Fp::ZERO),
                 )?;
                 table.assign_cell(
                     || "default",
                     self.control_table[3],
                     0,
-                    || Value::known(Fp::zero()),
+                    || Value::known(Fp::ZERO),
                 )?;
                 table.assign_cell(
                     || "default",
                     self.control_table[4],
                     0,
-                    || Value::known(Fp::zero()),
+                    || Value::known(Fp::ZERO),
                 )?;
 
                 table.assign_cell(
                     || "default op cur",
                     self.control_table[0],
                     1,
-                    || Value::known(Fp::zero()),
+                    || Value::known(Fp::ZERO),
                 )?;
                 table.assign_cell(
                     || "default ctrl cur",
                     self.control_table[1],
                     1,
-                    || Value::known(Fp::zero()),
+                    || Value::known(Fp::ZERO),
                 )?;
                 table.assign_cell(
                     || "default op prev",
                     self.control_table[2],
                     1,
-                    || Value::known(Fp::zero()),
+                    || Value::known(Fp::ZERO),
                 )?;
                 table.assign_cell(
                     || "default ctrl prev",
                     self.control_table[3],
                     1,
-                    || Value::known(Fp::zero()),
+                    || Value::known(Fp::ZERO),
                 )?;
                 table.assign_cell(
                     || "mark",
                     self.control_table[4],
                     1,
-                    || Value::known(Fp::one()),
+                    || Value::known(Fp::ONE),
                 )?;
 
                 let mut offset = 2;
@@ -631,13 +623,13 @@ impl LayerGadget {
                         || "marking ctrl",
                         self.control_table[3],
                         offset,
-                        || Value::known(Fp::zero()),
+                        || Value::known(Fp::ZERO),
                     )?;
                     table.assign_cell(
                         || "mark",
                         self.control_table[4],
                         offset,
-                        || Value::known(Fp::one()),
+                        || Value::known(Fp::ONE),
                     )?;
                     offset += 1;
                 }
@@ -671,7 +663,7 @@ impl LayerGadget {
                         || "mark",
                         self.control_table[4],
                         offset,
-                        || Value::known(Fp::one()),
+                        || Value::known(Fp::ONE),
                     )?;
                     offset += 1;
                 }
@@ -705,7 +697,7 @@ impl LayerGadget {
                         || "mark",
                         self.control_table[4],
                         offset,
-                        || Value::known(Fp::zero()),
+                        || Value::known(Fp::ZERO),
                     )?;
                     offset += 1;
                 }
@@ -728,7 +720,7 @@ pub(crate) struct PaddingGadget {
 }
 
 impl PaddingGadget {
-    pub fn configure<Fp: FieldExt>(
+    pub fn configure<Fp: PrimeField>(
         _meta: &mut ConstraintSystem<Fp>,
         _sel: Selector,
         exported: &[Column<Advice>],
@@ -741,7 +733,7 @@ impl PaddingGadget {
         }
     }
 
-    pub fn padding<Fp: FieldExt>(
+    pub fn padding<Fp: PrimeField>(
         &self,
         region: &mut Region<'_, Fp>,
         offset: usize,
@@ -752,19 +744,19 @@ impl PaddingGadget {
                 || "ctrl type",
                 self.ctrl_type,
                 offset,
-                || Value::known(Fp::zero()),
+                || Value::known(Fp::ZERO),
             )?;
             region.assign_advice(
                 || "enable s_ctrl",
                 self.s_ctrl_type,
                 offset,
-                || Value::known(Fp::one()),
+                || Value::known(Fp::ONE),
             )?;
             region.assign_advice(
                 || "enable padding",
                 self.s_enable,
                 offset,
-                || Value::known(Fp::one()),
+                || Value::known(Fp::ONE),
             )?;
         }
         Ok(())

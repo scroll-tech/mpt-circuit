@@ -1,7 +1,7 @@
 use crate::operation::{AccountOp, KeyValue};
 use halo2_proofs::{
-    arithmetic::{Field, FieldExt},
     circuit::{Layouter, Value},
+    ff::{Field, PrimeField},
     plonk::{Advice, Column, ConstraintSystem, Error, Expression, Selector, VirtualCells},
     poly::Rotation,
 };
@@ -48,7 +48,7 @@ impl Config {
         self.address.index()
     }
 
-    pub fn bind_mpt_circuit<F: FieldExt>(
+    pub fn bind_mpt_circuit<F: PrimeField>(
         &self,
         meta: &mut ConstraintSystem<F>,
         gadget_id: Column<Advice>,
@@ -179,15 +179,15 @@ impl Config {
         });
 
         if false {
-        meta.lookup_any("mpt account not exist entry lookup", |meta| {
-            let s_enable = meta.query_advice(self.proof_sel[3], Rotation::cur());
+            meta.lookup_any("mpt account not exist entry lookup", |meta| {
+                let s_enable = meta.query_advice(self.proof_sel[3], Rotation::cur());
 
-            build_entry_lookup_common(meta, (3, 0))
-                .into_iter()
-                .chain(build_entry_lookup_not_exist(meta))
-                .map(|(fst, snd)| (fst * s_enable.clone(), snd))
-                .collect()
-        });
+                build_entry_lookup_common(meta, (3, 0))
+                    .into_iter()
+                    .chain(build_entry_lookup_not_exist(meta))
+                    .map(|(fst, snd)| (fst * s_enable.clone(), snd))
+                    .collect()
+            });
         }
 
         meta.lookup_any("mpt account destroy entry lookup", |meta| {
@@ -254,7 +254,7 @@ pub(crate) struct MPTEntry<F: Field> {
     old_value: KeyValue<F>,
 }
 
-impl<F: FieldExt> MPTEntry<F> {
+impl<F: PrimeField> MPTEntry<F> {
     // detect proof type from op data itself, just mocking,
     // not always correct
     pub fn mock_from_op(op: &AccountOp<F>, randomness: F) -> Self {
@@ -388,7 +388,7 @@ pub(crate) struct MPTTable<F: Field> {
     rows: usize,
 }
 
-impl<F: FieldExt> MPTTable<F> {
+impl<F: PrimeField> MPTTable<F> {
     pub fn construct(
         config: Config,
         entries: impl IntoIterator<Item = MPTEntry<F>>,
@@ -775,7 +775,7 @@ mod test {
             proof_type: MPTProofType::BalanceChanged,
             base: Some([
                 address,
-                Fp::zero(),
+                Fp::ZERO,
                 Fp::from(MPTProofType::BalanceChanged as u64),
                 rand_fp(),
                 rand_fp(),
@@ -808,13 +808,13 @@ mod test {
         let entry3 = MPTEntry {
             proof_type: MPTProofType::AccountDoesNotExist,
             base: Some([
-                address + Fp::one(),
-                Fp::zero(),
+                address + Fp::ONE,
+                Fp::ZERO,
                 Fp::from(MPTProofType::AccountDoesNotExist as u64),
                 entry2.base.unwrap()[4],
                 entry2.base.unwrap()[4],
-                Fp::zero(),
-                Fp::zero(),
+                Fp::ZERO,
+                Fp::ZERO,
             ]),
             storage_key: Default::default(),
             new_value: Default::default(),

@@ -36,8 +36,8 @@ use super::mpt;
 use super::CtrlTransitionKind;
 use crate::operation::{Account, AccountOp, KeyValue};
 use halo2_proofs::{
-    arithmetic::FieldExt,
     circuit::{Chip, Region, Value},
+    ff::PrimeField,
     plonk::{Advice, Column, ConstraintSystem, Error, Expression, Selector},
     poly::Rotation,
 };
@@ -79,7 +79,7 @@ impl AccountGadget {
     /// + circuit selector * 1
     /// + exported col * 8 (MUST by following sequence: layout_flag, s_enable, old_val, new_val, key_val and 3 ext field for old/new/key_val)
     /// + free col * 4
-    pub fn configure<Fp: FieldExt>(
+    pub fn configure<Fp: PrimeField>(
         meta: &mut ConstraintSystem<Fp>,
         sel: Selector,
         exported: &[Column<Advice>],
@@ -126,7 +126,7 @@ impl AccountGadget {
         //transition
         meta.lookup("account row trans", |meta| {
             let s_enable = meta.query_advice(s_enable, Rotation::cur())
-                * (Expression::Constant(Fp::one())
+                * (Expression::Constant(Fp::ONE)
                     - meta.query_advice(s_ctrl_type[0], Rotation::cur()));
 
             tables.build_lookup(
@@ -184,7 +184,7 @@ impl AccountGadget {
                     let is_diff_ext_boolean =
                         data_ext_diff.clone() * meta.query_advice(state_change_aux[1], Rotation::cur());
 
-                    let one = Expression::Constant(Fp::one());
+                    let one = Expression::Constant(Fp::ONE);
                     // switch A || B to ! (!A ^ !B)
                     let has_diff = one.clone()
                         - (one.clone() - is_diff_boolean.clone())
@@ -217,7 +217,7 @@ impl AccountGadget {
                 s_enable
                     * row0
                     * (new_nonce.clone() - old_nonce.clone())
-                    * (new_nonce - old_nonce - Expression::Constant(Fp::one())),
+                    * (new_nonce - old_nonce - Expression::Constant(Fp::ONE)),
             ]
         });*/
 
@@ -250,7 +250,7 @@ impl AccountGadget {
     }
 
     /// assign data and enable flag for account circuit
-    pub fn assign<'d, Fp: FieldExt>(
+    pub fn assign<'d, Fp: PrimeField>(
         &self,
         region: &mut Region<'_, Fp>,
         offset: usize,
@@ -298,7 +298,7 @@ impl AccountGadget {
                 || "enable account circuit",
                 self.s_enable,
                 offset,
-                || Value::known(Fp::one()),
+                || Value::known(Fp::ONE),
             )?;
             region.assign_advice(
                 || "account circuit rows",
@@ -310,31 +310,31 @@ impl AccountGadget {
                 || "enable s_ctrl",
                 self.s_ctrl_type[index as usize],
                 offset,
-                || Value::known(Fp::one()),
+                || Value::known(Fp::ONE),
             )?;
             if index == LAST_ROW {
                 region.assign_advice(
                     || "padding last row",
                     self.old_state.intermediate_2,
                     offset,
-                    || Value::known(Fp::zero()),
+                    || Value::known(Fp::ZERO),
                 )?;
 
                 region.assign_advice(
                     || "padding last row",
                     self.new_state.intermediate_2,
                     offset,
-                    || Value::known(Fp::zero()),
+                    || Value::known(Fp::ZERO),
                 )?;
             }
             let data_delta = match index {
-                0 => [data.0.nonce - data.1.nonce, Fp::zero()],
-                1 => [data.0.balance - data.1.balance, Fp::zero()],
+                0 => [data.0.nonce - data.1.nonce, Fp::ZERO],
+                1 => [data.0.balance - data.1.balance, Fp::ZERO],
                 2 => [
                     data.0.codehash.0 - data.1.codehash.0,
                     data.0.codehash.1 - data.1.codehash.1,
                 ],
-                3 => [data.0.state_root - data.1.state_root, Fp::zero()],
+                3 => [data.0.state_root - data.1.state_root, Fp::ZERO],
                 _ => unreachable!("no such row number"),
             };
 
@@ -350,7 +350,7 @@ impl AccountGadget {
                     offset,
                     || {
                         Value::known(if bool::from(val.is_zero()) {
-                            Fp::zero()
+                            Fp::ZERO
                         } else {
                             val.invert().unwrap()
                         })
@@ -362,13 +362,7 @@ impl AccountGadget {
                 || "is data delta",
                 self.state_change_key,
                 offset,
-                || {
-                    Value::known(if has_data_delta {
-                        Fp::one()
-                    } else {
-                        Fp::zero()
-                    })
-                },
+                || Value::known(if has_data_delta { Fp::ONE } else { Fp::ZERO }),
             )?;
         }
 
@@ -391,7 +385,7 @@ struct AccountChip<'d, F> {
     data: &'d Account<F>,
 }
 
-impl<Fp: FieldExt> Chip<Fp> for AccountChip<'_, Fp> {
+impl<Fp: PrimeField> Chip<Fp> for AccountChip<'_, Fp> {
     type Config = AccountChipConfig;
     type Loaded = Account<Fp>;
 
@@ -404,7 +398,7 @@ impl<Fp: FieldExt> Chip<Fp> for AccountChip<'_, Fp> {
     }
 }
 
-impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
+impl<'d, Fp: PrimeField> AccountChip<'d, Fp> {
     fn lagrange_polynomial_for_row<const T: usize>(ref_n: Expression<Fp>) -> Expression<Fp> {
         super::lagrange_polynomial::<Fp, T, LAST_ROW>(ref_n)
     }
@@ -509,7 +503,7 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
             ),
             (
                 config.acc_data_fields_ext,
-                [Fp::zero(), Fp::zero(), data.codehash.1],
+                [Fp::ZERO, Fp::ZERO, data.codehash.1],
                 "data field ext",
             ),
             (
@@ -519,7 +513,7 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
             ),
             (
                 config.intermediate_1,
-                [Fp::zero(), data.hash_traces(2), data.hash_traces(0)],
+                [Fp::ZERO, data.hash_traces(2), data.hash_traces(0)],
                 "intermedia 1",
             ),
         ] {
@@ -544,7 +538,7 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
             || "state root padding",
             config.acc_data_fields_ext,
             self.offset + LAST_ROW,
-            || Value::known(Fp::zero()),
+            || Value::known(Fp::ZERO),
         )?;
 
         Ok(self.offset + LAST_ROW)
@@ -564,7 +558,7 @@ struct StorageChip<'d, F> {
     value: Option<KeyValue<F>>,
 }
 
-impl<'d, Fp: FieldExt> StorageChip<'d, Fp> {
+impl<'d, Fp: PrimeField> StorageChip<'d, Fp> {
     fn configure(
         meta: &mut ConstraintSystem<Fp>,
         _sel: Selector,
@@ -592,14 +586,14 @@ impl<'d, Fp: FieldExt> StorageChip<'d, Fp> {
             || "val limb 0",
             config.v_limbs[0],
             self.offset,
-            || Value::known(self.value.as_ref().map_or_else(Fp::zero, |v| v.limb_0())),
+            || Value::known(self.value.as_ref().map_or(Fp::ZERO, |v| v.limb_0())),
         )?;
 
         region.assign_advice(
             || "val limb 1",
             config.v_limbs[1],
             self.offset,
-            || Value::known(self.value.as_ref().map_or_else(Fp::zero, |v| v.limb_1())),
+            || Value::known(self.value.as_ref().map_or(Fp::ZERO, |v| v.limb_1())),
         )?;
 
         Ok(self.offset + 1)
@@ -629,7 +623,7 @@ impl StorageGadget {
     /// + circuit selector * 1
     /// + exported col * 5 (MUST by following sequence: layout_flag, s_enable, old_val, new_val, key_val)
     /// + free col * 4
-    pub fn configure<Fp: FieldExt>(
+    pub fn configure<Fp: PrimeField>(
         meta: &mut ConstraintSystem<Fp>,
         sel: Selector,
         exported: &[Column<Advice>],
@@ -670,7 +664,7 @@ impl StorageGadget {
         [].into_iter()
     }
 
-    pub fn assign<'d, Fp: FieldExt>(
+    pub fn assign<'d, Fp: PrimeField>(
         &self,
         region: &mut Region<'_, Fp>,
         offset: usize,
@@ -680,21 +674,21 @@ impl StorageGadget {
             || "enable storage leaf circuit",
             self.s_enable,
             offset,
-            || Value::known(Fp::one()),
+            || Value::known(Fp::ONE),
         )?;
 
         region.assign_advice(
             || "storage leaf circuit row",
             self.ctrl_type,
             offset,
-            || Value::known(Fp::zero()),
+            || Value::known(Fp::ZERO),
         )?;
 
         region.assign_advice(
             || "enable s_ctrl",
             self.s_ctrl_type,
             offset,
-            || Value::known(Fp::one()),
+            || Value::known(Fp::ONE),
         )?;
 
         for (config, value) in [
@@ -814,7 +808,7 @@ mod test {
                             || "flush top row",
                             col,
                             0,
-                            || Value::known(Fp::zero()),
+                            || Value::known(Fp::ZERO),
                         )?;
                     }
 
@@ -824,7 +818,7 @@ mod test {
                                 || "flush s_ctrl",
                                 col,
                                 offset,
-                                || Value::known(Fp::zero()),
+                                || Value::known(Fp::ZERO),
                             )?;
                         }
                     }
@@ -844,7 +838,7 @@ mod test {
                             || "flush last row",
                             col,
                             till,
-                            || Value::known(Fp::zero()),
+                            || Value::known(Fp::ZERO),
                         )?;
                     }
                     Ok(())

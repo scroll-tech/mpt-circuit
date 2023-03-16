@@ -62,8 +62,8 @@
 use super::{CtrlTransitionKind, HashType};
 use crate::operation::{MPTPath, SingleOp};
 use halo2_proofs::{
-    arithmetic::{Field, FieldExt},
     circuit::{Chip, Layouter, Region, Value},
+    ff::{Field, PrimeField},
     plonk::{
         Advice, Column, ConstraintSystem, Error, Expression, Selector, TableColumn, VirtualCells,
     },
@@ -122,7 +122,7 @@ impl MPTOpTables {
         )
     }
 
-    pub fn build_lookup_any<Fp: FieldExt>(
+    pub fn build_lookup_any<Fp: PrimeField>(
         &self,
         enable: Expression<Fp>,
         rules: impl IntoIterator<Item = Expression<Fp>>,
@@ -137,7 +137,7 @@ impl MPTOpTables {
         ret
     }
 
-    pub fn build_lookup<Fp: FieldExt>(
+    pub fn build_lookup<Fp: PrimeField>(
         &self,
         enable: Expression<Fp>,
         old: Expression<Fp>,
@@ -147,7 +147,7 @@ impl MPTOpTables {
         self.build_lookup_any(enable, [old, new], mark)
     }
 
-    pub fn fill_constant<Fp: FieldExt>(
+    pub fn fill_constant<Fp: PrimeField>(
         &self,
         layouter: &mut impl Layouter<Fp>,
         rules: impl Iterator<Item = ([u32; 3], u32)> + Clone,
@@ -156,13 +156,13 @@ impl MPTOpTables {
             || "op table",
             |mut table| {
                 // default line
-                table.assign_cell(|| "default mark", self.0, 0, || Value::known(Fp::zero()))?;
+                table.assign_cell(|| "default mark", self.0, 0, || Value::known(Fp::ZERO))?;
                 for i in 0..3 {
                     table.assign_cell(
                         || "default rule",
                         self.1[i],
                         0,
-                        || Value::known(Fp::zero()),
+                        || Value::known(Fp::ZERO),
                     )?;
                 }
 
@@ -206,7 +206,7 @@ impl HashTable {
         self.0.map(|col| col.index())
     }
 
-    pub fn build_lookup<'d, Fp: FieldExt>(
+    pub fn build_lookup<'d, Fp: PrimeField>(
         &self,
         meta: &mut VirtualCells<'d, Fp>,
         enable: Expression<Fp>,
@@ -225,7 +225,7 @@ impl HashTable {
             ),
             (enable * snd, meta.query_advice(self.0[2], Rotation::cur())),
             (
-                Expression::Constant(Fp::zero()),
+                Expression::Constant(Fp::ZERO),
                 meta.query_advice(self.0[3], Rotation::cur()),
             ),
         ]
@@ -233,7 +233,7 @@ impl HashTable {
 
     /// a helper entry to fill hash table with specified rows, use padding record
     /// when hashing_records is not enough
-    pub fn fill_with_paddings<'d, Fp: FieldExt>(
+    pub fn fill_with_paddings<'d, Fp: PrimeField>(
         &self,
         layouter: &mut impl Layouter<Fp>,
         hashing_records: impl Iterator<Item = &'d (Fp, Fp, Fp)> + Clone,
@@ -252,7 +252,7 @@ impl HashTable {
     }
 
     /// a helper entry to fill hash table
-    pub fn fill<'d, Fp: FieldExt>(
+    pub fn fill<'d, Fp: PrimeField>(
         &self,
         layouter: &mut impl Layouter<Fp>,
         hashing_records: impl Iterator<Item = &'d (Fp, Fp, Fp)> + Clone,
@@ -262,7 +262,7 @@ impl HashTable {
             |mut table| {
                 // default: 0, 0, 0
                 for col in self.0 {
-                    table.assign_advice(|| "default", col, 0, || Value::known(Fp::zero()))?;
+                    table.assign_advice(|| "default", col, 0, || Value::known(Fp::ZERO))?;
                 }
 
                 hashing_records
@@ -282,7 +282,7 @@ impl HashTable {
                             || "ctrl_pad",
                             self.0[3],
                             offset,
-                            || Value::known(Fp::zero()),
+                            || Value::known(Fp::ZERO),
                         )?;
 
                         Ok(())
@@ -338,7 +338,7 @@ impl MPTOpGadget {
     }
 
     /// if the gadget would be used only once, this entry is more easy
-    pub fn configure_simple<Fp: FieldExt>(
+    pub fn configure_simple<Fp: PrimeField>(
         meta: &mut ConstraintSystem<Fp>,
         sel: Selector,
         exported: &[Column<Advice>],
@@ -367,7 +367,7 @@ impl MPTOpGadget {
     /// + s_op_flags * 6 (corresponding 6 ctrl_types)
     /// + free col * 8
     /// notice the gadget has bi-direction exporting (on top it exporting mpt root and bottom exporting leaf)
-    pub fn configure<Fp: FieldExt>(
+    pub fn configure<Fp: PrimeField>(
         meta: &mut ConstraintSystem<Fp>,
         sel: Selector,
         exported: &[Column<Advice>],
@@ -404,7 +404,7 @@ impl MPTOpGadget {
             let s_row = meta.query_selector(g_config.s_row);
             let s_enable = meta.query_advice(g_config.s_enable, Rotation::cur());
             // s_enable ∈ {0, 1}
-            vec![s_row * (Expression::Constant(Fp::one()) - s_enable.clone()) * s_enable]
+            vec![s_row * (Expression::Constant(Fp::ONE) - s_enable.clone()) * s_enable]
         });
 
         if let Some((old_root_index, new_root_index)) = root_index {
@@ -458,13 +458,13 @@ impl MPTOpGadget {
         i1.chain(i2)
     }
 
-    /*    pub fn init<Fp: FieldExt>(&self, layouter: &mut impl Layouter<Fp>) -> Result<(), Error> {
+    /*    pub fn init<Fp: PrimeField>(&self, layouter: &mut impl Layouter<Fp>) -> Result<(), Error> {
         self.tables
             .fill_constant(layouter, Self::transition_rules())
     }*/
 
     /// assign data and enable flag for MPT circuit
-    pub fn assign<Fp: FieldExt>(
+    pub fn assign<Fp: PrimeField>(
         &self,
         region: &mut Region<'_, Fp>,
         offset: usize,
@@ -490,7 +490,7 @@ impl MPTOpGadget {
                 || "enable MPT circuit",
                 self.s_enable,
                 offset,
-                || Value::known(Fp::one()),
+                || Value::known(Fp::ONE),
             )?;
         }
 
@@ -499,7 +499,7 @@ impl MPTOpGadget {
 }
 
 /*
-fn lagrange_polynomial_for_hashtype<Fp: FieldExt, const T: usize>(
+fn lagrange_polynomial_for_hashtype<Fp: PrimeField, const T: usize>(
     ref_n: Expression<Fp>,
 ) -> Expression<Fp> {
     super::lagrange_polynomial::<Fp, T, 5 /* last Type: Leaf */>(ref_n)
@@ -520,14 +520,14 @@ struct PathChipConfig {
 
 /// chip for verify mutiple merkle path in MPT
 /// it do not need any auxiliary cols
-struct PathChip<'d, F: FieldExt> {
+struct PathChip<'d, F: PrimeField> {
     offset: usize,
     config: PathChipConfig,
     data: &'d MPTPath<F>,
     ref_ctrl_type: Option<&'d [HashType]>,
 }
 
-impl<Fp: FieldExt> Chip<Fp> for PathChip<'_, Fp> {
+impl<Fp: PrimeField> Chip<Fp> for PathChip<'_, Fp> {
     type Config = PathChipConfig;
     type Loaded = MPTPath<Fp>;
 
@@ -540,7 +540,7 @@ impl<Fp: FieldExt> Chip<Fp> for PathChip<'_, Fp> {
     }
 }
 
-impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
+impl<'d, Fp: PrimeField> PathChip<'d, Fp> {
     fn configure(
         meta: &mut ConstraintSystem<Fp>,
         g_config: &MPTOpConfig,
@@ -603,7 +603,7 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
         //
         // from table formed by (left, right, hash)
         meta.lookup_any("mpt node hash", |meta| {
-            let s_hash_type_not_match = Expression::Constant(Fp::one())
+            let s_hash_type_not_match = Expression::Constant(Fp::ONE)
                 - meta.query_advice(s_match_ctrl_type, Rotation::cur());
             let s_path = meta.query_advice(s_enable, Rotation::cur())
                 * (meta.query_advice(s_hash_type[HashType::Middle as usize], Rotation::cur())
@@ -646,7 +646,7 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
 
         //transition, notice the start status is ensured outside of the gadget
         meta.lookup("mpt type trans", |meta| {
-            let s_not_begin = Expression::Constant(Fp::one())
+            let s_not_begin = Expression::Constant(Fp::ONE)
                 - meta.query_advice(s_hash_type[HashType::Start as usize], Rotation::cur()); //not Start
 
             let s_block_enable = meta.query_advice(s_enable, Rotation::cur()) * s_not_begin;
@@ -708,7 +708,7 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
             hash_table.build_lookup(
                 meta,
                 s_last_extended,
-                Expression::Constant(Fp::one()),
+                Expression::Constant(Fp::ONE),
                 key_proof,
                 key_proof_immediate,
             )
@@ -779,8 +779,8 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
                 offset + index,
                 || {
                     Value::known(match hash_type {
-                        HashType::Start | HashType::Empty | HashType::Leaf => Fp::zero(),
-                        _ => Fp::one(),
+                        HashType::Start | HashType::Empty | HashType::Leaf => Fp::ZERO,
+                        _ => Fp::ONE,
                     })
                 },
             )?;
@@ -802,7 +802,7 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
                     Value::known(
                         Fp::from(ref_type as u64 - hash_type as u64)
                             .invert()
-                            .unwrap_or_else(Fp::zero),
+                            .unwrap_or(Fp::ZERO),
                     )
                 },
             )?;
@@ -812,9 +812,9 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
                 offset + index,
                 || {
                     Value::known(if hash_type == ref_type {
-                        Fp::one()
+                        Fp::ONE
                     } else {
-                        Fp::zero()
+                        Fp::ZERO
                     })
                 },
             )?;
@@ -837,13 +837,13 @@ struct OpChipConfig {
 
 /// chip for verify mutiple merkle path in MPT
 /// it do not need any auxiliary cols
-struct OpChip<'d, F: FieldExt> {
+struct OpChip<'d, F: PrimeField> {
     offset: usize,
     config: OpChipConfig,
     data: &'d SingleOp<F>,
 }
 
-impl<Fp: FieldExt> Chip<Fp> for OpChip<'_, Fp> {
+impl<Fp: PrimeField> Chip<Fp> for OpChip<'_, Fp> {
     type Config = OpChipConfig;
     type Loaded = SingleOp<Fp>;
 
@@ -856,7 +856,7 @@ impl<Fp: FieldExt> Chip<Fp> for OpChip<'_, Fp> {
     }
 }
 
-impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
+impl<'d, Fp: PrimeField> OpChip<'d, Fp> {
     fn configure(
         meta: &mut ConstraintSystem<Fp>,
         g_config: &MPTOpConfig,
@@ -892,10 +892,10 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
         meta.create_gate("s_path and path bit", |meta| {
             let enable = meta.query_selector(s_row) * meta.query_advice(s_enable, Rotation::cur());
             let s_path = meta.query_advice(s_path, Rotation::cur());
-            let s_path_not_opened = Expression::Constant(Fp::one()) - s_path.clone();
+            let s_path_not_opened = Expression::Constant(Fp::ONE) - s_path.clone();
 
             let path = meta.query_advice(path, Rotation::cur());
-            let path_bit = (Expression::Constant(Fp::one()) - path.clone()) * path;
+            let path_bit = (Expression::Constant(Fp::ONE) - path.clone()) * path;
 
             let hash_type = meta.query_advice(old_hash_type, Rotation::cur());
             let not_path_type = (hash_type.clone()
@@ -907,9 +907,7 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
             // s_path is not open when hash_type is "start" / "leaf" / "empty"
             // when s_path is 1, path ∈ {0, 1}
             vec![
-                enable.clone()
-                    * (Expression::Constant(Fp::one()) - s_path.clone())
-                    * s_path.clone(),
+                enable.clone() * (Expression::Constant(Fp::ONE) - s_path.clone()) * s_path.clone(),
                 enable.clone() * not_path_type * s_path_not_opened,
                 enable * s_path * path_bit,
             ]
@@ -920,7 +918,7 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
             let s_begin = meta.query_advice(s_ctrl_type[HashType::Start as usize], Rotation::cur()); //Start
             let path = meta.query_advice(path, Rotation::cur());
             let depth_aux_start = meta.query_advice(depth_aux, Rotation::cur())
-                - Expression::Constant(Fp::one().double().invert().unwrap());
+                - Expression::Constant(Fp::ONE.double().invert().unwrap());
             let depth_aux_common = meta.query_advice(depth_aux, Rotation::cur())
                 - meta.query_advice(depth_aux, Rotation::prev())
                     * Expression::Constant(Fp::from(2u64));
@@ -935,10 +933,10 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
             vec![
                 enable.clone() * s_begin.clone() * depth_aux_start,
                 enable.clone()
-                    * (Expression::Constant(Fp::one()) - s_begin.clone())
+                    * (Expression::Constant(Fp::ONE) - s_begin.clone())
                     * depth_aux_common,
                 enable.clone() * s_begin.clone() * meta.query_advice(acc_key, Rotation::cur()),
-                enable * (Expression::Constant(Fp::one()) - s_begin) * key_acc,
+                enable * (Expression::Constant(Fp::ONE) - s_begin) * key_acc,
             ]
         });
 
@@ -951,7 +949,7 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
             hash_table.build_lookup(
                 meta,
                 s_leaf,
-                Expression::Constant(Fp::one()),
+                Expression::Constant(Fp::ONE),
                 key,
                 key_immediate,
             )
@@ -991,25 +989,25 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
             || "path padding",
             config.path,
             offset,
-            || Value::known(Fp::zero()),
+            || Value::known(Fp::ZERO),
         )?;
         region.assign_advice(
             || "acckey padding",
             config.acc_key,
             offset,
-            || Value::known(Fp::zero()),
+            || Value::known(Fp::ZERO),
         )?;
         region.assign_advice(
             || "depth padding",
             config.depth,
             offset,
-            || Value::known(Fp::one().double().invert().unwrap()),
+            || Value::known(Fp::ONE.double().invert().unwrap()),
         )?;
         region.assign_advice(
             || "sibling padding",
             config.sibling,
             offset,
-            || Value::known(Fp::zero()),
+            || Value::known(Fp::ZERO),
         )?;
         region.assign_advice(
             || "op type start",
@@ -1021,20 +1019,20 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
             || "enabling s_op",
             config.s_ctrl_type[ctrl_type[0] as usize],
             offset,
-            || Value::known(Fp::one()),
+            || Value::known(Fp::ONE),
         )?;
 
         region.assign_advice(
             || "sibling padding",
             config.sibling,
             offset,
-            || Value::known(Fp::zero()),
+            || Value::known(Fp::ZERO),
         )?;
 
         offset += 1;
 
-        let mut cur_depth = Fp::one();
-        let mut acc_key = Fp::zero();
+        let mut cur_depth = Fp::ONE;
+        let mut acc_key = Fp::ZERO;
 
         let extend_proof = self.data.extended_proof();
 
@@ -1072,7 +1070,7 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
                 || "enabling s_op",
                 config.s_ctrl_type[ctrl_type[index + 1] as usize],
                 offset,
-                || Value::known(Fp::one()),
+                || Value::known(Fp::ONE),
             )?;
 
             cur_depth = cur_depth.double();
@@ -1091,7 +1089,7 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
             || "enabling s_op",
             config.s_ctrl_type[ctrl_type as usize],
             offset,
-            || Value::known(Fp::one()),
+            || Value::known(Fp::ONE),
         )?;
         region.assign_advice(
             || "path",
@@ -1196,7 +1194,7 @@ mod test {
                     || "zero flushing",
                     zero_flush_col,
                     offset,
-                    || Value::known(Fp::zero()),
+                    || Value::known(Fp::ZERO),
                 )?;
             }
 
@@ -1260,14 +1258,14 @@ mod test {
                             || "enable",
                             config.s_ctrl_type[hash_type as usize],
                             working_offset + index,
-                            || Value::known(Fp::one()),
+                            || Value::known(Fp::ONE),
                         )?;
                     }
                     region.assign_advice(
                         || "enable",
                         config.s_enable,
                         working_offset,
-                        || Value::known(Fp::one()),
+                        || Value::known(Fp::ONE),
                     )?;
 
                     working_offset += 1;
@@ -1278,7 +1276,7 @@ mod test {
                             || "enable",
                             config.s_enable,
                             offset,
-                            || Value::known(Fp::one()),
+                            || Value::known(Fp::ONE),
                         )?;
                         region.assign_advice(
                             || "sibling",
@@ -1295,9 +1293,9 @@ mod test {
                     }
 
                     for (col, val, tip) in [
-                        (config.s_enable, Fp::one(), "enable"),
+                        (config.s_enable, Fp::ONE, "enable"),
                         (config.path, self.key_residue, "path"),
-                        (config.sibling, Fp::zero(), "sibling"),
+                        (config.sibling, Fp::ZERO, "sibling"),
                         (config.key_aux, self.key_immediate, "key"),
                     ] {
                         region.assign_advice(|| tip, col, next_offset, || Value::known(val))?;
@@ -1368,7 +1366,7 @@ mod test {
             );
             let path: Vec<Fp> = path_bits
                 .into_iter()
-                .map(|not_zero| if not_zero { Fp::one() } else { Fp::zero() })
+                .map(|not_zero| if not_zero { Fp::ONE } else { Fp::ZERO })
                 .collect();
 
             Self {
@@ -1464,7 +1462,7 @@ mod test {
                             || "enable",
                             config.s_enable,
                             offset,
-                            || Value::known(Fp::one()),
+                            || Value::known(Fp::ONE),
                         )?;
                         region.assign_advice(
                             || "s_path",
@@ -1472,10 +1470,8 @@ mod test {
                             offset,
                             || {
                                 Value::known(match self.data.old.hash_types[index] {
-                                    HashType::Empty | HashType::Leaf | HashType::Start => {
-                                        Fp::zero()
-                                    }
-                                    _ => Fp::one(),
+                                    HashType::Empty | HashType::Leaf | HashType::Start => Fp::ZERO,
+                                    _ => Fp::ONE,
                                 })
                             },
                         )?;
@@ -1523,7 +1519,7 @@ mod test {
                     .old
                     .hash_traces
                     .iter()
-                    .chain([(Fp::one(), self.data.key, Fp::zero())].iter()), //dummy for key calc
+                    .chain([(Fp::ONE, self.data.key, Fp::ZERO)].iter()), //dummy for key calc
             )?;
 
             Ok(())
@@ -1555,7 +1551,7 @@ mod test {
                     key: Fp::from(4u64),
                     key_residual: Fp::from(4u64),
                     old: MPTPath::<Fp>{
-                        hash_traces: vec![(Fp::one(), Fp::from(4u64), Fp::zero())],
+                        hash_traces: vec![(Fp::ONE, Fp::from(4u64), Fp::ZERO)],
                         hash_types: vec![HashType::Start, HashType::Empty],
                         ..Default::default()
                     },
@@ -1572,11 +1568,11 @@ mod test {
             TestOpCircuit {
                 data: SingleOp::<Fp>{
                     siblings: vec![Fp::from(11u64)],
-                    path: vec![Fp::one()],
+                    path: vec![Fp::ONE],
                     key: Fp::from(17u64), //0b10001u64
                     key_residual: Fp::from(8u64),
                     old: MPTPath::<Fp>{
-                        hash_traces: vec![(Fp::one(), Fp::from(9u64), Fp::zero())],
+                        hash_traces: vec![(Fp::ONE, Fp::from(9u64), Fp::ZERO)],
                         hash_types: vec![HashType::Start, HashType::LeafExtFinal, HashType::Empty],
                         ..Default::default()
                     },
@@ -1592,12 +1588,12 @@ mod test {
         static ref DEMOCIRCUIT3: TestOpCircuit = {
             TestOpCircuit {
                 data: SingleOp::<Fp>{
-                    siblings: vec![Fp::from(11u64), Fp::zero(), Fp::from(22u64)],
-                    path: vec![Fp::one(), Fp::zero(), Fp::one()],
+                    siblings: vec![Fp::from(11u64), Fp::ZERO, Fp::from(22u64)],
+                    path: vec![Fp::ONE, Fp::ZERO, Fp::ONE],
                     key: Fp::from(45u64), //0b101101u64
                     key_residual: Fp::from(5u64),
                     old: MPTPath::<Fp>{
-                        hash_traces: vec![(Fp::one(), Fp::from(45u64), Fp::zero())],
+                        hash_traces: vec![(Fp::ONE, Fp::from(45u64), Fp::ZERO)],
                         hash_types: vec![
                             HashType::Start,
                             HashType::Middle,
@@ -1720,7 +1716,7 @@ mod test {
                                     || "flushing",
                                     *col,
                                     offset,
-                                    || Value::known(Fp::zero()),
+                                    || Value::known(Fp::ZERO),
                                 )
                                 .map(|_| ())
                         })?;

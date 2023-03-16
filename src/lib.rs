@@ -70,8 +70,8 @@ enum CtrlTransitionKind {
 
 use eth::AccountGadget;
 use halo2_proofs::{
-    arithmetic::FieldExt,
     circuit::{Layouter, SimpleFloorPlanner},
+    ff::PrimeField,
     plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Expression},
 };
 use hash::Hashable;
@@ -80,15 +80,15 @@ use mpt::MPTOpGadget;
 use operation::{AccountOp, HashTracesSrc, SingleOp};
 
 // building lagrange polynmials L for T so that L(n) = 1 when n = T else 0, n in [0, TO]
-fn lagrange_polynomial<Fp: FieldExt, const T: usize, const TO: usize>(
+fn lagrange_polynomial<Fp: PrimeField, const T: usize, const TO: usize>(
     ref_n: Expression<Fp>,
 ) -> Expression<Fp> {
     let mut denominators: Vec<Fp> = (0..=TO)
         .map(|v| Fp::from(T as u64) - Fp::from(v as u64))
         .collect();
     denominators.swap_remove(T);
-    let denominator = denominators.into_iter().fold(Fp::one(), |acc, v| v * acc);
-    assert_ne!(denominator, Fp::zero());
+    let denominator = denominators.into_iter().fold(Fp::ONE, |acc, v| v * acc);
+    assert_ne!(denominator, Fp::ZERO);
 
     let mut factors: Vec<Expression<Fp>> = (0..(TO + 1))
         .map(|v| ref_n.clone() - Expression::Constant(Fp::from(v as u64)))
@@ -110,7 +110,7 @@ pub struct SimpleTrieConfig {
 
 /// The chip for op on a simple trie
 #[derive(Clone, Default)]
-pub struct SimpleTrie<F: FieldExt> {
+pub struct SimpleTrie<F: PrimeField> {
     c_size: usize, //how many rows
     start_root: F,
     final_root: F,
@@ -120,7 +120,7 @@ pub struct SimpleTrie<F: FieldExt> {
 const OP_MPT: u32 = 1;
 const OP_PADDING: u32 = 0;
 
-impl<Fp: FieldExt> SimpleTrie<Fp> {
+impl<Fp: PrimeField> SimpleTrie<Fp> {
     /// create a new, empty circuit with specified size
     pub fn new(c_size: usize) -> Self {
         Self {
@@ -146,7 +146,7 @@ impl<Fp: FieldExt> SimpleTrie<Fp> {
     }
 }
 
-impl<Fp: FieldExt> Circuit<Fp> for SimpleTrie<Fp> {
+impl<Fp: PrimeField> Circuit<Fp> for SimpleTrie<Fp> {
     type Config = SimpleTrieConfig;
     type FloorPlanner = SimpleFloorPlanner;
 
@@ -309,7 +309,7 @@ impl EthTrieConfig {
     }
 
     /// configure for lite circuit (no mpt table included, for fast testing)
-    pub fn configure_base<Fp: FieldExt>(
+    pub fn configure_base<Fp: PrimeField>(
         meta: &mut ConstraintSystem<Fp>,
         hash_tbl: [Column<Advice>; 4],
     ) -> Self {
@@ -396,13 +396,13 @@ impl EthTrieConfig {
     }
 
     /// configure for lite circuit (no mpt table included, for fast testing)
-    pub fn configure_lite<Fp: FieldExt>(meta: &mut ConstraintSystem<Fp>) -> Self {
+    pub fn configure_lite<Fp: PrimeField>(meta: &mut ConstraintSystem<Fp>) -> Self {
         let hash_tbl = [0; 4].map(|_| meta.advice_column());
         Self::configure_base(meta, hash_tbl)
     }
 
     /// configure for full circuit
-    pub fn configure_sub<Fp: FieldExt>(
+    pub fn configure_sub<Fp: PrimeField>(
         meta: &mut ConstraintSystem<Fp>,
         mpt_tbl: [Column<Advice>; 7],
         hash_tbl: [Column<Advice>; 4],
@@ -469,11 +469,7 @@ impl EthTrieConfig {
         self.hash_tbl.fill_with_paddings(
             layouter,
             HashTracesSrc::from(hash_traces),
-            (
-                Fp::zero(),
-                Fp::zero(),
-                Hashable::hash([Fp::zero(), Fp::zero()]),
-            ),
+            (Fp::ZERO, Fp::ZERO, Hashable::hash([Fp::ZERO, Fp::ZERO])),
             rows,
         )
     }
@@ -490,7 +486,7 @@ impl EthTrieConfig {
             .clone()
             .next()
             .map(|op| op.account_root_before())
-            .unwrap_or_else(Fp::zero);
+            .unwrap_or(Fp::ZERO);
 
         layouter.assign_region(
             || "main",
@@ -608,7 +604,7 @@ impl EthTrieConfig {
 }
 /// The chip for op on an storage trie
 #[derive(Clone, Default)]
-pub struct EthTrie<F: FieldExt> {
+pub struct EthTrie<F: PrimeField> {
     start_root: F,
     final_root: F,
     ops: Vec<AccountOp<F>>,
@@ -619,7 +615,7 @@ const OP_TRIE_STATE: u32 = 2;
 const OP_ACCOUNT: u32 = 3;
 const OP_STORAGE: u32 = 4;
 
-impl<Fp: FieldExt> EthTrie<Fp> {
+impl<Fp: PrimeField> EthTrie<Fp> {
     /// Add an op into the circuit data
     pub fn add_op(&mut self, op: AccountOp<Fp>) {
         if self.ops.is_empty() {
@@ -646,7 +642,7 @@ impl<Fp: FieldExt> EthTrie<Fp> {
 
 /// the mpt circuit type
 #[derive(Clone, Default, Debug)]
-pub struct EthTrieCircuit<F: FieldExt, const LITE: bool> {
+pub struct EthTrieCircuit<F: PrimeField, const LITE: bool> {
     /// the maxium records in circuits (would affect vk)
     pub calcs: usize,
     /// the operations in circuits
