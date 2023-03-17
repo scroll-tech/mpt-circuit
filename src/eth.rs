@@ -574,6 +574,7 @@ impl<'d, Fp: FieldExt> StorageChip<'d, Fp> {
         v_limbs: [Column<Advice>; 2],
         hash_table: &mpt::HashTable,
     ) -> StorageChipConfig {
+        /*
         meta.lookup_any("value hash", |meta| {
             let enable = meta.query_advice(s_enable, Rotation::cur());
             let fst = meta.query_advice(v_limbs[0], Rotation::cur());
@@ -582,6 +583,7 @@ impl<'d, Fp: FieldExt> StorageChip<'d, Fp> {
 
             hash_table.build_lookup(meta, enable, fst, snd, hash)
         });
+        */
 
         StorageChipConfig { v_limbs }
     }

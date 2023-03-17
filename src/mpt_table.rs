@@ -179,15 +179,15 @@ impl Config {
         });
 
         if false {
-        meta.lookup_any("mpt account not exist entry lookup", |meta| {
-            let s_enable = meta.query_advice(self.proof_sel[3], Rotation::cur());
+            meta.lookup_any("mpt account not exist entry lookup", |meta| {
+                let s_enable = meta.query_advice(self.proof_sel[3], Rotation::cur());
 
-            build_entry_lookup_common(meta, (3, 0))
-                .into_iter()
-                .chain(build_entry_lookup_not_exist(meta))
-                .map(|(fst, snd)| (fst * s_enable.clone(), snd))
-                .collect()
-        });
+                build_entry_lookup_common(meta, (3, 0))
+                    .into_iter()
+                    .chain(build_entry_lookup_not_exist(meta))
+                    .map(|(fst, snd)| (fst * s_enable.clone(), snd))
+                    .collect()
+            });
         }
 
         meta.lookup_any("mpt account destroy entry lookup", |meta| {
@@ -211,7 +211,7 @@ impl Config {
                 .map(|(fst, snd)| (fst * s_enable.clone(), snd))
                 .collect()
         });
-
+        /*
         meta.lookup_any("mpt storage not exist entry lookup", |meta| {
             let s_enable = meta.query_advice(self.proof_sel[6], Rotation::cur());
 
@@ -222,6 +222,7 @@ impl Config {
                 .map(|(fst, snd)| (fst * s_enable.clone(), snd))
                 .collect()
         });
+        */
     }
 }
 
@@ -435,6 +436,7 @@ impl<F: FieldExt> MPTTable<F> {
         let new_val_rep = RepConfig::configure(meta, &range_check_u8);
         let old_val_rep = RepConfig::configure(meta, &range_check_u8);
 
+        /*
         meta.create_gate("bind reps", |meta| {
             let sel = meta.query_selector(sel);
             let enable_key_rep = meta.query_advice(proof_sel[5], Rotation::cur())
@@ -451,6 +453,7 @@ impl<F: FieldExt> MPTTable<F> {
                 sel * old_val_rep.bind_rlc_value(meta, old_val, randomness, None),
             ]
         });
+        */
 
         let storage_key_2 = PairRepConfig::configure(meta, sel, &key_rep.limbs);
         let new_value_2 = PairRepConfig::configure(meta, sel, &new_val_rep.limbs);
