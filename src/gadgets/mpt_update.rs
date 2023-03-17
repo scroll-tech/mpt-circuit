@@ -1,6 +1,6 @@
 use super::{key_bit::KeyBitLookup, poseidon::PoseidonLookup};
 use crate::constraint_builder::{
-    AdviceColumn, BinaryColumn, ConstraintBuilder, SelectorColumn, Query,
+    AdviceColumn, BinaryColumn, ConstraintBuilder, Query, SelectorColumn,
 };
 use halo2_proofs::{arithmetic::FieldExt, plonk::ConstraintSystem};
 
@@ -91,8 +91,6 @@ impl MptUpdateConfig {
                 + is_account_leaf.current()
                 + is_storage_path.current(),
         );
-
-
 
         Self {
             selector,
