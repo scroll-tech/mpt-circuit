@@ -1,13 +1,17 @@
-use super::super::constraint_builder::{
-    AdviceColumn, ConstraintBuilder, FixedColumn, SelectorColumn,
-};
 use super::{byte_bit::RangeCheck256Lookup, is_zero::IsZeroGadget};
+use crate::constraint_builder::{
+    AdviceColumn, ConstraintBuilder, FixedColumn, Query, SelectorColumn,
+};
 use ethers_core::types::{Address, H256, U256};
 use halo2_proofs::{arithmetic::FieldExt, circuit::Region, plonk::ConstraintSystem};
 
-pub trait RlcLookup {}
+pub trait RlcLookup {
+    fn lookup<F: FieldExt>(&self) -> [Query<F>; 2];
+}
 
-pub trait BytesLookup {}
+pub trait BytesLookup {
+    fn lookup<F: FieldExt>(&self) -> [Query<F>; 2];
+}
 
 #[derive(Clone)]
 struct ByteRepresentationConfig {
@@ -23,6 +27,18 @@ struct ByteRepresentationConfig {
     // internal columns
     byte: AdviceColumn,
     index_is_zero: IsZeroGadget,
+}
+
+impl RlcLookup for ByteRepresentationConfig {
+    fn lookup<F: FieldExt>(&self) -> [Query<F>; 2] {
+        [self.value.current(), self.rlc.current()]
+    }
+}
+
+impl BytesLookup for ByteRepresentationConfig {
+    fn lookup<F: FieldExt>(&self) -> [Query<F>; 2] {
+        [self.value.current(), self.index.current()]
+    }
 }
 
 impl ByteRepresentationConfig {
