@@ -2,23 +2,42 @@ use super::super::constraint_builder::{
     AdviceColumn, ConstraintBuilder, FixedColumn, Query, SelectorColumn,
 };
 use super::{byte_bit::RangeCheck256Lookup, is_zero::IsZeroGadget};
-use ethers_core::types::U256;
+use ethers_core::types::{Address, H256, U256};
 use halo2_proofs::{
     arithmetic::{Field, FieldExt},
     circuit::Region,
-    halo2curves::bn256::Fr,
     plonk::ConstraintSystem,
 };
 use itertools::Itertools;
 use num_traits::Zero;
 
-pub trait RlcLookup {
-
+pub trait ToBigEndian {
+    fn to_big_endian(&self) -> Vec<u8>;
 }
 
-pub trait BytesLookup {
-
+impl ToBigEndian for Address {
+    fn to_big_endian(&self) -> Vec<u8> {
+        self.0.to_vec()
+    }
 }
+
+impl ToBigEndian for U256 {
+    fn to_big_endian(&self) -> Vec<u8> {
+        let mut bytes = [0; 32];
+        self.to_big_endian(&mut bytes);
+        bytes.to_vec()
+    }
+}
+
+impl ToBigEndian for H256 {
+    fn to_big_endian(&self) -> Vec<u8> {
+        self.0.to_vec()
+    }
+}
+
+pub trait RlcLookup {}
+
+pub trait BytesLookup {}
 
 #[derive(Clone)]
 struct ByteRepresentationConfig {
@@ -37,9 +56,9 @@ struct ByteRepresentationConfig {
 }
 
 impl ByteRepresentationConfig {
-    fn configure(
-        cs: &mut ConstraintSystem<Fr>,
-        cb: &mut ConstraintBuilder<Fr>,
+    fn configure<F: FieldExt>(
+        cs: &mut ConstraintSystem<F>,
+        cb: &mut ConstraintBuilder<F>,
         range_check: &impl RangeCheck256Lookup,
     ) -> Self {
         let ([selector], [randomness], [value, rlc, index, byte]) = cb.build_columns(cs);
@@ -48,7 +67,7 @@ impl ByteRepresentationConfig {
         cb.add_constraint(
             "index increases by 1 or resets to 0",
             selector.current(),
-            value.current() * (value.current() - value.previous() - 1),
+            index.current() * (index.current() - index.previous() - 1),
         );
         cb.add_constraint(
             "current value = previous value * 8 * (index == 0) + byte",
@@ -75,44 +94,43 @@ impl ByteRepresentationConfig {
         }
     }
 
-    fn assign(&self, region: &mut Region<'_, Fr>, values: &[Fr]) {
-        // let modulus = U256::from_str_radix(Fr::MODULUS, 16).unwrap();
-        // let mut modulus_bytes = [0u8; 32];
-        // modulus.to_big_endian(&mut modulus_bytes);
+    fn assign<F: FieldExt>(
+        &self,
+        region: &mut Region<'_, F>,
+        addresses: &[Address],
+        hashes: &[H256],
+        words: &[U256],
+    ) {
+        let randomness = F::from(123123u64); // TODOOOOOOO
 
-        // let mut offset = 0;
-        // for value in values {
-        //     let mut bytes = value.to_bytes();
-        //     bytes.reverse();
-        //     let mut differences_are_zero_so_far = true;
-        //     for (index, (byte, modulus_byte)) in bytes.iter().zip_eq(&modulus_bytes).enumerate() {
-        //         self.selector.enable(region, offset);
-        //         self.byte.assign(region, offset, u64::from(*byte));
-        //         self.modulus_byte
-        //             .assign(region, offset, u64::from(*modulus_byte));
+        let byte_representations = addresses
+            .iter()
+            .map(ToBigEndian::to_big_endian)
+            .chain(hashes.iter().map(ToBigEndian::to_big_endian))
+            .chain(words.iter().map(ToBigEndian::to_big_endian));
 
-        //         self.index
-        //             .assign(region, offset, u64::try_from(index).unwrap());
-        //         if index.is_zero() {
-        //             self.index_is_zero.enable(region, offset);
-        //         }
+        let mut offset = 0;
+        for byte_representation in byte_representations {
+            let mut value = F::zero();
+            let mut rlc = F::zero();
+            for (index, byte) in byte_representation.iter().enumerate() {
+                let byte = F::from(u64::from(*byte));
+                value = value * F::from(8) + byte;
+                rlc = rlc * randomness + byte;
 
-        //         let difference = Fr::from(u64::from(*modulus_byte)) - Fr::from(u64::from(*byte));
-        //         self.difference.assign(region, offset, difference);
-        //         self.difference_is_zero.assign(region, offset, difference);
+                self.selector.enable(region, offset);
+                self.randomness.assign(region, offset, randomness);
+                self.value.assign(region, offset, value);
+                self.rlc.assign(region, offset, rlc);
+                self.byte.assign(region, offset, byte);
 
-        //         self.differences_are_zero_so_far.assign(
-        //             region,
-        //             offset,
-        //             differences_are_zero_so_far,
-        //         );
-        //         differences_are_zero_so_far &= difference.is_zero_vartime();
+                let index = u64::try_from(index).unwrap();
+                self.index.assign(region, offset, index);
+                self.index_is_zero.assign(region, offset, index);
 
-        //         self.value.assign(region, offset, *value);
-
-        //         offset += 1
-        //     }
-        // }
+                offset += 1;
+            }
+        }
     }
 }
 
@@ -122,16 +140,19 @@ mod test {
     use halo2_proofs::{
         circuit::{Layouter, SimpleFloorPlanner},
         dev::MockProver,
+        halo2curves::bn256::Fr,
         plonk::{Circuit, Error},
     };
 
     #[derive(Clone, Default, Debug)]
     struct TestCircuit {
-        values: Vec<Fr>,
+        addresses: Vec<Address>,
+        hashes: Vec<H256>,
+        words: Vec<U256>,
     }
 
     impl Circuit<Fr> for TestCircuit {
-        type Config = (ByteBitGadget, CanonicalRepresentationConfig);
+        type Config = (ByteBitGadget, ByteRepresentationConfig);
         type FloorPlanner = SimpleFloorPlanner;
 
         fn without_witnesses(&self) -> Self {
@@ -141,10 +162,9 @@ mod test {
         fn configure(cs: &mut ConstraintSystem<Fr>) -> Self::Config {
             let mut cb = ConstraintBuilder::new();
             let byte_bit = ByteBitGadget::configure(cs, &mut cb);
-            let canonical_representation =
-                CanonicalRepresentationConfig::configure(cs, &mut cb, &byte_bit);
+            let byte_representation = ByteRepresentationConfig::configure(cs, &mut cb, &byte_bit);
             cb.build(cs);
-            (byte_bit, canonical_representation)
+            (byte_bit, byte_representation)
         }
 
         fn synthesize(
@@ -156,7 +176,9 @@ mod test {
                 || "",
                 |mut region| {
                     config.0.assign(&mut region);
-                    config.1.assign(&mut region, &self.values);
+                    config
+                        .1
+                        .assign(&mut region, &self.addresses, &self.hashes, &self.words);
                     Ok(())
                 },
             )
@@ -164,11 +186,15 @@ mod test {
     }
 
     #[test]
-    fn test_canonical_representation() {
+    fn test_byte_representation() {
         let circuit = TestCircuit {
-            values: vec![Fr::zero(), Fr::one(), Fr::from(256), Fr::zero() - Fr::one()],
+            addresses: vec![Address::repeat_byte(34)],
+            hashes: vec![H256::repeat_byte(48)],
+            words: vec![U256::zero(), U256::from(123412123)],
         };
         let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
+
+        // TODO test that intermediate values are in here....
     }
 }
