@@ -250,7 +250,7 @@ impl AccountGadget {
     }
 
     /// assign data and enable flag for account circuit
-    pub fn assign<'d, Fp: PrimeField>(
+    pub fn assign<'d, Fp: PrimeField<Repr = [u8; 32]>>(
         &self,
         region: &mut Region<'_, Fp>,
         offset: usize,
@@ -558,7 +558,7 @@ struct StorageChip<'d, F> {
     value: Option<KeyValue<F>>,
 }
 
-impl<'d, Fp: PrimeField> StorageChip<'d, Fp> {
+impl<'d, Fp: PrimeField<Repr = [u8; 32]>> StorageChip<'d, Fp> {
     fn configure(
         meta: &mut ConstraintSystem<Fp>,
         _sel: Selector,
@@ -623,7 +623,7 @@ impl StorageGadget {
     /// + circuit selector * 1
     /// + exported col * 5 (MUST by following sequence: layout_flag, s_enable, old_val, new_val, key_val)
     /// + free col * 4
-    pub fn configure<Fp: PrimeField>(
+    pub fn configure<Fp: PrimeField<Repr = [u8; 32]>>(
         meta: &mut ConstraintSystem<Fp>,
         sel: Selector,
         exported: &[Column<Advice>],
@@ -664,7 +664,7 @@ impl StorageGadget {
         [].into_iter()
     }
 
-    pub fn assign<'d, Fp: PrimeField>(
+    pub fn assign<'d, Fp: PrimeField<Repr = [u8; 32]>>(
         &self,
         region: &mut Region<'_, Fp>,
         offset: usize,

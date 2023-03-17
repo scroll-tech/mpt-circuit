@@ -254,7 +254,7 @@ pub(crate) struct MPTEntry<F: Field> {
     old_value: KeyValue<F>,
 }
 
-impl<F: PrimeField> MPTEntry<F> {
+impl<F: PrimeField<Repr = [u8; 32]>> MPTEntry<F> {
     // detect proof type from op data itself, just mocking,
     // not always correct
     pub fn mock_from_op(op: &AccountOp<F>, randomness: F) -> Self {
@@ -341,7 +341,7 @@ impl<F: PrimeField> MPTEntry<F> {
                 ret.old_value.u8_rlc(randomness),
                 ret.new_value.u8_rlc(randomness),
             ),
-            _ => (F::zero(), F::zero()),
+            _ => (F::ZERO, F::ZERO),
         };
 
         ret.base.replace([
@@ -388,7 +388,7 @@ pub(crate) struct MPTTable<F: Field> {
     rows: usize,
 }
 
-impl<F: PrimeField> MPTTable<F> {
+impl<F: PrimeField<Repr = [u8; 32]>> MPTTable<F> {
     pub fn construct(
         config: Config,
         entries: impl IntoIterator<Item = MPTEntry<F>>,
@@ -458,7 +458,7 @@ impl<F: PrimeField> MPTTable<F> {
                     // each col is boolean
                     // when enabled, it must equal to proof_type
                     vec![
-                        sel.clone() * col.clone() * (Expression::Constant(F::one()) - col.clone()),
+                        sel.clone() * col.clone() * (Expression::Constant(F::ONE) - col.clone()),
                         sel * col * (Expression::Constant(F::from(index as u64 + 1)) - proof_type),
                     ]
                 });
@@ -474,7 +474,7 @@ impl<F: PrimeField> MPTTable<F> {
                 .reduce(|acc, col_exp| acc + col_exp)
                 .expect("not null");
 
-            vec![sel * total_enalbed.clone() * (Expression::Constant(F::one()) - total_enalbed)]
+            vec![sel * total_enalbed.clone() * (Expression::Constant(F::ONE) - total_enalbed)]
         });
 
         Config {
@@ -514,9 +514,9 @@ impl<F: PrimeField> MPTTable<F> {
                             offset,
                             || {
                                 Value::known(if index + 1 == entry.proof_type as usize {
-                                    F::one()
+                                    F::ONE
                                 } else {
-                                    F::zero()
+                                    F::ZERO
                                 })
                             },
                         )?;
@@ -617,7 +617,7 @@ impl<F: PrimeField> MPTTable<F> {
                             || "flush rows",
                             col,
                             row,
-                            || Value::known(F::zero()),
+                            || Value::known(F::ZERO),
                         )?;
                     }
 

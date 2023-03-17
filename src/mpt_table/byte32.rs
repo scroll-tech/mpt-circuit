@@ -72,7 +72,7 @@ impl Config {
         region: &mut Region<'_, F>,
         offset: usize,
     ) -> Result<bool, Error> {
-        self.assign(region, offset, &(F::zero(), F::zero()))
+        self.assign(region, offset, &(F::ZERO, F::ZERO))
     }
 }
 

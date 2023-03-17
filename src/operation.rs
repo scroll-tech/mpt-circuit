@@ -971,9 +971,9 @@ impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTTrace> for AccountOp<Fp> {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct HashableField<Fp: PrimeField>(Fp);
+struct HashableField<Fp: PrimeField<Repr = [u8; 32]>>(Fp);
 
-impl<Fp: PrimeField> std::hash::Hash for HashableField<Fp> {
+impl<Fp: PrimeField<Repr = [u8; 32]>> std::hash::Hash for HashableField<Fp> {
     fn hash<H>(&self, state: &mut H)
     where
         H: std::hash::Hasher,
@@ -984,19 +984,19 @@ impl<Fp: PrimeField> std::hash::Hash for HashableField<Fp> {
     }
 }
 
-impl<Fp: PrimeField> From<Fp> for HashableField<Fp> {
+impl<Fp: PrimeField<Repr = [u8; 32]>> From<Fp> for HashableField<Fp> {
     fn from(v: Fp) -> Self {
         Self(v)
     }
 }
 
 #[derive(Clone)]
-pub(crate) struct HashTracesSrc<T, Fp: PrimeField> {
+pub(crate) struct HashTracesSrc<T, Fp: PrimeField<Repr = [u8; 32]>> {
     source: T,
     deduplicator: std::collections::HashSet<HashableField<Fp>>,
 }
 
-impl<T, Fp: PrimeField> From<T> for HashTracesSrc<T, Fp> {
+impl<T, Fp: PrimeField<Repr = [u8; 32]>> From<T> for HashTracesSrc<T, Fp> {
     fn from(source: T) -> Self {
         Self {
             source,
@@ -1008,7 +1008,7 @@ impl<T, Fp: PrimeField> From<T> for HashTracesSrc<T, Fp> {
 impl<'d, T, Fp> Iterator for HashTracesSrc<T, Fp>
 where
     T: Iterator<Item = &'d (Fp, Fp, Fp)>,
-    Fp: PrimeField,
+    Fp: PrimeField<Repr = [u8; 32]>,
 {
     type Item = &'d (Fp, Fp, Fp);
 

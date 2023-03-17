@@ -309,7 +309,7 @@ impl EthTrieConfig {
     }
 
     /// configure for lite circuit (no mpt table included, for fast testing)
-    pub fn configure_base<Fp: PrimeField>(
+    pub fn configure_base<Fp: PrimeField<Repr = [u8; 32]>>(
         meta: &mut ConstraintSystem<Fp>,
         hash_tbl: [Column<Advice>; 4],
     ) -> Self {
@@ -396,13 +396,15 @@ impl EthTrieConfig {
     }
 
     /// configure for lite circuit (no mpt table included, for fast testing)
-    pub fn configure_lite<Fp: PrimeField>(meta: &mut ConstraintSystem<Fp>) -> Self {
+    pub fn configure_lite<Fp: PrimeField<Repr = [u8; 32]>>(
+        meta: &mut ConstraintSystem<Fp>,
+    ) -> Self {
         let hash_tbl = [0; 4].map(|_| meta.advice_column());
         Self::configure_base(meta, hash_tbl)
     }
 
     /// configure for full circuit
-    pub fn configure_sub<Fp: PrimeField>(
+    pub fn configure_sub<Fp: PrimeField<Repr = [u8; 32]>>(
         meta: &mut ConstraintSystem<Fp>,
         mpt_tbl: [Column<Advice>; 7],
         hash_tbl: [Column<Advice>; 4],
@@ -433,7 +435,7 @@ impl EthTrieConfig {
 
     /// synthesize the mpt table part, the randomness also specify
     /// if the base part of mpt table should be assigned
-    pub fn load_mpt_table<'d, Fp: Hashable>(
+    pub fn load_mpt_table<'d, Fp: Hashable + PrimeField<Repr = [u8; 32]>>(
         &self,
         layouter: &mut impl Layouter<Fp>,
         randomness: Option<Fp>,
@@ -460,7 +462,7 @@ impl EthTrieConfig {
 
     /// synthesize the hash table part, the randomness also specify
     /// if the base part of mpt table should be assigned
-    pub fn load_hash_table<'d, Fp: Hashable>(
+    pub fn load_hash_table<'d, Fp: Hashable + PrimeField<Repr = [u8; 32]>>(
         &self,
         layouter: &mut impl Layouter<Fp>,
         hash_traces: impl Iterator<Item = &'d (Fp, Fp, Fp)> + Clone,
@@ -476,7 +478,7 @@ impl EthTrieConfig {
 
     /// synthesize core part without advice tables (hash and mpt table),
     /// require a `Hashable` trait on the working field
-    pub fn synthesize_core<'d, Fp: Hashable>(
+    pub fn synthesize_core<'d, Fp: Hashable + PrimeField<Repr = [u8; 32]>>(
         &self,
         layouter: &mut impl Layouter<Fp>,
         ops: impl Iterator<Item = &'d AccountOp<Fp>> + Clone,
@@ -721,7 +723,7 @@ impl<Fp: Hashable> Circuit<Fp> for HashCircuit<Fp> {
     }
 }
 
-impl<Fp: Hashable> EthTrie<Fp> {
+impl<Fp: Hashable + PrimeField<Repr = [u8; 32]>> EthTrie<Fp> {
     /// Obtain the total required rows for mpt and hash circuits (include the top and bottom padding)
     pub fn use_rows(&self) -> (usize, usize) {
         // calc rows for mpt circuit, we need to compare the rows used by adviced region and table region
@@ -791,7 +793,7 @@ impl CommitmentIndexs {
     }
 
     /// get commitment for lite circuit (no mpt)
-    pub fn new<Fp: Hashable>() -> Self {
+    pub fn new<Fp: Hashable + PrimeField<Repr = [u8; 32]>>() -> Self {
         let mut cs: ConstraintSystem<Fp> = Default::default();
         let config = EthTrieCircuit::<_, true>::configure(&mut cs);
 
@@ -810,7 +812,7 @@ impl CommitmentIndexs {
     }
 
     /// get commitment for full circuit
-    pub fn new_full_circuit<Fp: Hashable>() -> Self {
+    pub fn new_full_circuit<Fp: Hashable + PrimeField<Repr = [u8; 32]>>() -> Self {
         let mut cs: ConstraintSystem<Fp> = Default::default();
         let config = EthTrieCircuit::<_, false>::configure(&mut cs);
 
@@ -835,7 +837,9 @@ impl CommitmentIndexs {
 
 const TEMP_RANDOMNESS: u64 = 1;
 
-impl<Fp: Hashable, const LITE: bool> Circuit<Fp> for EthTrieCircuit<Fp, LITE> {
+impl<Fp: Hashable + PrimeField<Repr = [u8; 32]>, const LITE: bool> Circuit<Fp>
+    for EthTrieCircuit<Fp, LITE>
+{
     type Config = EthTrieConfig;
     type FloorPlanner = SimpleFloorPlanner;
 
