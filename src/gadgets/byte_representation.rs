@@ -1,39 +1,9 @@
 use super::super::constraint_builder::{
-    AdviceColumn, ConstraintBuilder, FixedColumn, Query, SelectorColumn,
+    AdviceColumn, ConstraintBuilder, FixedColumn, SelectorColumn,
 };
 use super::{byte_bit::RangeCheck256Lookup, is_zero::IsZeroGadget};
 use ethers_core::types::{Address, H256, U256};
-use halo2_proofs::{
-    arithmetic::{Field, FieldExt},
-    circuit::Region,
-    plonk::ConstraintSystem,
-};
-use itertools::Itertools;
-use num_traits::Zero;
-
-pub trait ToBigEndian {
-    fn to_big_endian(&self) -> Vec<u8>;
-}
-
-impl ToBigEndian for Address {
-    fn to_big_endian(&self) -> Vec<u8> {
-        self.0.to_vec()
-    }
-}
-
-impl ToBigEndian for U256 {
-    fn to_big_endian(&self) -> Vec<u8> {
-        let mut bytes = [0; 32];
-        self.to_big_endian(&mut bytes);
-        bytes.to_vec()
-    }
-}
-
-impl ToBigEndian for H256 {
-    fn to_big_endian(&self) -> Vec<u8> {
-        self.0.to_vec()
-    }
-}
+use halo2_proofs::{arithmetic::FieldExt, circuit::Region, plonk::ConstraintSystem};
 
 pub trait RlcLookup {}
 
@@ -105,9 +75,9 @@ impl ByteRepresentationConfig {
 
         let byte_representations = addresses
             .iter()
-            .map(ToBigEndian::to_big_endian)
-            .chain(hashes.iter().map(ToBigEndian::to_big_endian))
-            .chain(words.iter().map(ToBigEndian::to_big_endian));
+            .map(address_to_big_endian)
+            .chain(hashes.iter().map(h256_to_big_endian))
+            .chain(words.iter().map(u256_to_big_endian));
 
         let mut offset = 0;
         for byte_representation in byte_representations {
@@ -132,6 +102,20 @@ impl ByteRepresentationConfig {
             }
         }
     }
+}
+
+fn address_to_big_endian(x: &Address) -> Vec<u8> {
+    x.0.to_vec()
+}
+
+fn u256_to_big_endian(x: &U256) -> Vec<u8> {
+    let mut bytes = [0; 32];
+    x.to_big_endian(&mut bytes);
+    bytes.to_vec()
+}
+
+fn h256_to_big_endian(x: &H256) -> Vec<u8> {
+    x.0.to_vec()
 }
 
 #[cfg(test)]
