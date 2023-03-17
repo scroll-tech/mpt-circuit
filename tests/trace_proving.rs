@@ -1,4 +1,5 @@
 use halo2_mpt_circuits::{operation::AccountOp, serde, EthTrie};
+use halo2_proofs::SerdeFormat;
 use halo2_proofs::dev::MockProver;
 use halo2_proofs::halo2curves::bn256::{Bn256, Fr as Fp, G1Affine};
 use halo2_proofs::plonk::{create_proof, keygen_pk, keygen_vk, verify_proof};
@@ -94,14 +95,14 @@ fn vk_validity() {
     let vk1 = keygen_vk(&params, &circuit).unwrap();
 
     let mut vk1_buf: Vec<u8> = Vec::new();
-    vk1.write(&mut vk1_buf).unwrap();
+    vk1.write(&mut vk1_buf, SerdeFormat::RawBytes).unwrap();
 
     let data: EthTrie<Fp> = Default::default();
     let (circuit, _) = data.circuits(200);
     let vk2 = keygen_vk(&params, &circuit).unwrap();
 
     let mut vk2_buf: Vec<u8> = Vec::new();
-    vk2.write(&mut vk2_buf).unwrap();
+    vk2.write(&mut vk2_buf, SerdeFormat::RawBytes).unwrap();
 
     assert_eq!(vk1_buf, vk2_buf);
 }
