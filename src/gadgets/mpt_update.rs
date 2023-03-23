@@ -1,4 +1,9 @@
-use super::{key_bit::KeyBitLookup, poseidon::PoseidonLookup};
+use super::{
+    byte_representation::{BytesLookup, RlcLookup},
+    key_bit::KeyBitLookup,
+    poseidon::PoseidonLookup,
+    is_zero_gadget::IsZeroGadget,
+};
 use crate::constraint_builder::{
     AdviceColumn, BinaryColumn, ConstraintBuilder, Query, SelectorColumn,
 };
@@ -19,8 +24,8 @@ struct MptUpdateConfig {
     selector: SelectorColumn,
 
     // used for lookups
-    old_hash: AdviceColumn,
-    new_hash: AdviceColumn,
+    old_root: AdviceColumn,
+    new_root: AdviceColumn,
 
     old_value: [AdviceColumn; 2],
     new_value: [AdviceColumn; 2],
@@ -41,7 +46,8 @@ struct MptUpdateConfig {
     is_storage_path: BinaryColumn,
 
     depth: AdviceColumn,
-    direction: AdviceColumn, // this actually must be binary because of a lookup
+    depth_is_zero: IsZeroGadget,
+    direction: AdviceColumn, // this actually must be binary because of a KeyBitLookup
     key: AdviceColumn,
 
     sibling: AdviceColumn,
@@ -53,6 +59,8 @@ impl MptUpdateConfig {
         cb: &mut ConstraintBuilder<F>,
         poseidon: &impl PoseidonLookup,
         key_bit: &impl KeyBitLookup,
+        rlc: &impl RlcLookup,
+        bytes: &impl BytesLookup,
     ) -> Self {
         let ([selector], [], []) = cb.build_columns(cs);
 
@@ -91,6 +99,27 @@ impl MptUpdateConfig {
                 + is_account_leaf.current()
                 + is_storage_path.current(),
         );
+
+        cb.add_constraint(
+            "depth is 0 or depth increased by 1",
+            selector.current(),
+            depth.current() * (depth.current() - depth.previous() - 1),
+        );
+        cb.add_lookup(
+            "direction is correct for key and depth",
+            [key.current(), depth.current(), direction.current()],
+            key_bit.lookup(),
+        );
+        let old_left =
+            direction.current() * old_hash.previous() + !direction.current() * sibling.previous();
+        let old_right =
+            direction.current() * sibling.previous() + !direction.current() * old_hash.previous();
+        cb.add_lookup(
+            "poseidon hash correct for old path",
+            [old_left, old_right, old_hash.current()],
+            poseidon.lookup(),
+        );
+        cb.add_lookup("poseidon hash correct for new path", [], poseidon.lookup());
 
         Self {
             selector,
