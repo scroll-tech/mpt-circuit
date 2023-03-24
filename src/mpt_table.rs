@@ -178,9 +178,10 @@ impl Config {
                 .collect()
         });
 
-        if false {
+        // notice: Eth Account Gadget has no row for poseidon codehas and codesize (for proof_sel[3] and proof_sel[4]) yet
+
         meta.lookup_any("mpt account not exist entry lookup", |meta| {
-            let s_enable = meta.query_advice(self.proof_sel[3], Rotation::cur());
+            let s_enable = meta.query_advice(self.proof_sel[5], Rotation::cur());
 
             build_entry_lookup_common(meta, (3, 0))
                 .into_iter()
@@ -188,10 +189,9 @@ impl Config {
                 .map(|(fst, snd)| (fst * s_enable.clone(), snd))
                 .collect()
         });
-        }
 
         meta.lookup_any("mpt account destroy entry lookup", |meta| {
-            let s_enable = meta.query_advice(self.proof_sel[4], Rotation::cur());
+            let s_enable = meta.query_advice(self.proof_sel[6], Rotation::cur());
 
             // TODO: not handle AccountDestructed yet (this entry has no lookup: i.e. no verification)
             build_entry_lookup_common(meta, (3, 2))
@@ -202,7 +202,7 @@ impl Config {
 
         // all lookup into storage raised for gadget id = OP_STORAGE (4)
         meta.lookup_any("mpt storage entry lookup", |meta| {
-            let s_enable = meta.query_advice(self.proof_sel[5], Rotation::cur());
+            let s_enable = meta.query_advice(self.proof_sel[7], Rotation::cur());
 
             build_entry_lookup_common(meta, (4, 0))
                 .into_iter()
@@ -213,7 +213,7 @@ impl Config {
         });
 
         meta.lookup_any("mpt storage not exist entry lookup", |meta| {
-            let s_enable = meta.query_advice(self.proof_sel[6], Rotation::cur());
+            let s_enable = meta.query_advice(self.proof_sel[8], Rotation::cur());
 
             build_entry_lookup_common(meta, (4, 0))
                 .into_iter()
@@ -437,8 +437,8 @@ impl<F: FieldExt> MPTTable<F> {
 
         meta.create_gate("bind reps", |meta| {
             let sel = meta.query_selector(sel);
-            let enable_key_rep = meta.query_advice(proof_sel[5], Rotation::cur())
-                + meta.query_advice(proof_sel[6], Rotation::cur());
+            let enable_key_rep = meta.query_advice(proof_sel[7], Rotation::cur())
+                + meta.query_advice(proof_sel[8], Rotation::cur());
             let enable_val_rep =
                 meta.query_advice(proof_sel[2], Rotation::cur()) + enable_key_rep.clone();
             let key_val = enable_key_rep * meta.query_advice(storage_key, Rotation::cur());
