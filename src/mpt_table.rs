@@ -178,20 +178,20 @@ impl Config {
                 .collect()
         });
 
-        if false {
-            meta.lookup_any("mpt account not exist entry lookup", |meta| {
-                let s_enable = meta.query_advice(self.proof_sel[3], Rotation::cur());
+        // notice: Eth Account Gadget has no row for poseidon codehas and codesize (for proof_sel[3] and proof_sel[4]) yet
 
-                build_entry_lookup_common(meta, (3, 0))
-                    .into_iter()
-                    .chain(build_entry_lookup_not_exist(meta))
-                    .map(|(fst, snd)| (fst * s_enable.clone(), snd))
-                    .collect()
-            });
-        }
+        meta.lookup_any("mpt account not exist entry lookup", |meta| {
+            let s_enable = meta.query_advice(self.proof_sel[5], Rotation::cur());
+
+            build_entry_lookup_common(meta, (3, 0))
+                .into_iter()
+                .chain(build_entry_lookup_not_exist(meta))
+                .map(|(fst, snd)| (fst * s_enable.clone(), snd))
+                .collect()
+        });
 
         meta.lookup_any("mpt account destroy entry lookup", |meta| {
-            let s_enable = meta.query_advice(self.proof_sel[4], Rotation::cur());
+            let s_enable = meta.query_advice(self.proof_sel[6], Rotation::cur());
 
             // TODO: not handle AccountDestructed yet (this entry has no lookup: i.e. no verification)
             build_entry_lookup_common(meta, (3, 2))
@@ -202,7 +202,7 @@ impl Config {
 
         // all lookup into storage raised for gadget id = OP_STORAGE (4)
         meta.lookup_any("mpt storage entry lookup", |meta| {
-            let s_enable = meta.query_advice(self.proof_sel[5], Rotation::cur());
+            let s_enable = meta.query_advice(self.proof_sel[7], Rotation::cur());
 
             build_entry_lookup_common(meta, (4, 0))
                 .into_iter()
@@ -211,9 +211,9 @@ impl Config {
                 .map(|(fst, snd)| (fst * s_enable.clone(), snd))
                 .collect()
         });
-        /*
+
         meta.lookup_any("mpt storage not exist entry lookup", |meta| {
-            let s_enable = meta.query_advice(self.proof_sel[6], Rotation::cur());
+            let s_enable = meta.query_advice(self.proof_sel[8], Rotation::cur());
 
             build_entry_lookup_common(meta, (4, 0))
                 .into_iter()
@@ -222,7 +222,6 @@ impl Config {
                 .map(|(fst, snd)| (fst * s_enable.clone(), snd))
                 .collect()
         });
-        */
     }
 }
 
@@ -436,11 +435,10 @@ impl<F: FieldExt> MPTTable<F> {
         let new_val_rep = RepConfig::configure(meta, &range_check_u8);
         let old_val_rep = RepConfig::configure(meta, &range_check_u8);
 
-        /*
         meta.create_gate("bind reps", |meta| {
             let sel = meta.query_selector(sel);
-            let enable_key_rep = meta.query_advice(proof_sel[5], Rotation::cur())
-                + meta.query_advice(proof_sel[6], Rotation::cur());
+            let enable_key_rep = meta.query_advice(proof_sel[7], Rotation::cur())
+                + meta.query_advice(proof_sel[8], Rotation::cur());
             let enable_val_rep =
                 meta.query_advice(proof_sel[2], Rotation::cur()) + enable_key_rep.clone();
             let key_val = enable_key_rep * meta.query_advice(storage_key, Rotation::cur());
@@ -453,7 +451,6 @@ impl<F: FieldExt> MPTTable<F> {
                 sel * old_val_rep.bind_rlc_value(meta, old_val, randomness, None),
             ]
         });
-        */
 
         let storage_key_2 = PairRepConfig::configure(meta, sel, &key_rep.limbs);
         let new_value_2 = PairRepConfig::configure(meta, sel, &new_val_rep.limbs);
