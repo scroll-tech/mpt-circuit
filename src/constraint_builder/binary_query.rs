@@ -3,6 +3,7 @@ use halo2_proofs::{
     arithmetic::{Field, FieldExt},
     plonk::{Expression, VirtualCells},
 };
+// use std::iter::Sum;
 
 /// A query whose expression we promise is 0 or 1.
 pub struct BinaryQuery<F: Field>(pub Query<F>);

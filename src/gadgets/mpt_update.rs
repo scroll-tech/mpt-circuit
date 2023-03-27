@@ -1,8 +1,8 @@
 use super::{
     byte_representation::{BytesLookup, RlcLookup},
+    is_zero::IsZeroGadget,
     key_bit::KeyBitLookup,
     poseidon::PoseidonLookup,
-    is_zero_gadget::IsZeroGadget,
 };
 use crate::constraint_builder::{
     AdviceColumn, BinaryColumn, ConstraintBuilder, Query, SelectorColumn,
@@ -10,29 +10,29 @@ use crate::constraint_builder::{
 use halo2_proofs::{arithmetic::FieldExt, plonk::ConstraintSystem};
 
 pub trait MptUpdateLookup {
-    fn lookup<F: FieldExt>(&self) -> [Query<F>; 4];
-    // old_root,
-    // new_root,
-    // old_value,
-    // new_value,
-    // proof_type,
-    // address,
-    // storage_key
+    fn lookup<F: FieldExt>(&self) -> [Query<F>; 7];
+    // old_root, F
+    // new_root, F
+    // old_value, rlc
+    // new_value, rlc
+    // proof_type, 0--10
+    // address, Address // get this from inputs to key hash
+    // storage_key, rlc // get this from inputs to key hash, along with
 }
 
 struct MptUpdateConfig {
     selector: SelectorColumn,
 
-    // used for lookups
-    old_root: AdviceColumn,
-    new_root: AdviceColumn,
+    old_root: AdviceColumn, // can only change when depth = 0 and is_account_path is true
+    new_root: AdviceColumn, // can only change when depth = 0 and is_account_path is true
 
-    old_value: [AdviceColumn; 2],
-    new_value: [AdviceColumn; 2],
+    old_hash: AdviceColumn, // when depth = 0, old_hash = old_root
+    new_hash: AdviceColumn, // when depth = 0, new_hash = new_root
+
     proof_type: [BinaryColumn; 5],
 
-    address: [AdviceColumn; 2],
-    storage_key: [AdviceColumn; 2],
+    address_hash: AdviceColumn, // poseideon hash of two halves of address
+    storage_key_hash: AdviceColumn, // poseidon hash of two halves of storage key
 
     // not used for lookups
     // exactly one of these is 1.
@@ -48,7 +48,6 @@ struct MptUpdateConfig {
     depth: AdviceColumn,
     depth_is_zero: IsZeroGadget,
     direction: AdviceColumn, // this actually must be binary because of a KeyBitLookup
-    key: AdviceColumn,
 
     sibling: AdviceColumn,
 }
@@ -62,28 +61,19 @@ impl MptUpdateConfig {
         rlc: &impl RlcLookup,
         bytes: &impl BytesLookup,
     ) -> Self {
-        let ([selector], [], []) = cb.build_columns(cs);
+        let ([selector], [], [old_root, new_root, old_hash, new_hash]) = cb.build_columns(cs);
 
-        let [old_hash, new_hash] = cb.advice_columns(cs);
-
-        let old_value = cb.advice_columns(cs);
-        let new_value = cb.advice_columns(cs);
         let proof_type = cb.binary_columns(cs);
-        let address = cb.advice_columns(cs);
-        let storage_key = cb.advice_columns(cs);
+        let [address_hash, storage_key_hash] = cb.advice_columns(cs);
 
         let [is_common_path, old_hash_is_unchanged, new_hash_is_unchanged] = cb.binary_columns(cs);
         let [is_account_path, is_account_leaf, is_storage_path] = cb.binary_columns(cs);
 
-        let [depth, direction, key, sibling] = cb.advice_columns(cs);
+        let [depth, direction, sibling] = cb.advice_columns(cs);
+        let depth_is_zero = IsZeroGadget::configure(cs, cb, selector.current(), depth);
 
-        [is_common_path, old_hash_is_unchanged, new_hash_is_unchanged].map(|column| {
-            cb.add_constraint(
-                "column is binary",
-                selector.current(),
-                Query::from(column.current()) * (Query::one() - column.current()),
-            );
-        });
+        // constrain that exactly one of proof type is 1.
+
         cb.add_constraint(
             "exactly one of is_common_path, old_hash_is_unchanged, and new_hash_is_unchanged is 1",
             selector.current(),
@@ -100,36 +90,40 @@ impl MptUpdateConfig {
                 + is_storage_path.current(),
         );
 
+        // should be if path segment changes, then depth is 0. if not, it increases by 1.
         cb.add_constraint(
             "depth is 0 or depth increased by 1",
             selector.current(),
             depth.current() * (depth.current() - depth.previous() - 1),
         );
+        let key = address_hash.current() * is_account_path.current()
+            + storage_key_hash.current() * is_storage_path.current(); // + is_account_leaf...
         cb.add_lookup(
             "direction is correct for key and depth",
-            [key.current(), depth.current(), direction.current()],
+            [key, depth.current(), direction.current()],
             key_bit.lookup(),
         );
-        let old_left =
-            direction.current() * old_hash.previous() + !direction.current() * sibling.previous();
-        let old_right =
-            direction.current() * sibling.previous() + !direction.current() * old_hash.previous();
+        let old_left = direction.current() * old_hash.previous()
+            + (Query::one() - direction.current()) * sibling.previous();
+        let old_right = direction.current() * sibling.previous()
+            + (Query::one() - direction.current()) * old_hash.previous();
         cb.add_lookup(
             "poseidon hash correct for old path",
             [old_left, old_right, old_hash.current()],
             poseidon.lookup(),
         );
-        cb.add_lookup("poseidon hash correct for new path", [], poseidon.lookup());
+        // cb.add_lookup("poseidon hash correct for new path", [], poseidon.lookup());
 
         Self {
             selector,
+            old_root,
+            depth_is_zero,
+            new_root,
             old_hash,
             new_hash,
-            old_value,
-            new_value,
             proof_type,
-            address,
-            storage_key,
+            address_hash,
+            storage_key_hash,
             is_common_path,
             old_hash_is_unchanged,
             new_hash_is_unchanged,
@@ -138,7 +132,6 @@ impl MptUpdateConfig {
             is_storage_path,
             depth,
             direction,
-            key,
             sibling,
         }
     }

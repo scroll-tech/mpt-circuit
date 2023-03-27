@@ -3,6 +3,7 @@ use halo2_proofs::{
     arithmetic::{Field, FieldExt},
     plonk::{Expression, VirtualCells},
 };
+// use std::iter::Sum;
 
 pub struct Query<F: Field>(pub Box<dyn FnOnce(&mut VirtualCells<'_, F>) -> Expression<F>>);
 
@@ -61,3 +62,12 @@ impl<F: Field> From<BinaryQuery<F>> for Query<F> {
         b.0
     }
 }
+
+// impl<F: FieldExt> Sum for Query<F> {
+//     fn sum<I>(iter: I) -> Self
+//     where
+//         I: Iterator<Item = Self>,
+//     {
+//         Self::zero()
+//     }
+// }

@@ -12,6 +12,10 @@ use halo2_proofs::{
 use itertools::Itertools;
 use num_traits::Zero;
 
+pub trait CanonicalRepresentationLookup {
+    fn lookup<F: FieldExt>(&self) -> [Query<F>; 3];
+}
+
 #[derive(Clone)]
 struct CanonicalRepresentationConfig {
     selector: SelectorColumn, // always enabled selector for constraints we want always enabled.
@@ -30,14 +34,6 @@ struct CanonicalRepresentationConfig {
 }
 
 impl CanonicalRepresentationConfig {
-    pub fn lookup<F: FieldExt>(&self) -> [Query<F>; 3] {
-        [
-            self.value.current(),
-            self.index.current(),
-            self.byte.current(),
-        ]
-    }
-
     fn configure(
         cs: &mut ConstraintSystem<Fr>,
         cb: &mut ConstraintBuilder<Fr>,
@@ -148,6 +144,16 @@ impl CanonicalRepresentationConfig {
                 offset += 1
             }
         }
+    }
+}
+
+impl CanonicalRepresentationLookup for CanonicalRepresentationConfig {
+    fn lookup<F: FieldExt>(&self) -> [Query<F>; 3] {
+        [
+            self.value.current(),
+            self.index.current(),
+            self.byte.current(),
+        ]
     }
 }
 

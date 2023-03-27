@@ -1,48 +1,52 @@
-use crate::constraint_builder::{AdviceColumn, BinaryQuery, ConstraintBuilder, Query};
+use crate::constraint_builder::{AdviceColumn, BinaryColumn, ConstraintBuilder, Query};
 use halo2_proofs::{arithmetic::FieldExt, circuit::Region, plonk::ConstraintSystem};
+use itertools::Itertools;
 use std::fmt::Debug;
-use strum::EnumCount;
+use strum::IntoEnumIterator;
 
-#[derive(Clone, Copy)]
-pub struct OneHot<const N: usize>([BinaryColumn; N]);
+// TODO: use EnumCount once generic_const_exprs is enabled.
 
-impl<const N: usize> OneHot<N> {
-    pub fn configure<F: FieldExt>(
+#[derive(Clone)]
+pub struct OneHot(Vec<BinaryColumn>);
+
+impl OneHot {
+    pub fn configure<F: FieldExt, T: IntoEnumIterator + Eq>(
         cs: &mut ConstraintSystem<F>,
         cb: &mut ConstraintBuilder<F>,
     ) -> Self {
-        let binary_columns = [0; N].map(BinaryColumn(cs.advice_column()));
+        let ([selector], [], []) = cb.build_columns(cs);
+
+        let columns: Vec<_> = T::iter().map(|_| cb.binary_columns::<1>(cs)[0]).collect();
         cb.add_constraint(
             "exactly one binary column is 1 in one hot encoding",
-            binary_columns.iter().map(|b| b.current()).sum() - 1,
+            selector.current(),
+            columns
+                .iter()
+                .map(|b| Query::from(b.current()))
+                .sum::<Query<F>>()
+                - 1,
         );
-        Self(binary_columns)
+        Self(columns)
     }
 
-    pub fn assign<T: EnumCount + IntoIterator>(
+    pub fn assign<F: FieldExt, T: IntoEnumIterator + Eq>(
         &self,
         region: &mut Region<'_, F>,
         offset: usize,
         value: T,
-    ) where
-        T::COUNT = N,
-    {
-        self.0.assign(
-            region,
-            offset,
-            value.try_into().unwrap().invert().unwrap_or(F::zero()),
-        );
+    ) {
+        for (variant, column) in T::iter().zip_eq(&self.0) {
+            column.assign(region, offset, variant == value);
+        }
     }
 
-    pub fn condition<F: FieldExt, T: EnumCount + IntoIterator>(
+    pub fn condition<F: FieldExt, T: IntoEnumIterator + Eq>(
         &self,
         cb: &mut ConstraintBuilder<F>,
-        add_constraints: &dyn FnMut(&mut ConstraintBuilder<F>) -> (),
-    ) where
-        T::COUNT = N,
-    {
-        for variant in T::into_iter() {
-            add_constraints(cb);
+        add_constraints: &mut dyn FnMut(&mut ConstraintBuilder<F>, T) -> (),
+    ) {
+        for variant in T::iter() {
+            add_constraints(cb, variant);
         }
     }
 }
