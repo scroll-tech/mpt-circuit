@@ -17,7 +17,7 @@ pub trait CanonicalRepresentationLookup {
 }
 
 #[derive(Clone)]
-struct CanonicalRepresentationConfig {
+pub struct CanonicalRepresentationConfig {
     selector: SelectorColumn, // always enabled selector for constraints we want always enabled.
 
     // Lookup columns
@@ -34,7 +34,7 @@ struct CanonicalRepresentationConfig {
 }
 
 impl CanonicalRepresentationConfig {
-    fn configure(
+    pub fn configure(
         cs: &mut ConstraintSystem<Fr>,
         cb: &mut ConstraintBuilder<Fr>,
         range_check: &impl RangeCheck256Lookup,

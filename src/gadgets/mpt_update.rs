@@ -7,6 +7,7 @@ use super::{
 use crate::constraint_builder::{
     AdviceColumn, BinaryColumn, ConstraintBuilder, Query, SelectorColumn,
 };
+use crate::serde::SMTTrace;
 use halo2_proofs::{arithmetic::FieldExt, plonk::ConstraintSystem};
 
 pub trait MptUpdateLookup {
@@ -20,6 +21,7 @@ pub trait MptUpdateLookup {
     // storage_key, rlc // get this from inputs to key hash, along with
 }
 
+#[derive(Clone)]
 struct MptUpdateConfig {
     selector: SelectorColumn,
 
@@ -137,65 +139,83 @@ impl MptUpdateConfig {
     }
 }
 
-// #[cfg(test)]
-// mod test {
-//     use super::{super::byte_bit::ByteBitGadget, *};
-//     use halo2_proofs::{
-//         circuit::{Layouter, SimpleFloorPlanner},
-//         dev::MockProver,
-//         halo2curves::bn256::Fr,
-//         plonk::{Circuit, Error},
-//     };
+#[cfg(test)]
+mod test {
+    use super::super::{
+        byte_bit::ByteBitGadget, byte_representation::ByteRepresentationConfig,
+        canonical_representation::CanonicalRepresentationConfig, key_bit::KeyBitConfig,
+        poseidon::PoseidonConfig,
+    };
+    use super::*;
+    use halo2_proofs::{
+        circuit::{Layouter, SimpleFloorPlanner},
+        dev::MockProver,
+        halo2curves::bn256::Fr,
+        plonk::{Circuit, Error},
+    };
 
-//     #[derive(Clone, Default, Debug)]
-//     struct TestCircuit {
-//         updates: Vec<SMTTrace>,
-//     }
+    #[derive(Clone, Debug)]
+    struct TestCircuit {
+        updates: Vec<SMTTrace>,
+    }
 
-//     impl Circuit<Fr> for TestCircuit {
-//         type Config = (MptUpdateConfig, ByteRepresentationConfig, PoseidonLookup);
-//         type FloorPlanner = SimpleFloorPlanner;
+    impl Circuit<Fr> for TestCircuit {
+        type Config = (
+            MptUpdateConfig,
+            PoseidonConfig,
+            CanonicalRepresentationConfig,
+            KeyBitConfig,
+            ByteBitGadget,
+        );
+        type FloorPlanner = SimpleFloorPlanner;
 
-//         fn without_witnesses(&self) -> Self {
-//             Self::default()
-//         }
+        fn without_witnesses(&self) -> Self {
+            Self { updates: vec![] }
+        }
 
-//         fn configure(cs: &mut ConstraintSystem<Fr>) -> Self::Config {
-//             let mut cb = ConstraintBuilder::new();
-//             let byte_bit = ByteBitGadget::configure(cs, &mut cb);
-//             let byte_representation = ByteRepresentationConfig::configure(cs, &mut cb, &byte_bit);
-//             cb.build(cs);
-//             (byte_bit, byte_representation)
-//         }
+        fn configure(cs: &mut ConstraintSystem<Fr>) -> Self::Config {
+            let mut cb = ConstraintBuilder::new();
+            let poseidon = PoseidonConfig::configure(cs, &mut cb);
+            let byte_bit = ByteBitGadget::configure(cs, &mut cb);
+            let byte_representation = ByteRepresentationConfig::configure(cs, &mut cb, &byte_bit);
+            let canonical_representation =
+                CanonicalRepresentationConfig::configure(cs, &mut cb, &byte_bit);
+            let key_bit = KeyBitConfig::configure(
+                cs,
+                &mut cb,
+                &canonical_representation,
+                &byte_bit,
+                &byte_bit,
+                &byte_bit,
+            );
 
-//         fn synthesize(
-//             &self,
-//             config: Self::Config,
-//             mut layouter: impl Layouter<Fr>,
-//         ) -> Result<(), Error> {
-//             layouter.assign_region(
-//                 || "",
-//                 |mut region| {
-//                     config.0.assign(&mut region);
-//                     config
-//                         .1
-//                         .assign(&mut region, &self.addresses, &self.hashes, &self.words);
-//                     Ok(())
-//                 },
-//             )
-//         }
-//     }
+            let byte_representation = ByteRepresentationConfig::configure(cs, &mut cb, &byte_bit);
 
-//     #[test]
-//     fn test_byte_representation() {
-//         let circuit = TestCircuit {
-//             addresses: vec![Address::repeat_byte(34)],
-//             hashes: vec![H256::repeat_byte(48)],
-//             words: vec![U256::zero(), U256::from(123412123)],
-//         };
-//         let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
-//         assert_eq!(prover.verify(), Ok(()));
+            let mpt_update = MptUpdateConfig::configure(
+                cs,
+                &mut cb,
+                &poseidon,
+                &key_bit,
+                &byte_representation,
+                &byte_representation,
+            );
 
-//         // TODO test that intermediate values are in here....
-//     }
-// }
+            cb.build(cs);
+            (
+                mpt_update,
+                poseidon,
+                canonical_representation,
+                key_bit,
+                byte_bit,
+            )
+        }
+
+        fn synthesize(
+            &self,
+            config: Self::Config,
+            mut layouter: impl Layouter<Fr>,
+        ) -> Result<(), Error> {
+            Ok(())
+        }
+    }
+}

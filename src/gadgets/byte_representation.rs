@@ -14,7 +14,7 @@ pub trait BytesLookup {
 }
 
 #[derive(Clone)]
-struct ByteRepresentationConfig {
+pub struct ByteRepresentationConfig {
     selector: SelectorColumn, // always enabled selector for constraints we want always enabled.
 
     randomness: FixedColumn, // TODO: this should be an instance column.
@@ -42,7 +42,7 @@ impl BytesLookup for ByteRepresentationConfig {
 }
 
 impl ByteRepresentationConfig {
-    fn configure<F: FieldExt>(
+    pub fn configure<F: FieldExt>(
         cs: &mut ConstraintSystem<F>,
         cb: &mut ConstraintBuilder<F>,
         range_check: &impl RangeCheck256Lookup,

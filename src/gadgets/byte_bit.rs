@@ -1,6 +1,7 @@
 use super::super::constraint_builder::{ConstraintBuilder, FixedColumn, Query};
 use halo2_proofs::{arithmetic::FieldExt, circuit::Region, plonk::ConstraintSystem};
 
+// TODO: fix name to configggggggg
 #[derive(Clone)]
 pub struct ByteBitGadget {
     byte: FixedColumn,

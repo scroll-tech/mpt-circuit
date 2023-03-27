@@ -10,7 +10,7 @@ pub trait KeyBitLookup {
 }
 
 #[derive(Clone)]
-struct KeyBitConfig {
+pub struct KeyBitConfig {
     selector: SelectorColumn, // always enabled selector for constraints we want always enabled.
 
     // Lookup columns
@@ -25,13 +25,13 @@ struct KeyBitConfig {
 }
 
 impl KeyBitConfig {
-    fn configure<F: FieldExt>(
+    pub fn configure<F: FieldExt>(
         cs: &mut ConstraintSystem<F>,
         cb: &mut ConstraintBuilder<F>,
-        representation: impl CanonicalRepresentationLookup,
-        range_check_8: impl RangeCheck8Lookup,
-        range_check_256: impl RangeCheck256Lookup,
-        byte_bit: impl ByteBitLookup,
+        representation: &impl CanonicalRepresentationLookup,
+        range_check_8: &impl RangeCheck8Lookup,
+        range_check_256: &impl RangeCheck256Lookup,
+        byte_bit: &impl ByteBitLookup,
     ) -> Self {
         let ([selector], [], [value, index, bit, index_div_8, index_mod_8, byte]) =
             cb.build_columns(cs);
