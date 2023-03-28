@@ -143,6 +143,15 @@ impl MptUpdateConfig {
         );
         // cb.add_lookup("poseidon hash correct for new path", [], poseidon.lookup());
 
+        // Constraints for when proof_type = MPTProofType::NonceChanged
+        // Constraints for when proof_type = MPTProofType::BalanceChanged
+        // Constraints for when proof_type = MPTProofType::CodeHashExists
+        // Constraints for when proof_type = MPTProofType::AccountDoesNotExist
+        // Constraints for when proof_type = MPTProofType::AccountDestructed
+        // Constraints for when proof_type = MPTProofType::StorageChanged
+        // Constraints for when proof_type = MPTProofType::StorageDoesNotExist
+
+
         Self {
             selector,
             old_hash,
@@ -222,6 +231,16 @@ mod test {
         updates: Vec<SMTTrace>,
     }
 
+    impl TestCircuit {
+        fn hash_traces(&self) -> Vec<(Fr, Fr, Fr)> {
+            vec![]
+        }
+
+        fn keys(&self) -> Vec<Fr> {
+            vec![]
+        }
+    }
+
     impl Circuit<Fr> for TestCircuit {
         type Config = (
             MptUpdateConfig,
@@ -286,8 +305,8 @@ mod test {
                 || "",
                 |mut region| {
                     mpt_update.assign(&mut region, &self.updates);
-                    poseidon.assign(&mut region, &[]); // self.poseidon_hashes()
-                    canonical_representation.assign(&mut region, &[]); // self.keys()...
+                    poseidon.assign(&mut region, &self.hash_traces());
+                    canonical_representation.assign(&mut region, &self.keys());
                     // key_bit.assign(region, &[]); // self.
                     byte_bit.assign(&mut region);
                     // byte_representation.assign(&mut region, &self.byte_representations())
