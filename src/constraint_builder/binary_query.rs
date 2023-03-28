@@ -6,6 +6,7 @@ use halo2_proofs::{
 // use std::iter::Sum;
 
 /// A query whose expression we promise is 0 or 1.
+#[derive(Clone)]
 pub struct BinaryQuery<F: Field>(pub Query<F>);
 
 impl<F: FieldExt> BinaryQuery<F> {

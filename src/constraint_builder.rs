@@ -14,6 +14,8 @@ pub struct ConstraintBuilder<F: FieldExt> {
     // TODO: cs: &mut ConstraintSystem<F>...
     constraints: Vec<(&'static str, Query<F>)>,
     lookups: Vec<(&'static str, Vec<(Query<F>, Query<F>)>)>,
+
+    conditions: Vec<BinaryQuery<F>>,
 }
 
 impl<F: FieldExt> ConstraintBuilder<F> {
@@ -21,6 +23,8 @@ impl<F: FieldExt> ConstraintBuilder<F> {
         Self {
             constraints: vec![],
             lookups: vec![],
+
+            conditions: vec![],
         }
     }
 
@@ -30,8 +34,18 @@ impl<F: FieldExt> ConstraintBuilder<F> {
         selector: BinaryQuery<F>,
         constraint: Query<F>,
     ) {
+        let condition = self
+            .conditions
+            .iter()
+            .fold(BinaryQuery::one(), |a, b| a.clone().and(b.clone()));
         self.constraints
-            .push((name, selector.condition(constraint)))
+            .push((name, condition.and(selector).condition(constraint)))
+    }
+
+    pub fn condition(&mut self, condition: BinaryQuery<F>, configure: impl FnOnce(&mut Self)) {
+        self.conditions.push(condition);
+        configure(self);
+        self.conditions.pop().unwrap();
     }
 
     pub fn add_lookup<const N: usize>(
