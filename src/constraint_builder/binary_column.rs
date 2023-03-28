@@ -12,9 +12,7 @@ pub struct BinaryColumn(pub Column<Advice>);
 
 impl BinaryColumn {
     pub fn rotation<F: FieldExt>(self, i: i32) -> BinaryQuery<F> {
-        BinaryQuery(Query(Box::new(move |meta| {
-            meta.query_advice(self.0, Rotation(i))
-        })))
+        BinaryQuery(Query::Advice(self.0, i))
     }
 
     pub fn current<F: FieldExt>(self) -> BinaryQuery<F> {

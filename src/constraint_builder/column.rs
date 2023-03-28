@@ -12,9 +12,7 @@ pub struct SelectorColumn(pub Column<Fixed>);
 
 impl SelectorColumn {
     pub fn current<F: FieldExt>(self) -> BinaryQuery<F> {
-        BinaryQuery(Query(Box::new(move |meta| {
-            meta.query_fixed(self.0, Rotation::cur())
-        })))
+        BinaryQuery(Query::Fixed(self.0, 0))
     }
 
     pub fn enable<F: FieldExt>(&self, region: &mut Region<'_, F>, offset: usize) {
@@ -29,7 +27,7 @@ pub struct FixedColumn(pub Column<Fixed>);
 
 impl FixedColumn {
     pub fn rotation<F: FieldExt>(self, i: i32) -> Query<F> {
-        Query(Box::new(move |meta| meta.query_fixed(self.0, Rotation(i))))
+        Query::Fixed(self.0, i)
     }
 
     pub fn current<F: FieldExt>(self) -> Query<F> {
@@ -64,7 +62,7 @@ pub struct AdviceColumn(pub Column<Advice>);
 
 impl AdviceColumn {
     pub fn rotation<F: FieldExt>(self, i: i32) -> Query<F> {
-        Query(Box::new(move |meta| meta.query_advice(self.0, Rotation(i))))
+        Query::Advice(self.0, i)
     }
 
     pub fn current<F: FieldExt>(self) -> Query<F> {

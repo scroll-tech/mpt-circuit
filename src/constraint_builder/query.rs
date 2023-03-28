@@ -1,73 +1,79 @@
 use super::BinaryQuery;
 use halo2_proofs::{
     arithmetic::{Field, FieldExt},
-    plonk::{Expression, VirtualCells},
+    plonk::{Advice, Column, ConstraintSystem, Expression, Fixed, Instance, VirtualCells},
+    poly::Rotation,
 };
-// use std::iter::Sum;
 
-pub struct Query<F: Field>(pub Box<dyn FnOnce(&mut VirtualCells<'_, F>) -> Expression<F>>);
+#[derive(Clone, Copy)]
+pub enum ColumnType {
+    Advice,
+    Fixed,
+    Instance,
+}
+
+#[derive(Clone)]
+pub enum Query<F: Clone> {
+    Constant(F),
+    Advice(Column<Advice>, i32),
+    Fixed(Column<Fixed>, i32),
+    Instance(Column<Instance>, i32),
+    Neg(Box<Self>),
+    Add(Box<Self>, Box<Self>),
+    Mul(Box<Self>, Box<Self>),
+}
 
 impl<F: FieldExt> Query<F> {
     pub fn zero() -> Self {
-        Self::from(0u64)
+        Self::from(0)
     }
 
     pub fn one() -> Self {
-        Self::from(1u64)
+        Self::from(1)
     }
-}
 
-impl<F: Field> Query<F> {
-    pub fn run(self, meta: &mut VirtualCells<'_, F>) -> Expression<F> {
-        self.0(meta)
+    pub fn run(&self, meta: &mut VirtualCells<'_, F>) -> Expression<F> {
+        match self {
+            Query::Constant(f) => Expression::Constant(*f),
+            Query::Advice(c, r) => meta.query_advice(*c, Rotation(*r)),
+            Query::Fixed(c, r) => meta.query_fixed(*c, Rotation(*r)),
+            Query::Instance(c, r) => meta.query_instance(*c, Rotation(*r)),
+            Query::Neg(q) => Expression::Constant(F::zero()) - q.run(meta),
+            Query::Add(q, u) => q.run(meta) + u.run(meta),
+            Query::Mul(q, u) => q.run(meta) * u.run(meta),
+        }
     }
 }
 
 impl<F: FieldExt> From<u64> for Query<F> {
     fn from(x: u64) -> Self {
-        let f: F = x.into();
-        Self(Box::new(move |_meta| Expression::Constant(f)))
+        Self::Constant(F::from(x))
+    }
+}
+
+impl<F: FieldExt> From<BinaryQuery<F>> for Query<F> {
+    fn from(b: BinaryQuery<F>) -> Self {
+        b.0
     }
 }
 
 impl<F: Field, T: Into<Query<F>>> std::ops::Add<T> for Query<F> {
     type Output = Self;
     fn add(self, other: T) -> Self::Output {
-        let left = self.0;
-        let right = other.into().0;
-        Self(Box::new(move |meta| left(meta) + right(meta)))
+        Self::Add(Box::new(self), Box::new(other.into()))
     }
 }
 
 impl<F: Field, T: Into<Query<F>>> std::ops::Sub<T> for Query<F> {
     type Output = Self;
     fn sub(self, other: T) -> Self::Output {
-        let left = self.0;
-        let right = other.into().0;
-        Self(Box::new(move |meta| left(meta) - right(meta)))
+        Self::Add(Box::new(self), Box::new(Self::Neg(Box::new(other.into()))))
     }
 }
 
 impl<F: Field, T: Into<Query<F>>> std::ops::Mul<T> for Query<F> {
     type Output = Self;
     fn mul(self, other: T) -> Self::Output {
-        let left = self.0;
-        let right = other.into().0;
-        Self(Box::new(move |meta| left(meta) * right(meta)))
+        Self::Mul(Box::new(self), Box::new(other.into()))
     }
 }
-
-impl<F: Field> From<BinaryQuery<F>> for Query<F> {
-    fn from(b: BinaryQuery<F>) -> Self {
-        b.0
-    }
-}
-
-// impl<F: FieldExt> Sum for Query<F> {
-//     fn sum<I>(iter: I) -> Self
-//     where
-//         I: Iterator<Item = Self>,
-//     {
-//         Self::zero()
-//     }
-// }

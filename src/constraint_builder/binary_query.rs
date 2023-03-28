@@ -10,11 +10,11 @@ pub struct BinaryQuery<F: Field>(pub Query<F>);
 
 impl<F: FieldExt> BinaryQuery<F> {
     pub fn zero() -> Self {
-        Self(Query::zero())
+        Self(Query::from(0))
     }
 
     pub fn one() -> Self {
-        Self(Query::one())
+        Self(Query::from(1))
     }
 
     pub fn and(self, other: Self) -> Self {
@@ -30,7 +30,7 @@ impl<F: FieldExt> BinaryQuery<F> {
     }
 }
 
-impl<F: Field> BinaryQuery<F> {
+impl<F: FieldExt> BinaryQuery<F> {
     pub fn run(self, meta: &mut VirtualCells<'_, F>) -> Expression<F> {
         self.0.run(meta)
     }
