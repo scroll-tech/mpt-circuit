@@ -4,11 +4,12 @@ use super::{
     key_bit::KeyBitLookup,
     poseidon::PoseidonLookup,
 };
-use crate::constraint_builder::{
-    AdviceColumn, BinaryColumn, ConstraintBuilder, Query, SelectorColumn,
+use crate::{
+    constraint_builder::{AdviceColumn, BinaryColumn, ConstraintBuilder, Query, SelectorColumn},
+    serde::SMTTrace,
+    types::Proof,
 };
-use crate::serde::SMTTrace;
-use halo2_proofs::{arithmetic::FieldExt, plonk::ConstraintSystem};
+use halo2_proofs::{arithmetic::FieldExt, circuit::Region, plonk::ConstraintSystem, halo2curves::bn256::Fr};
 
 pub trait MptUpdateLookup {
     fn lookup<F: FieldExt>(&self) -> [Query<F>; 7];
@@ -164,6 +165,41 @@ impl MptUpdateConfig {
             sibling,
         }
     }
+
+    fn assign(&self, region: &mut Region<'_, Fr>, updates: &[SMTTrace]) {
+        let randomness = Fr::from(123123u64); // TODOOOOOOO
+
+        let mut offset = 0;
+        for update in updates {
+            let proof = Proof::from(update.clone());
+
+            for (direction, old_hash, new_hash, sibling, is_padding_open, is_padding_close) in
+                &proof.address_hash_traces
+            {
+                self.selector.enable(region, offset);
+                // self.address.assign(region, offset, proof.claim.address);
+                // self.storage_key_rlc.assign(region, offset, rlc(proof.claim.storage_key, randomness));
+                // self.new_value_rlc.assign(region, offset, ...)
+                // self.old_value_rlc.assign(region, offset, ...)
+
+                self.is_common_path.assign(
+                    region,
+                    offset,
+                    !(*is_padding_open || *is_padding_close),
+                );
+                self.old_hash_is_unchanged
+                    .assign(region, offset, *is_padding_open);
+                self.new_hash_is_unchanged
+                    .assign(region, offset, *is_padding_close);
+
+                self.sibling.assign(region, offset, *sibling);
+                self.new_hash.assign(region, offset, *new_hash);
+                self.old_hash.assign(region, offset, *old_hash);
+
+                offset += 1;
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -193,6 +229,7 @@ mod test {
             CanonicalRepresentationConfig,
             KeyBitConfig,
             ByteBitGadget,
+            ByteRepresentationConfig,
         );
         type FloorPlanner = SimpleFloorPlanner;
 
@@ -234,6 +271,7 @@ mod test {
                 canonical_representation,
                 key_bit,
                 byte_bit,
+                byte_representation,
             )
         }
 
@@ -242,7 +280,27 @@ mod test {
             config: Self::Config,
             mut layouter: impl Layouter<Fr>,
         ) -> Result<(), Error> {
-            Ok(())
+            let (mpt_update, poseidon, canonical_representation, key_bit, byte_bit, byte_representation) = config;
+
+            layouter.assign_region(
+                || "",
+                |mut region| {
+                    mpt_update.assign(&mut region, &self.updates);
+                    poseidon.assign(&mut region, &[]); // self.poseidon_hashes()
+                    canonical_representation.assign(&mut region, &[]); // self.keys()...
+                    // key_bit.assign(region, &[]); // self.
+                    byte_bit.assign(&mut region);
+                    // byte_representation.assign(&mut region, &self.byte_representations())
+                    Ok(())
+                },
+            )
         }
+    }
+
+    #[test]
+    fn test_mpt_updates() {
+        let circuit = TestCircuit { updates: vec![] };
+        let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
+        assert_eq!(prover.verify(), Ok(()));
     }
 }

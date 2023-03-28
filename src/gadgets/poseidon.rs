@@ -1,19 +1,19 @@
 use crate::constraint_builder::{AdviceColumn, ConstraintBuilder, Query};
-use halo2_proofs::{arithmetic::FieldExt, circuit::Region, plonk::ConstraintSystem};
+use halo2_proofs::{arithmetic::FieldExt, circuit::Region, plonk::ConstraintSystem, halo2curves::bn256::Fr};
 
 pub trait PoseidonLookup {
     fn lookup<F: FieldExt>(&self) -> [Query<F>; 3];
 }
 
 #[derive(Clone, Copy)]
-pub(crate) struct PoseidonConfig {
+pub struct PoseidonConfig {
     left: AdviceColumn,
     right: AdviceColumn,
     hash: AdviceColumn,
 }
 
 impl PoseidonConfig {
-    pub(crate) fn configure<F: FieldExt>(
+    pub fn configure<F: FieldExt>(
         cs: &mut ConstraintSystem<F>,
         cb: &mut ConstraintBuilder<F>,
     ) -> Self {
@@ -21,7 +21,7 @@ impl PoseidonConfig {
         Self { left, right, hash }
     }
 
-    fn assign<F: FieldExt>(&self, region: &mut Region<'_, F>, hash_traces: &[(F, F, F)]) {
+    pub fn assign(&self, region: &mut Region<'_, Fr>, hash_traces: &[(Fr, Fr, Fr)]) {
         for (offset, hash_trace) in hash_traces.iter().enumerate() {
             for (column, value) in [
                 (self.left, hash_trace.0),

@@ -11,10 +11,10 @@ use crate::{
 };
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct Claim {
-    old_root: Fr,
-    new_root: Fr,
-    address: Address,
+pub struct Claim {
+    pub old_root: Fr,
+    pub new_root: Fr,
+    pub address: Address,
     kind: ClaimKind,
 }
 
@@ -72,10 +72,10 @@ impl LeafNode {
 }
 
 #[derive(Clone, Debug)]
-struct Proof {
-    claim: Claim,
+pub struct Proof {
+    pub claim: Claim,
     // direction, open value, close value, sibling, is_padding_open, is_padding_close
-    address_hash_traces: Vec<(bool, Fr, Fr, Fr, bool, bool)>,
+    pub address_hash_traces: Vec<(bool, Fr, Fr, Fr, bool, bool)>,
 
     // TODO: make this optional
     leafs: [LeafNode; 2],
