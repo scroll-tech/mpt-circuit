@@ -1,5 +1,7 @@
 use crate::constraint_builder::{AdviceColumn, ConstraintBuilder, Query};
-use halo2_proofs::{arithmetic::FieldExt, circuit::Region, plonk::ConstraintSystem, halo2curves::bn256::Fr};
+use halo2_proofs::{
+    arithmetic::FieldExt, circuit::Region, halo2curves::bn256::Fr, plonk::ConstraintSystem,
+};
 
 pub trait PoseidonLookup {
     fn lookup<F: FieldExt>(&self) -> [Query<F>; 3];

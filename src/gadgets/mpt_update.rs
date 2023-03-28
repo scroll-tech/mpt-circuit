@@ -9,7 +9,9 @@ use crate::{
     serde::SMTTrace,
     types::Proof,
 };
-use halo2_proofs::{arithmetic::FieldExt, circuit::Region, plonk::ConstraintSystem, halo2curves::bn256::Fr};
+use halo2_proofs::{
+    arithmetic::FieldExt, circuit::Region, halo2curves::bn256::Fr, plonk::ConstraintSystem,
+};
 
 pub trait MptUpdateLookup {
     fn lookup<F: FieldExt>(&self) -> [Query<F>; 7];
@@ -150,7 +152,6 @@ impl MptUpdateConfig {
         // Constraints for when proof_type = MPTProofType::AccountDestructed
         // Constraints for when proof_type = MPTProofType::StorageChanged
         // Constraints for when proof_type = MPTProofType::StorageDoesNotExist
-
 
         Self {
             selector,
@@ -299,7 +300,14 @@ mod test {
             config: Self::Config,
             mut layouter: impl Layouter<Fr>,
         ) -> Result<(), Error> {
-            let (mpt_update, poseidon, canonical_representation, key_bit, byte_bit, byte_representation) = config;
+            let (
+                mpt_update,
+                poseidon,
+                canonical_representation,
+                key_bit,
+                byte_bit,
+                byte_representation,
+            ) = config;
 
             layouter.assign_region(
                 || "",
