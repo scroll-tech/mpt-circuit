@@ -2,16 +2,37 @@ use super::{
     byte_representation::{BytesLookup, RlcLookup},
     is_zero::IsZeroGadget,
     key_bit::KeyBitLookup,
+    one_hot::OneHot,
     poseidon::PoseidonLookup,
 };
 use crate::{
     constraint_builder::{AdviceColumn, BinaryColumn, ConstraintBuilder, Query, SelectorColumn},
     serde::SMTTrace,
     types::Proof,
+    MPTProofType,
 };
+use ethers_core::k256::elliptic_curve::PrimeField;
+use ethers_core::types::{Address, H256, U256};
 use halo2_proofs::{
     arithmetic::FieldExt, circuit::Region, halo2curves::bn256::Fr, plonk::ConstraintSystem,
 };
+use strum_macros::EnumIter;
+
+/// Each row of an mpt update belongs to one of four segments.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter)]
+enum SegmentType {
+    AccountTrie,
+    AccountLeaf,
+    StorageTrie,
+    StorageLeaf,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter)]
+enum PathType {
+    Common, // Hashes for both the old and new path are being updated
+    Old,    // the new hash is not changed. I.e. the new path ends in an non-existence proof.
+    New,    // the old hash is not changed. I.e. the old path ends in an non-existence proof.
+}
 
 pub trait MptUpdateLookup {
     fn lookup<F: FieldExt>(&self) -> [Query<F>; 7];
@@ -27,24 +48,18 @@ struct MptUpdateConfig {
     old_value_rlc: AdviceColumn,
     new_value_rlc: AdviceColumn,
 
-    proof_type: [BinaryColumn; 5],
+    proof_type: OneHot<MPTProofType>,
 
     address: AdviceColumn,
     storage_key_rlc: AdviceColumn,
 
-    // exactly one of these is 1.
-    is_common_path: BinaryColumn,
-    old_hash_is_unchanged: BinaryColumn,
-    new_hash_is_unchanged: BinaryColumn,
+    path_type: OneHot<PathType>,
 
-    // exactly one of these is 1.
-    is_account_path: BinaryColumn,
-    is_account_leaf: BinaryColumn,
-    is_storage_path: BinaryColumn,
+    segment_type: OneHot<SegmentType>,
+    depth: AdviceColumn, // depth of the current segment
+    depth_is_zero: IsZeroGadget,
 
     key: AdviceColumn,
-    depth: AdviceColumn,
-    depth_is_zero: IsZeroGadget,
     direction: AdviceColumn, // this actually must be binary because of a KeyBitLookup
 
     sibling: AdviceColumn,
@@ -55,7 +70,7 @@ impl MptUpdateLookup for MptUpdateConfig {
         let is_root = || {
             self.depth_is_zero
                 .current()
-                .and(self.is_account_path.current())
+                .and(self.segment_type.matches(SegmentType::AccountTrie))
         };
         let old_root = self.old_hash.current() * is_root();
         let new_root = self.new_hash.current() * is_root();
@@ -94,34 +109,16 @@ impl MptUpdateConfig {
     ) -> Self {
         let ([selector], [], [old_hash, new_hash]) = cb.build_columns(cs);
 
-        let proof_type = cb.binary_columns(cs);
+        let proof_type = OneHot::configure(cs, cb);
         let [address, storage_key_rlc] = cb.advice_columns(cs);
 
         let [old_value_rlc, new_value_rlc] = cb.advice_columns(cs);
 
-        let [is_common_path, old_hash_is_unchanged, new_hash_is_unchanged] = cb.binary_columns(cs);
-        let [is_account_path, is_account_leaf, is_storage_path] = cb.binary_columns(cs);
-
         let [depth, key, direction, sibling] = cb.advice_columns(cs);
         let depth_is_zero = IsZeroGadget::configure(cs, cb, selector.current(), depth);
 
-        // constrain that exactly one of proof type is 1.
-
-        cb.add_constraint(
-            "exactly one of is_common_path, old_hash_is_unchanged, and new_hash_is_unchanged is 1",
-            selector.current(),
-            Query::from(is_common_path.current())
-                + old_hash_is_unchanged.current()
-                + new_hash_is_unchanged.current(),
-        );
-
-        cb.add_constraint(
-            "exactly one of is_account_path, is_account_leaf, and is_storage_path is 1",
-            selector.current(),
-            Query::from(is_account_path.current())
-                + is_account_leaf.current()
-                + is_storage_path.current(),
-        );
+        let segment_type = OneHot::configure(cs, cb);
+        let path_type = OneHot::configure(cs, cb);
 
         // should be if path segment changes, then depth is 0. if not, it increases by 1.
         cb.add_constraint(
@@ -145,13 +142,54 @@ impl MptUpdateConfig {
         );
         // cb.add_lookup("poseidon hash correct for new path", [], poseidon.lookup());
 
-        // Constraints for when proof_type = MPTProofType::NonceChanged
-        // Constraints for when proof_type = MPTProofType::BalanceChanged
-        // Constraints for when proof_type = MPTProofType::CodeHashExists
-        // Constraints for when proof_type = MPTProofType::AccountDoesNotExist
-        // Constraints for when proof_type = MPTProofType::AccountDestructed
-        // Constraints for when proof_type = MPTProofType::StorageChanged
-        // Constraints for when proof_type = MPTProofType::StorageDoesNotExist
+        cb.condition(proof_type.matches(MPTProofType::NonceChanged), |cb| {
+            cb.condition(segment_type.matches(SegmentType::AccountTrie), |cb| {});
+            cb.condition(segment_type.matches(SegmentType::AccountLeaf), |cb| {});
+            cb.condition(segment_type.matches(SegmentType::StorageTrie), |cb| {});
+            cb.condition(segment_type.matches(SegmentType::StorageLeaf), |cb| {});
+        });
+        cb.condition(proof_type.matches(MPTProofType::BalanceChanged), |cb| {
+            cb.condition(segment_type.matches(SegmentType::AccountTrie), |cb| {});
+            cb.condition(segment_type.matches(SegmentType::AccountLeaf), |cb| {});
+            cb.condition(segment_type.matches(SegmentType::StorageTrie), |cb| {});
+            cb.condition(segment_type.matches(SegmentType::StorageLeaf), |cb| {});
+        });
+        cb.condition(proof_type.matches(MPTProofType::CodeHashExists), |cb| {
+            cb.condition(segment_type.matches(SegmentType::AccountTrie), |cb| {});
+            cb.condition(segment_type.matches(SegmentType::AccountLeaf), |cb| {});
+            cb.condition(segment_type.matches(SegmentType::StorageTrie), |cb| {});
+            cb.condition(segment_type.matches(SegmentType::StorageLeaf), |cb| {});
+        });
+        cb.condition(
+            proof_type.matches(MPTProofType::AccountDoesNotExist),
+            |cb| {
+                cb.condition(segment_type.matches(SegmentType::AccountTrie), |cb| {});
+                cb.condition(segment_type.matches(SegmentType::AccountLeaf), |cb| {});
+                cb.condition(segment_type.matches(SegmentType::StorageTrie), |cb| {});
+                cb.condition(segment_type.matches(SegmentType::StorageLeaf), |cb| {});
+            },
+        );
+        cb.condition(proof_type.matches(MPTProofType::AccountDestructed), |cb| {
+            cb.condition(segment_type.matches(SegmentType::AccountTrie), |cb| {});
+            cb.condition(segment_type.matches(SegmentType::AccountLeaf), |cb| {});
+            cb.condition(segment_type.matches(SegmentType::StorageTrie), |cb| {});
+            cb.condition(segment_type.matches(SegmentType::StorageLeaf), |cb| {});
+        });
+        cb.condition(proof_type.matches(MPTProofType::StorageChanged), |cb| {
+            cb.condition(segment_type.matches(SegmentType::AccountTrie), |cb| {});
+            cb.condition(segment_type.matches(SegmentType::AccountLeaf), |cb| {});
+            cb.condition(segment_type.matches(SegmentType::StorageTrie), |cb| {});
+            cb.condition(segment_type.matches(SegmentType::StorageLeaf), |cb| {});
+        });
+        cb.condition(
+            proof_type.matches(MPTProofType::StorageDoesNotExist),
+            |cb| {
+                cb.condition(segment_type.matches(SegmentType::AccountTrie), |cb| {});
+                cb.condition(segment_type.matches(SegmentType::AccountLeaf), |cb| {});
+                cb.condition(segment_type.matches(SegmentType::StorageTrie), |cb| {});
+                cb.condition(segment_type.matches(SegmentType::StorageLeaf), |cb| {});
+            },
+        );
 
         Self {
             selector,
@@ -162,12 +200,8 @@ impl MptUpdateConfig {
             new_value_rlc,
             address,
             storage_key_rlc,
-            is_common_path,
-            old_hash_is_unchanged,
-            new_hash_is_unchanged,
-            is_account_path,
-            is_account_leaf,
-            is_storage_path,
+            segment_type,
+            path_type,
             key,
             depth,
             depth_is_zero,
@@ -187,29 +221,44 @@ impl MptUpdateConfig {
                 &proof.address_hash_traces
             {
                 self.selector.enable(region, offset);
-                // self.address.assign(region, offset, proof.claim.address);
+                self.address
+                    .assign(region, offset, address_to_fr(proof.claim.address));
                 // self.storage_key_rlc.assign(region, offset, rlc(proof.claim.storage_key, randomness));
                 // self.new_value_rlc.assign(region, offset, ...)
                 // self.old_value_rlc.assign(region, offset, ...)
 
-                self.is_common_path.assign(
-                    region,
-                    offset,
-                    !(*is_padding_open || *is_padding_close),
-                );
-                self.old_hash_is_unchanged
-                    .assign(region, offset, *is_padding_open);
-                self.new_hash_is_unchanged
-                    .assign(region, offset, *is_padding_close);
+                // self.is_common_path.assign(
+                //     region,
+                //     offset,
+                //     !(*is_padding_open || *is_padding_close),
+                // );
+                self.segment_type
+                    .assign(region, offset, SegmentType::AccountTrie);
+
+                let path_type = match (*is_padding_open, *is_padding_close) {
+                    (false, false) => PathType::Common,
+                    (false, true) => PathType::Old,
+                    (true, false) => PathType::New,
+                    (true, true) => unreachable!(),
+                };
+                self.path_type.assign(region, offset, path_type);
 
                 self.sibling.assign(region, offset, *sibling);
                 self.new_hash.assign(region, offset, *new_hash);
                 self.old_hash.assign(region, offset, *old_hash);
+                self.direction.assign(region, offset, *direction);
 
                 offset += 1;
             }
         }
     }
+}
+
+fn address_to_fr(a: Address) -> Fr {
+    let mut bytes = [0u8; 32];
+    bytes[32 - 20..].copy_from_slice(a.as_bytes());
+    bytes.reverse();
+    Fr::from_repr(bytes).unwrap()
 }
 
 #[cfg(test)]

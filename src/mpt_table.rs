@@ -5,6 +5,7 @@ use halo2_proofs::{
     plonk::{Advice, Column, ConstraintSystem, Error, Expression, Selector, VirtualCells},
     poly::Rotation,
 };
+use strum_macros::EnumIter;
 
 mod byte32;
 mod range_check;
@@ -224,7 +225,7 @@ impl Config {
 }
 
 /// The defination is greped from state-circuit
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter)]
 pub enum MPTProofType {
     /// nonce
     NonceChanged = 1,
