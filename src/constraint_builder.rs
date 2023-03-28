@@ -11,6 +11,7 @@ pub use column::{AdviceColumn, FixedColumn, SelectorColumn};
 pub use query::Query;
 
 pub struct ConstraintBuilder<F: FieldExt> {
+    // TODO: cs: &mut ConstraintSystem<F>...
     constraints: Vec<(&'static str, Query<F>)>,
     lookups: Vec<(&'static str, Vec<(Query<F>, Query<F>)>)>,
 }

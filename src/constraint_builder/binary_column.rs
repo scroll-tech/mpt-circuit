@@ -4,7 +4,6 @@ use halo2_proofs::{
     circuit::{Region, Value},
     plonk::ConstraintSystem,
     plonk::{Advice, Column},
-    poly::Rotation,
 };
 
 #[derive(Clone, Copy)]

@@ -1,7 +1,7 @@
 use super::BinaryQuery;
 use halo2_proofs::{
     arithmetic::{Field, FieldExt},
-    plonk::{Advice, Column, ConstraintSystem, Expression, Fixed, Instance, VirtualCells},
+    plonk::{Advice, Column, Expression, Fixed, Instance, VirtualCells},
     poly::Rotation,
 };
 

@@ -3,7 +3,6 @@ use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Region, Value},
     plonk::{Advice, Column, Fixed},
-    poly::Rotation,
 };
 use std::fmt::Debug;
 
