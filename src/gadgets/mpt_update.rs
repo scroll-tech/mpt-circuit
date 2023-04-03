@@ -131,6 +131,7 @@ impl MptUpdateConfig {
             [key.current(), depth.current(), direction.current()],
             key_bit.lookup(),
         );
+
         let old_left = direction.current() * old_hash.previous()
             + (Query::one() - direction.current()) * sibling.previous();
         let old_right = direction.current() * sibling.previous()
@@ -140,41 +141,68 @@ impl MptUpdateConfig {
             [old_left, old_right, old_hash.current()],
             poseidon.lookup(),
         );
-        // cb.add_lookup("poseidon hash correct for new path", [], poseidon.lookup());
+
+        let new_left = direction.current() * new_hash.previous()
+            + (Query::one() - direction.current()) * sibling.previous();
+        let new_right = direction.current() * sibling.previous()
+            + (Query::one() - direction.current()) * new_hash.previous();
+        cb.add_lookup(
+            "poseidon hash correct for new path",
+            [new_left, new_right, new_hash.current()],
+            poseidon.lookup(),
+        );
+
+        cb.add_lookup(
+            "direction = key.bit(depth)",
+            [key.current(), depth.current(), direction.current()],
+            key_bit.lookup(),
+        );
 
         cb.condition(proof_type.matches(MPTProofType::NonceChanged), |cb| {
             cb.condition(segment_type.matches(SegmentType::AccountTrie), |cb| {});
             cb.condition(segment_type.matches(SegmentType::AccountLeaf), |cb| {});
-            cb.condition(segment_type.matches(SegmentType::StorageTrie), |cb| {});
-            cb.condition(segment_type.matches(SegmentType::StorageLeaf), |cb| {});
+            cb.add_constraint(
+                "segment_type is not StorageTrie or StorageTrie",
+                selector.current(),
+                Query::from(segment_type.matches(SegmentType::StorageTrie))
+                    + segment_type.matches(SegmentType::StorageLeaf),
+            );
         });
         cb.condition(proof_type.matches(MPTProofType::BalanceChanged), |cb| {
             cb.condition(segment_type.matches(SegmentType::AccountTrie), |cb| {});
             cb.condition(segment_type.matches(SegmentType::AccountLeaf), |cb| {});
-            cb.condition(segment_type.matches(SegmentType::StorageTrie), |cb| {});
-            cb.condition(segment_type.matches(SegmentType::StorageLeaf), |cb| {});
+            cb.add_constraint(
+                "segment_type is not StorageTrie or StorageTrie",
+                selector.current(),
+                Query::from(segment_type.matches(SegmentType::StorageTrie))
+                    + segment_type.matches(SegmentType::StorageLeaf),
+            );
         });
         cb.condition(proof_type.matches(MPTProofType::CodeHashExists), |cb| {
             cb.condition(segment_type.matches(SegmentType::AccountTrie), |cb| {});
             cb.condition(segment_type.matches(SegmentType::AccountLeaf), |cb| {});
-            cb.condition(segment_type.matches(SegmentType::StorageTrie), |cb| {});
-            cb.condition(segment_type.matches(SegmentType::StorageLeaf), |cb| {});
+            cb.add_constraint(
+                "segment_type is not StorageTrie or StorageTrie",
+                selector.current(),
+                Query::from(segment_type.matches(SegmentType::StorageTrie))
+                    + segment_type.matches(SegmentType::StorageLeaf),
+            );
         });
         cb.condition(
             proof_type.matches(MPTProofType::AccountDoesNotExist),
             |cb| {
-                cb.condition(segment_type.matches(SegmentType::AccountTrie), |cb| {});
-                cb.condition(segment_type.matches(SegmentType::AccountLeaf), |cb| {});
-                cb.condition(segment_type.matches(SegmentType::StorageTrie), |cb| {});
-                cb.condition(segment_type.matches(SegmentType::StorageLeaf), |cb| {});
+                cb.add_constraint(
+                    "segment_type is AccountTrie",
+                    selector.current(),
+                    Query::from(segment_type.matches(SegmentType::AccountTrie)) - 1,
+                );
             },
         );
-        cb.condition(proof_type.matches(MPTProofType::AccountDestructed), |cb| {
-            cb.condition(segment_type.matches(SegmentType::AccountTrie), |cb| {});
-            cb.condition(segment_type.matches(SegmentType::AccountLeaf), |cb| {});
-            cb.condition(segment_type.matches(SegmentType::StorageTrie), |cb| {});
-            cb.condition(segment_type.matches(SegmentType::StorageLeaf), |cb| {});
-        });
+        cb.add_constraint(
+            "AccountDestructed not implemented.",
+            selector.current(),
+            Query::from(proof_type.matches(MPTProofType::AccountDestructed)),
+        );
         cb.condition(proof_type.matches(MPTProofType::StorageChanged), |cb| {
             cb.condition(segment_type.matches(SegmentType::AccountTrie), |cb| {});
             cb.condition(segment_type.matches(SegmentType::AccountLeaf), |cb| {});

@@ -2,7 +2,6 @@ use crate::constraint_builder::BinaryQuery;
 use crate::constraint_builder::{AdviceColumn, BinaryColumn, ConstraintBuilder, Query};
 use halo2_proofs::{arithmetic::FieldExt, circuit::Region, plonk::ConstraintSystem};
 use itertools::Itertools;
-use std::fmt::Debug;
 use std::marker::PhantomData;
 use strum::IntoEnumIterator;
 
