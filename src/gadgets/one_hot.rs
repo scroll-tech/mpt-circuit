@@ -51,4 +51,22 @@ impl<T: IntoEnumIterator + Eq> OneHot<T> {
             })
             .unwrap()
     }
+
+    pub fn current<F: FieldExt>(&self) -> Query<F> {
+        T::iter()
+            .enumerate()
+            .zip(&self.columns)
+            .fold(Query::zero(), |acc, ((i, _), column)| {
+                acc.clone() + Query::from(u64::try_from(i).unwrap()) * column.current()
+            })
+    }
+
+    pub fn previous<F: FieldExt>(&self) -> Query<F> {
+        T::iter()
+            .enumerate()
+            .zip(&self.columns)
+            .fold(Query::zero(), |acc, ((i, _), column)| {
+                acc.clone() + Query::from(u64::try_from(i).unwrap()) * column.previous()
+            })
+    }
 }

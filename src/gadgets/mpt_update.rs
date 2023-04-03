@@ -158,9 +158,40 @@ impl MptUpdateConfig {
             key_bit.lookup(),
         );
 
+        cb.add_constraint(
+            "depth increased by 1 or is 0",
+            selector.current(),
+            depth.current() * (depth.current() - depth.previous()),
+        );
+        cb.condition(depth_is_zero.current(), |cb| {
+            cb.add_constraint(
+                "if depth is zero, segment_type is 0, unchanged, or increased by 1",
+                selector.current(),
+                segment_type.current()
+                    * (segment_type.current() - segment_type.previous())
+                    * (segment_type.current() - segment_type.previous() - 1),
+            );
+        });
+        cb.condition(!depth_is_zero.current(), |cb| {
+            cb.add_constraint(
+                "key does not change if depth is not zero",
+                selector.current(),
+                key.current() - key.previous(),
+            )
+        });
+
         cb.condition(proof_type.matches(MPTProofType::NonceChanged), |cb| {
             cb.condition(segment_type.matches(SegmentType::AccountTrie), |cb| {});
-            cb.condition(segment_type.matches(SegmentType::AccountLeaf), |cb| {});
+            cb.condition(segment_type.matches(SegmentType::AccountLeaf), |cb| {
+                cb.condition(depth_is_zero.current(), |cb| {
+                    let account_key = key.previous();
+                    cb.add_lookup(
+                        "sibling at 0 depth is poseidon(1, account_key)",
+                        [Query::one(), account_key, sibling.current()],
+                        poseidon.lookup(),
+                    );
+                });
+            });
             cb.add_constraint(
                 "segment_type is not StorageTrie or StorageTrie",
                 selector.current(),
