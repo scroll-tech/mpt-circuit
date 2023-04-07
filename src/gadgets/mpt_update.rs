@@ -132,26 +132,6 @@ impl MptUpdateConfig {
             key_bit.lookup(),
         );
 
-        let old_left = direction.current() * old_hash.previous()
-            + (Query::one() - direction.current()) * sibling.previous();
-        let old_right = direction.current() * sibling.previous()
-            + (Query::one() - direction.current()) * old_hash.previous();
-        cb.add_lookup(
-            "poseidon hash correct for old path",
-            [old_left, old_right, old_hash.current()],
-            poseidon.lookup(),
-        );
-
-        let new_left = direction.current() * new_hash.previous()
-            + (Query::one() - direction.current()) * sibling.previous();
-        let new_right = direction.current() * sibling.previous()
-            + (Query::one() - direction.current()) * new_hash.previous();
-        cb.add_lookup(
-            "poseidon hash correct for new path",
-            [new_left, new_right, new_hash.current()],
-            poseidon.lookup(),
-        );
-
         cb.add_lookup(
             "direction = key.bit(depth)",
             [key.current(), depth.current(), direction.current()],
@@ -180,16 +160,76 @@ impl MptUpdateConfig {
             )
         });
 
+        cb.condition(path_type.matches(PathType::Common), |cb| {
+            let old_left = direction.current() * old_hash.previous()
+                + (Query::one() - direction.current()) * sibling.previous();
+            let old_right = direction.current() * sibling.previous()
+                + (Query::one() - direction.current()) * old_hash.previous();
+            cb.add_lookup(
+                "poseidon hash correct for old path",
+                [old_left, old_right, old_hash.current()],
+                poseidon.lookup(),
+            );
+
+            let new_left = direction.current() * new_hash.previous()
+                + (Query::one() - direction.current()) * sibling.previous();
+            let new_right = direction.current() * sibling.previous()
+                + (Query::one() - direction.current()) * new_hash.previous();
+            cb.add_lookup(
+                "poseidon hash correct for new path",
+                [new_left, new_right, new_hash.current()],
+                poseidon.lookup(),
+            );
+        });
+        cb.condition(path_type.matches(PathType::Old), |cb| {
+            let old_left = direction.current() * old_hash.previous()
+                + (Query::one() - direction.current()) * sibling.previous();
+            let old_right = direction.current() * sibling.previous()
+                + (Query::one() - direction.current()) * old_hash.previous();
+            cb.add_lookup(
+                "poseidon hash correct for old path",
+                [old_left, old_right, old_hash.current()],
+                poseidon.lookup(),
+            );
+
+            cb.add_constraint(
+                "new_hash unchanged for path_type=Old",
+                selector.current(),
+                new_hash.current() - new_hash.previous(),
+            );
+        });
+        cb.condition(path_type.matches(PathType::New), |cb| {
+            cb.add_constraint(
+                "old_hash unchanged for path_type=new",
+                selector.current(),
+                old_hash.current() - old_hash.previous(),
+            );
+
+            let new_left = direction.current() * new_hash.previous()
+                + (Query::one() - direction.current()) * sibling.previous();
+            let new_right = direction.current() * sibling.previous()
+                + (Query::one() - direction.current()) * new_hash.previous();
+            cb.add_lookup(
+                "poseidon hash correct for new path",
+                [new_left, new_right, new_hash.current()],
+                poseidon.lookup(),
+            );
+        });
+
         cb.condition(proof_type.matches(MPTProofType::NonceChanged), |cb| {
-            cb.condition(segment_type.matches(SegmentType::AccountTrie), |cb| {});
             cb.condition(segment_type.matches(SegmentType::AccountLeaf), |cb| {
+                cb.add_constraint(
+                    "path for AccountLeaf is 10",
+                    selector.current(),
+                    key.current() - 10,
+                );
                 cb.condition(depth_is_zero.current(), |cb| {
-                    let account_key = key.previous();
-                    cb.add_lookup(
-                        "sibling at 0 depth is poseidon(1, account_key)",
-                        [Query::one(), account_key, sibling.current()],
-                        poseidon.lookup(),
-                    );
+                    // let account_key = key.previous();
+                    // cb.add_lookup(
+                    //     "sibling at 0 depth is poseidon(1, account_key)",
+                    //     [Query::one(), account_key, sibling.current()],
+                    //     poseidon.lookup(),
+                    // );
                 });
             });
             cb.add_constraint(
