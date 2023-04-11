@@ -69,8 +69,6 @@ struct MptUpdateConfig {
     direction: AdviceColumn, // this actually must be binary because of a KeyBitLookup
 
     sibling: AdviceColumn,
-
-    // auxiliary: AdviceColumn, // Holds tempory values depends on the segment and path types.
 }
 
 impl MptUpdateLookup for MptUpdateConfig {
@@ -484,9 +482,24 @@ fn configure_nonce<F: FieldExt>(
                     config.selector.current(),
                     config.direction.current(),
                 );
-                // TODO: byte lookup here into the canonical representation of the bytes of the leaf.
-                // cb.add_lookup("old_nonce is first 8 bytes of value", [], bytes.lookup());
-                // cb.add_lookup("new_nonce is first 8 bytes of value", [], bytes.lookup());
+
+                let code_size = (config.old_hash.current() - config.old_value_rlc.current())
+                    * Query::Constant(F::from(1 << 32).invert().unwrap());
+                cb.add_lookup(
+                    "old nonce is 8 bytes",
+                    [config.old_value_rlc.current(), Query::from(7)],
+                    bytes.lookup(),
+                );
+                cb.add_lookup(
+                    "old code size is 8 bytes",
+                    [code_size, Query::from(7)],
+                    bytes.lookup(),
+                );
+                cb.add_lookup(
+                    "hash input is 16 bytes",
+                    [config.old_hash.current(), Query::from(15)],
+                    bytes.lookup(),
+                );
             }
             SegmentType::AccountLeaf4
             | SegmentType::StorageTrie
