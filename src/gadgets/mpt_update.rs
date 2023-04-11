@@ -1,37 +1,43 @@
 use super::{
     byte_representation::{BytesLookup, RlcLookup},
-    is_zero::IsZeroGadget,
     key_bit::KeyBitLookup,
     one_hot::OneHot,
     poseidon::PoseidonLookup,
 };
 use crate::{
-    constraint_builder::{AdviceColumn, BinaryColumn, ConstraintBuilder, Query, SelectorColumn},
+    constraint_builder::{AdviceColumn, ConstraintBuilder, Query, SelectorColumn},
     serde::SMTTrace,
     types::Proof,
     MPTProofType,
 };
 use ethers_core::k256::elliptic_curve::PrimeField;
-use ethers_core::types::{Address, H256, U256};
+use ethers_core::types::Address;
 use halo2_proofs::{
     arithmetic::FieldExt, circuit::Region, halo2curves::bn256::Fr, plonk::ConstraintSystem,
 };
+use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
 /// Each row of an mpt update belongs to one of four segments.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter)]
 enum SegmentType {
+    Start,
     AccountTrie,
-    AccountLeaf,
+    AccountLeaf0,
+    AccountLeaf1,
+    AccountLeaf2,
+    AccountLeaf3,
+    AccountLeaf4,
     StorageTrie,
-    StorageLeaf,
+    StorageLeaf0,
+    StorageLeaf1,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter)]
 enum PathType {
-    Common, // Hashes for both the old and new path are being updated
-    Old,    // the new hash is not changed. I.e. the new path ends in an non-existence proof.
-    New,    // the old hash is not changed. I.e. the old path ends in an non-existence proof.
+    Common,       // Hashes for both the old and new path are being updated.
+    ExtensionOld, // The old path is being extended. The new hash doesn't change.
+    ExtensionNew, // The new path is being extended. The old hash doesn't change.
 }
 
 pub trait MptUpdateLookup {
@@ -45,6 +51,8 @@ struct MptUpdateConfig {
     old_hash: AdviceColumn, // when depth = 0 and is_account_path, old_hash = old_root
     new_hash: AdviceColumn, // when depth = 0 and is_account_path, new_hash = new_root
 
+    proof_key: AdviceColumn,
+
     old_value_rlc: AdviceColumn,
     new_value_rlc: AdviceColumn,
 
@@ -53,25 +61,21 @@ struct MptUpdateConfig {
     address: AdviceColumn,
     storage_key_rlc: AdviceColumn,
 
-    path_type: OneHot<PathType>,
-
     segment_type: OneHot<SegmentType>,
-    depth: AdviceColumn, // depth of the current segment
-    depth_is_zero: IsZeroGadget,
+    path_type: OneHot<PathType>,
+    depth: AdviceColumn,
 
-    key: AdviceColumn,
+    path_key: AdviceColumn,
     direction: AdviceColumn, // this actually must be binary because of a KeyBitLookup
 
     sibling: AdviceColumn,
+
+    // auxiliary: AdviceColumn, // Holds tempory values depends on the segment and path types.
 }
 
 impl MptUpdateLookup for MptUpdateConfig {
     fn lookup<F: FieldExt>(&self) -> [Query<F>; 7] {
-        let is_root = || {
-            self.depth_is_zero
-                .current()
-                .and(self.segment_type.matches(SegmentType::AccountTrie))
-        };
+        let is_root = || self.segment_type.matches(SegmentType::Start);
         let old_root = self.old_hash.current() * is_root();
         let new_root = self.new_hash.current() * is_root();
         // let proof_type = self
@@ -114,184 +118,26 @@ impl MptUpdateConfig {
 
         let [old_value_rlc, new_value_rlc] = cb.advice_columns(cs);
 
-        let [depth, key, direction, sibling] = cb.advice_columns(cs);
-        let depth_is_zero = IsZeroGadget::configure(cs, cb, selector.current(), depth);
+        let [depth, proof_key, path_key, direction, sibling] = cb.advice_columns(cs);
 
         let segment_type = OneHot::configure(cs, cb);
         let path_type = OneHot::configure(cs, cb);
 
-        // should be if path segment changes, then depth is 0. if not, it increases by 1.
-        cb.add_constraint(
-            "depth is 0 or depth increased by 1",
-            selector.current(),
-            depth.current() * (depth.current() - depth.previous() - 1),
-        );
         cb.add_lookup(
             "direction is correct for key and depth",
-            [key.current(), depth.current(), direction.current()],
+            [path_key.current(), depth.current(), direction.current()],
             key_bit.lookup(),
         );
 
         cb.add_lookup(
             "direction = key.bit(depth)",
-            [key.current(), depth.current(), direction.current()],
+            [path_key.current(), depth.current(), direction.current()],
             key_bit.lookup(),
         );
 
-        cb.add_constraint(
-            "depth increased by 1 or is 0",
-            selector.current(),
-            depth.current() * (depth.current() - depth.previous()),
-        );
-        cb.condition(depth_is_zero.current(), |cb| {
-            cb.add_constraint(
-                "if depth is zero, segment_type is 0, unchanged, or increased by 1",
-                selector.current(),
-                segment_type.current()
-                    * (segment_type.current() - segment_type.previous())
-                    * (segment_type.current() - segment_type.previous() - 1),
-            );
-        });
-        cb.condition(!depth_is_zero.current(), |cb| {
-            cb.add_constraint(
-                "key does not change if depth is not zero",
-                selector.current(),
-                key.current() - key.previous(),
-            )
-        });
-
-        cb.condition(path_type.matches(PathType::Common), |cb| {
-            let old_left = direction.current() * old_hash.previous()
-                + (Query::one() - direction.current()) * sibling.previous();
-            let old_right = direction.current() * sibling.previous()
-                + (Query::one() - direction.current()) * old_hash.previous();
-            cb.add_lookup(
-                "poseidon hash correct for old path",
-                [old_left, old_right, old_hash.current()],
-                poseidon.lookup(),
-            );
-
-            let new_left = direction.current() * new_hash.previous()
-                + (Query::one() - direction.current()) * sibling.previous();
-            let new_right = direction.current() * sibling.previous()
-                + (Query::one() - direction.current()) * new_hash.previous();
-            cb.add_lookup(
-                "poseidon hash correct for new path",
-                [new_left, new_right, new_hash.current()],
-                poseidon.lookup(),
-            );
-        });
-        cb.condition(path_type.matches(PathType::Old), |cb| {
-            let old_left = direction.current() * old_hash.previous()
-                + (Query::one() - direction.current()) * sibling.previous();
-            let old_right = direction.current() * sibling.previous()
-                + (Query::one() - direction.current()) * old_hash.previous();
-            cb.add_lookup(
-                "poseidon hash correct for old path",
-                [old_left, old_right, old_hash.current()],
-                poseidon.lookup(),
-            );
-
-            cb.add_constraint(
-                "new_hash unchanged for path_type=Old",
-                selector.current(),
-                new_hash.current() - new_hash.previous(),
-            );
-        });
-        cb.condition(path_type.matches(PathType::New), |cb| {
-            cb.add_constraint(
-                "old_hash unchanged for path_type=new",
-                selector.current(),
-                old_hash.current() - old_hash.previous(),
-            );
-
-            let new_left = direction.current() * new_hash.previous()
-                + (Query::one() - direction.current()) * sibling.previous();
-            let new_right = direction.current() * sibling.previous()
-                + (Query::one() - direction.current()) * new_hash.previous();
-            cb.add_lookup(
-                "poseidon hash correct for new path",
-                [new_left, new_right, new_hash.current()],
-                poseidon.lookup(),
-            );
-        });
-
-        cb.condition(proof_type.matches(MPTProofType::NonceChanged), |cb| {
-            cb.condition(segment_type.matches(SegmentType::AccountLeaf), |cb| {
-                cb.add_constraint(
-                    "path for AccountLeaf is 10",
-                    selector.current(),
-                    key.current() - 10,
-                );
-                cb.condition(depth_is_zero.current(), |cb| {
-                    // let account_key = key.previous();
-                    // cb.add_lookup(
-                    //     "sibling at 0 depth is poseidon(1, account_key)",
-                    //     [Query::one(), account_key, sibling.current()],
-                    //     poseidon.lookup(),
-                    // );
-                });
-            });
-            cb.add_constraint(
-                "segment_type is not StorageTrie or StorageTrie",
-                selector.current(),
-                Query::from(segment_type.matches(SegmentType::StorageTrie))
-                    + segment_type.matches(SegmentType::StorageLeaf),
-            );
-        });
-        cb.condition(proof_type.matches(MPTProofType::BalanceChanged), |cb| {
-            cb.condition(segment_type.matches(SegmentType::AccountTrie), |cb| {});
-            cb.condition(segment_type.matches(SegmentType::AccountLeaf), |cb| {});
-            cb.add_constraint(
-                "segment_type is not StorageTrie or StorageTrie",
-                selector.current(),
-                Query::from(segment_type.matches(SegmentType::StorageTrie))
-                    + segment_type.matches(SegmentType::StorageLeaf),
-            );
-        });
-        cb.condition(proof_type.matches(MPTProofType::CodeHashExists), |cb| {
-            cb.condition(segment_type.matches(SegmentType::AccountTrie), |cb| {});
-            cb.condition(segment_type.matches(SegmentType::AccountLeaf), |cb| {});
-            cb.add_constraint(
-                "segment_type is not StorageTrie or StorageTrie",
-                selector.current(),
-                Query::from(segment_type.matches(SegmentType::StorageTrie))
-                    + segment_type.matches(SegmentType::StorageLeaf),
-            );
-        });
-        cb.condition(
-            proof_type.matches(MPTProofType::AccountDoesNotExist),
-            |cb| {
-                cb.add_constraint(
-                    "segment_type is AccountTrie",
-                    selector.current(),
-                    Query::from(segment_type.matches(SegmentType::AccountTrie)) - 1,
-                );
-            },
-        );
-        cb.add_constraint(
-            "AccountDestructed not implemented.",
-            selector.current(),
-            Query::from(proof_type.matches(MPTProofType::AccountDestructed)),
-        );
-        cb.condition(proof_type.matches(MPTProofType::StorageChanged), |cb| {
-            cb.condition(segment_type.matches(SegmentType::AccountTrie), |cb| {});
-            cb.condition(segment_type.matches(SegmentType::AccountLeaf), |cb| {});
-            cb.condition(segment_type.matches(SegmentType::StorageTrie), |cb| {});
-            cb.condition(segment_type.matches(SegmentType::StorageLeaf), |cb| {});
-        });
-        cb.condition(
-            proof_type.matches(MPTProofType::StorageDoesNotExist),
-            |cb| {
-                cb.condition(segment_type.matches(SegmentType::AccountTrie), |cb| {});
-                cb.condition(segment_type.matches(SegmentType::AccountLeaf), |cb| {});
-                cb.condition(segment_type.matches(SegmentType::StorageTrie), |cb| {});
-                cb.condition(segment_type.matches(SegmentType::StorageLeaf), |cb| {});
-            },
-        );
-
-        Self {
+        let config = Self {
             selector,
+            proof_key,
             old_hash,
             new_hash,
             proof_type,
@@ -301,12 +147,35 @@ impl MptUpdateConfig {
             storage_key_rlc,
             segment_type,
             path_type,
-            key,
+            path_key,
             depth,
-            depth_is_zero,
             direction,
             sibling,
+        };
+
+        for variant in PathType::iter() {
+            let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
+                PathType::Common => configure_common_path(cb, &config, poseidon),
+                PathType::ExtensionOld => configure_extension_old(cb, &config, poseidon),
+                PathType::ExtensionNew => configure_extension_new(cb, &config, poseidon),
+            };
+            cb.condition(config.path_type.matches(variant), conditional_constraints);
         }
+
+        for variant in MPTProofType::iter() {
+            let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
+                MPTProofType::NonceChanged => configure_nonce(cb, &config, bytes),
+                MPTProofType::BalanceChanged => configure_balance(cb, &config),
+                MPTProofType::CodeHashExists => configure_code_hash(cb, &config),
+                MPTProofType::AccountDoesNotExist => configure_empty_account(cb, &config),
+                MPTProofType::AccountDestructed => configure_self_destruct(cb, &config),
+                MPTProofType::StorageChanged => configure_storage(cb, &config),
+                MPTProofType::StorageDoesNotExist => configure_empty_storage(cb, &config),
+            };
+            cb.condition(config.proof_type.matches(variant), conditional_constraints);
+        }
+
+        config
     }
 
     fn assign(&self, region: &mut Region<'_, Fr>, updates: &[SMTTrace]) {
@@ -334,13 +203,13 @@ impl MptUpdateConfig {
                 self.segment_type
                     .assign(region, offset, SegmentType::AccountTrie);
 
-                let path_type = match (*is_padding_open, *is_padding_close) {
-                    (false, false) => PathType::Common,
-                    (false, true) => PathType::Old,
-                    (true, false) => PathType::New,
-                    (true, true) => unreachable!(),
-                };
-                self.path_type.assign(region, offset, path_type);
+                // let path_type = match (*is_padding_open, *is_padding_close) {
+                //     (false, false) => PathType::Common,
+                //     (false, true) => PathType::Old,
+                //     (true, false) => PathType::New,
+                //     (true, true) => unreachable!(),
+                // };
+                // self.path_type.assign(region, offset, path_type);
 
                 self.sibling.assign(region, offset, *sibling);
                 self.new_hash.assign(region, offset, *new_hash);
@@ -353,12 +222,311 @@ impl MptUpdateConfig {
     }
 }
 
+fn old_left<F: FieldExt>(config: &MptUpdateConfig) -> Query<F> {
+    config.direction.current() * config.old_hash.previous()
+        + (Query::one() - config.direction.current()) * config.sibling.previous()
+}
+
+fn old_right<F: FieldExt>(config: &MptUpdateConfig) -> Query<F> {
+    config.direction.current() * config.sibling.previous()
+        + (Query::one() - config.direction.current()) * config.old_hash.previous()
+}
+
+fn new_left<F: FieldExt>(config: &MptUpdateConfig) -> Query<F> {
+    config.direction.current() * config.new_hash.previous()
+        + (Query::one() - config.direction.current()) * config.sibling.previous()
+}
+
+fn new_right<F: FieldExt>(config: &MptUpdateConfig) -> Query<F> {
+    config.direction.current() * config.sibling.previous()
+        + (Query::one() - config.direction.current()) * config.new_hash.previous()
+}
+
 fn address_to_fr(a: Address) -> Fr {
     let mut bytes = [0u8; 32];
     bytes[32 - 20..].copy_from_slice(a.as_bytes());
     bytes.reverse();
     Fr::from_repr(bytes).unwrap()
 }
+
+fn configure_common_path<F: FieldExt>(
+    cb: &mut ConstraintBuilder<F>,
+    config: &MptUpdateConfig,
+    poseidon: &impl PoseidonLookup,
+) {
+    cb.add_lookup(
+        "poseidon hash correct for old path",
+        [
+            old_left(config),
+            old_right(config),
+            config.old_hash.current(),
+        ],
+        poseidon.lookup(),
+    );
+    cb.add_lookup(
+        "poseidon hash correct for new path",
+        [
+            new_left(config),
+            new_right(config),
+            config.new_hash.current(),
+        ],
+        poseidon.lookup(),
+    );
+}
+
+fn configure_extension_old<F: FieldExt>(
+    cb: &mut ConstraintBuilder<F>,
+    config: &MptUpdateConfig,
+    poseidon: &impl PoseidonLookup,
+) {
+    cb.add_lookup(
+        "poseidon hash correct for old path",
+        [
+            old_left(config),
+            old_right(config),
+            config.old_hash.current(),
+        ],
+        poseidon.lookup(),
+    );
+    cb.add_constraint(
+        "sibling is zero for extension path",
+        config.selector.current(),
+        config.sibling.current(),
+    );
+    cb.add_constraint(
+        "new_hash unchanged for path_type=Old",
+        config.selector.current(),
+        config.new_hash.current() - config.new_hash.previous(),
+    );
+}
+
+fn configure_extension_new<F: FieldExt>(
+    cb: &mut ConstraintBuilder<F>,
+    config: &MptUpdateConfig,
+    poseidon: &impl PoseidonLookup,
+) {
+    cb.add_constraint(
+        "old_hash unchanged for path_type=new",
+        config.selector.current(),
+        config.old_hash.current() - config.old_hash.previous(),
+    );
+    cb.add_constraint(
+        "sibling is zero for extension path",
+        config.selector.current(),
+        config.sibling.current(),
+    );
+    cb.add_lookup(
+        "poseidon hash correct for new path",
+        [
+            new_left(config),
+            new_right(config),
+            config.new_hash.current(),
+        ],
+        poseidon.lookup(),
+    );
+}
+
+fn configure_nonce<F: FieldExt>(
+    cb: &mut ConstraintBuilder<F>,
+    config: &MptUpdateConfig,
+    bytes: &impl BytesLookup,
+) {
+    for variant in SegmentType::iter() {
+        let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
+            SegmentType::Start => {
+                cb.add_constraint(
+                    "depth is 0",
+                    config.selector.current(),
+                    config.depth.current(),
+                );
+            }
+            SegmentType::AccountTrie => {
+                cb.assert(
+                    "previous is Start or AccountTrie",
+                    config.selector.current(),
+                    config
+                        .segment_type
+                        .previous_matches(SegmentType::Start)
+                        .or(config
+                            .segment_type
+                            .previous_matches(SegmentType::AccountTrie)),
+                );
+                cb.assert(
+                    "next is AccountTrie or AccountLeaf0",
+                    config.selector.current(),
+                    config
+                        .segment_type
+                        .next_matches(SegmentType::AccountTrie)
+                        .or(config.segment_type.matches(SegmentType::AccountLeaf0)),
+                );
+                cb.add_constraint(
+                    "depth increased by 1",
+                    config.selector.current(),
+                    config.depth.delta() - Query::one(),
+                );
+            }
+            SegmentType::AccountLeaf0 => {
+                cb.assert(
+                    "from Start or AccountTrie",
+                    config.selector.current(),
+                    config
+                        .segment_type
+                        .previous_matches(SegmentType::Start)
+                        .or(config
+                            .segment_type
+                            .previous_matches(SegmentType::AccountTrie)),
+                );
+                cb.assert(
+                    "next is AccountLeaf1",
+                    config.selector.current(),
+                    config.segment_type.next_matches(SegmentType::AccountLeaf1),
+                );
+                cb.assert(
+                    "path_type is Common",
+                    config.selector.current(),
+                    config.path_type.matches(PathType::Common),
+                );
+                cb.add_constraint(
+                    "depth is 0",
+                    config.selector.current(),
+                    config.depth.current(),
+                );
+                cb.add_constraint(
+                    "direction is 0",
+                    config.selector.current(),
+                    config.direction.current(),
+                );
+                // add constraints that sibling = old_path_key and new_path_key
+            }
+            SegmentType::AccountLeaf1 => {
+                cb.assert(
+                    "previous is AccountLeaf0",
+                    config.selector.current(),
+                    config
+                        .segment_type
+                        .previous_matches(SegmentType::AccountLeaf0),
+                );
+                cb.assert(
+                    "next is AccountLeaf2",
+                    config.selector.current(),
+                    config.segment_type.next_matches(SegmentType::AccountLeaf2),
+                );
+                cb.assert(
+                    "path_type is Common",
+                    config.selector.current(),
+                    config.path_type.matches(PathType::Common),
+                );
+                cb.add_constraint(
+                    "depth is 0",
+                    config.selector.current(),
+                    config.depth.current(),
+                );
+                cb.add_constraint(
+                    "direction is 0",
+                    config.selector.current(),
+                    config.direction.current(),
+                );
+            }
+            SegmentType::AccountLeaf2 => {
+                cb.assert(
+                    "previous is AccountLeaf1",
+                    config.selector.current(),
+                    config
+                        .segment_type
+                        .previous_matches(SegmentType::AccountLeaf1),
+                );
+                cb.assert(
+                    "next is AccountLeaf3",
+                    config.selector.current(),
+                    config.segment_type.next_matches(SegmentType::AccountLeaf3),
+                );
+                cb.assert(
+                    "path_type is Common",
+                    config.selector.current(),
+                    config.path_type.matches(PathType::Common),
+                );
+                cb.add_constraint(
+                    "depth is 0",
+                    config.selector.current(),
+                    config.depth.current(),
+                );
+                cb.add_constraint(
+                    "direction is 0",
+                    config.selector.current(),
+                    config.direction.current(),
+                );
+            }
+            SegmentType::AccountLeaf3 => {
+                cb.assert(
+                    "previous is AccountLeaf2",
+                    config.selector.current(),
+                    config
+                        .segment_type
+                        .previous_matches(SegmentType::AccountLeaf2),
+                );
+                cb.assert(
+                    "next is Start",
+                    config.selector.current(),
+                    config.segment_type.next_matches(SegmentType::Start),
+                );
+                cb.assert(
+                    "path_type is Common",
+                    config.selector.current(),
+                    config.path_type.matches(PathType::Common),
+                );
+                cb.add_constraint(
+                    "depth is 0",
+                    config.selector.current(),
+                    config.depth.current(),
+                );
+                cb.add_constraint(
+                    "direction is 0",
+                    config.selector.current(),
+                    config.direction.current(),
+                );
+                // TODO: byte lookup here into the canonical representation of the bytes of the leaf.
+                // cb.add_lookup("old_nonce is first 8 bytes of value", [], bytes.lookup());
+                // cb.add_lookup("new_nonce is first 8 bytes of value", [], bytes.lookup());
+            }
+            SegmentType::AccountLeaf4
+            | SegmentType::StorageTrie
+            | SegmentType::StorageLeaf0
+            | SegmentType::StorageLeaf1 => cb.assert_unreachable("", config.selector.current()),
+        };
+        cb.condition(
+            config.segment_type.matches(variant),
+            conditional_constraints,
+        );
+    }
+
+    cb.condition(
+        config.segment_type.matches(SegmentType::AccountTrie),
+        |cb| {
+            cb.add_constraint(
+                "0",
+                config
+                    .segment_type
+                    .previous_matches(SegmentType::Start)
+                    .or(config
+                        .segment_type
+                        .previous_matches(SegmentType::AccountTrie)),
+                Query::one(),
+            );
+        },
+    );
+}
+
+fn configure_balance<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {}
+
+fn configure_code_hash<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {}
+
+fn configure_empty_account<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {}
+
+fn configure_self_destruct<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {}
+
+fn configure_storage<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {}
+
+fn configure_empty_storage<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {}
 
 #[cfg(test)]
 mod test {

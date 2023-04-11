@@ -52,6 +52,32 @@ impl<T: IntoEnumIterator + Eq> OneHot<T> {
             .unwrap()
     }
 
+    pub fn previous_matches<F: FieldExt>(&self, value: T) -> BinaryQuery<F> {
+        T::iter()
+            .zip_eq(&self.columns)
+            .find_map(|(variant, column)| {
+                if variant == value {
+                    Some(column.previous())
+                } else {
+                    None
+                }
+            })
+            .unwrap()
+    }
+
+    pub fn next_matches<F: FieldExt>(&self, value: T) -> BinaryQuery<F> {
+        T::iter()
+            .zip_eq(&self.columns)
+            .find_map(|(variant, column)| {
+                if variant == value {
+                    Some(column.next())
+                } else {
+                    None
+                }
+            })
+            .unwrap()
+    }
+
     pub fn current<F: FieldExt>(&self) -> Query<F> {
         T::iter()
             .enumerate()

@@ -72,6 +72,14 @@ impl AdviceColumn {
         self.rotation(-1)
     }
 
+    pub fn next<F: FieldExt>(self) -> Query<F> {
+        self.rotation(1)
+    }
+
+    pub fn delta<F: FieldExt>(self) -> Query<F> {
+        self.current() - self.previous()
+    }
+
     pub fn assign<F: FieldExt, T: Copy + TryInto<F>>(
         &self,
         region: &mut Region<'_, F>,

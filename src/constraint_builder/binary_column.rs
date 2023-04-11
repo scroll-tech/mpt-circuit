@@ -22,6 +22,10 @@ impl BinaryColumn {
         self.rotation(-1)
     }
 
+    pub fn next<F: FieldExt>(self) -> BinaryQuery<F> {
+        self.rotation(1)
+    }
+
     pub fn configure<F: FieldExt>(
         cs: &mut ConstraintSystem<F>,
         _cb: &mut ConstraintBuilder<F>,

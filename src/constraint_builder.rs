@@ -42,6 +42,19 @@ impl<F: FieldExt> ConstraintBuilder<F> {
             .push((name, condition.and(selector).condition(constraint)))
     }
 
+    pub fn assert(
+        &mut self,
+        name: &'static str,
+        selector: BinaryQuery<F>,
+        condition: BinaryQuery<F>,
+    ) {
+        self.add_constraint(name, selector, Query::one() - condition);
+    }
+
+    pub fn assert_unreachable(&mut self, name: &'static str, selector: BinaryQuery<F>) {
+        self.assert(name, selector, BinaryQuery::zero());
+    }
+
     pub fn condition(&mut self, condition: BinaryQuery<F>, configure: impl FnOnce(&mut Self)) {
         self.conditions.push(condition);
         configure(self);
