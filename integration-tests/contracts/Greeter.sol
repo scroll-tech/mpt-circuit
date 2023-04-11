@@ -41,3 +41,32 @@ contract Greeter {
         revert("deliberately");
     }
 }
+
+/**
+ * @title DualGreeter
+ * @dev Store & retrieve value in a variable, has 2 slots
+ */
+contract DualGreeter {
+
+    uint256 number1;
+    uint256 number2;
+
+    constructor() {
+    }
+
+    function retrieve1() public view returns (uint256){
+        return number1;
+    }
+
+    function retrieve2() public view returns (uint256){
+        return number2;
+    }
+
+    function set_value1(uint256 num) public{
+        number1 = num;
+    }
+
+    function set_value2(uint256 num) public{
+        number2 = num;
+    }
+}
