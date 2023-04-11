@@ -1,3 +1,8 @@
+mod path;
+mod segment;
+use path::PathType;
+use segment::SegmentType;
+
 use super::{
     byte_representation::{BytesLookup, RlcLookup},
     key_bit::KeyBitLookup,
@@ -16,29 +21,6 @@ use halo2_proofs::{
     arithmetic::FieldExt, circuit::Region, halo2curves::bn256::Fr, plonk::ConstraintSystem,
 };
 use strum::IntoEnumIterator;
-use strum_macros::EnumIter;
-
-/// Each row of an mpt update belongs to one of four segments.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter)]
-enum SegmentType {
-    Start,
-    AccountTrie,
-    AccountLeaf0,
-    AccountLeaf1,
-    AccountLeaf2,
-    AccountLeaf3,
-    AccountLeaf4,
-    StorageTrie,
-    StorageLeaf0,
-    StorageLeaf1,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter)]
-enum PathType {
-    Common,       // Hashes for both the old and new path are being updated.
-    ExtensionOld, // The old path is being extended. The new hash doesn't change.
-    ExtensionNew, // The new path is being extended. The old hash doesn't change.
-}
 
 pub trait MptUpdateLookup {
     fn lookup<F: FieldExt>(&self) -> [Query<F>; 7];
@@ -48,8 +30,8 @@ pub trait MptUpdateLookup {
 struct MptUpdateConfig {
     selector: SelectorColumn,
 
-    old_hash: AdviceColumn, // when depth = 0 and is_account_path, old_hash = old_root
-    new_hash: AdviceColumn, // when depth = 0 and is_account_path, new_hash = new_root
+    old_hash: AdviceColumn,
+    new_hash: AdviceColumn,
 
     proof_key: AdviceColumn,
 
@@ -151,8 +133,36 @@ impl MptUpdateConfig {
             sibling,
         };
 
+        // Transitions for state machines:
+        // TODO: rethink this justification later.... maybe we can just do the forward transitions?
+        // We constrain backwards transitions (instead of the forward ones) because the
+        // backwards transitions can be enabled on every row except the first (instead
+        // of every row except the last). This makes the setting the selectors more
+        // consistent between the tests, where the number of active rows is small,
+        // and in production, where the number is much larger.
+        for (sink, sources) in segment::backward_transitions().iter() {
+            cb.condition(config.segment_type.matches(*sink), |cb| {
+                cb.assert(
+                    "backward transition for segment",
+                    config.selector.current(),
+                    config.segment_type.previous_in(&sources),
+                );
+            });
+        }
+        for (sink, sources) in path::backward_transitions().iter() {
+            cb.condition(config.path_type.matches(*sink), |cb| {
+                cb.assert(
+                    "backward transition for path",
+                    config.selector.current(),
+                    config.path_type.previous_in(&sources),
+                );
+            });
+        }
+        // Depth increases by one iff segment type is unchanged, else it is 0?
+
         for variant in PathType::iter() {
             let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
+                PathType::Start => {} // TODO
                 PathType::Common => configure_common_path(cb, &config, poseidon),
                 PathType::ExtensionOld => configure_extension_old(cb, &config, poseidon),
                 PathType::ExtensionNew => configure_extension_new(cb, &config, poseidon),
@@ -341,24 +351,6 @@ fn configure_nonce<F: FieldExt>(
                 );
             }
             SegmentType::AccountTrie => {
-                cb.assert(
-                    "previous is Start or AccountTrie",
-                    config.selector.current(),
-                    config
-                        .segment_type
-                        .previous_matches(SegmentType::Start)
-                        .or(config
-                            .segment_type
-                            .previous_matches(SegmentType::AccountTrie)),
-                );
-                cb.assert(
-                    "next is AccountTrie or AccountLeaf0",
-                    config.selector.current(),
-                    config
-                        .segment_type
-                        .next_matches(SegmentType::AccountTrie)
-                        .or(config.segment_type.matches(SegmentType::AccountLeaf0)),
-                );
                 cb.add_constraint(
                     "depth increased by 1",
                     config.selector.current(),
@@ -366,21 +358,6 @@ fn configure_nonce<F: FieldExt>(
                 );
             }
             SegmentType::AccountLeaf0 => {
-                cb.assert(
-                    "from Start or AccountTrie",
-                    config.selector.current(),
-                    config
-                        .segment_type
-                        .previous_matches(SegmentType::Start)
-                        .or(config
-                            .segment_type
-                            .previous_matches(SegmentType::AccountTrie)),
-                );
-                cb.assert(
-                    "next is AccountLeaf1",
-                    config.selector.current(),
-                    config.segment_type.next_matches(SegmentType::AccountLeaf1),
-                );
                 cb.assert(
                     "path_type is Common",
                     config.selector.current(),
@@ -400,18 +377,6 @@ fn configure_nonce<F: FieldExt>(
             }
             SegmentType::AccountLeaf1 => {
                 cb.assert(
-                    "previous is AccountLeaf0",
-                    config.selector.current(),
-                    config
-                        .segment_type
-                        .previous_matches(SegmentType::AccountLeaf0),
-                );
-                cb.assert(
-                    "next is AccountLeaf2",
-                    config.selector.current(),
-                    config.segment_type.next_matches(SegmentType::AccountLeaf2),
-                );
-                cb.assert(
                     "path_type is Common",
                     config.selector.current(),
                     config.path_type.matches(PathType::Common),
@@ -429,18 +394,6 @@ fn configure_nonce<F: FieldExt>(
             }
             SegmentType::AccountLeaf2 => {
                 cb.assert(
-                    "previous is AccountLeaf1",
-                    config.selector.current(),
-                    config
-                        .segment_type
-                        .previous_matches(SegmentType::AccountLeaf1),
-                );
-                cb.assert(
-                    "next is AccountLeaf3",
-                    config.selector.current(),
-                    config.segment_type.next_matches(SegmentType::AccountLeaf3),
-                );
-                cb.assert(
                     "path_type is Common",
                     config.selector.current(),
                     config.path_type.matches(PathType::Common),
@@ -457,18 +410,6 @@ fn configure_nonce<F: FieldExt>(
                 );
             }
             SegmentType::AccountLeaf3 => {
-                cb.assert(
-                    "previous is AccountLeaf2",
-                    config.selector.current(),
-                    config
-                        .segment_type
-                        .previous_matches(SegmentType::AccountLeaf2),
-                );
-                cb.assert(
-                    "next is Start",
-                    config.selector.current(),
-                    config.segment_type.next_matches(SegmentType::Start),
-                );
                 cb.assert(
                     "path_type is Common",
                     config.selector.current(),

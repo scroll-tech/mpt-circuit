@@ -65,6 +65,10 @@ impl<T: IntoEnumIterator + Eq> OneHot<T> {
             .unwrap()
     }
 
+    pub fn previous_in<F: FieldExt>(&self, values: &[T]) -> BinaryQuery<F> {
+        BinaryQuery::one()
+    }
+
     pub fn next_matches<F: FieldExt>(&self, value: T) -> BinaryQuery<F> {
         T::iter()
             .zip_eq(&self.columns)
