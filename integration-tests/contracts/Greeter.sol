@@ -41,3 +41,29 @@ contract Greeter {
         revert("deliberately");
     }
 }
+
+/**
+ * @title MultiGreeter
+ * @dev Store & retrieve value in a variable, has 2 slots
+ */
+contract MutipleGreeter {
+    mapping(uint => uint256) public values;
+
+    constructor() {
+    }
+
+    function retrieve(uint which) public view returns (uint256){
+        return values[which];
+    }
+
+    function set_multiple(uint num, uint256 val) public {
+        for (uint i = 0; i < num; i++){
+            values[i] = val;
+        }
+    }
+
+    function set_one(uint which, uint256 val) public{
+        values[which] = val;
+    }
+
+}
