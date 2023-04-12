@@ -22,11 +22,9 @@ module.exports = {
   networks: {
     local: {
       url: "http://127.0.0.1:8545",
-      chainId: 5343541,
-      gas: 4000000,
+      chainId: 53077,
+      gas: 0x6691b7,
       gasPrice: "auto",
-    },
-    hardhat: {
     }
   },  
   solidity: "0.8.4",

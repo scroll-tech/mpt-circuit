@@ -1,0 +1,73 @@
+
+jobs:
+  unit-test:
+    name: Rustfmt, Clippy and Unit Test
+    if: |
+      github.event.pull_request.draft == false &&
+      (github.event.action == 'ready_for_review' || needs.skip_check.outputs.should_skip != 'true')
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+      - name: Cargo check
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: --all-features
+      - name: Rustfmt check
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --all -- --check
+      - name: Run tests
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --verbose --release --all
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+      - name: Build integration-test
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --bin integration-test --release
+      - uses: actions/setup-go@v4
+        with:
+          go-version: '~1.18'
+      - uses: actions/setup-node@v3
+        node-version: 18
+        cache: 'npm'
+      - name: Build geth
+        run: go install github.com/scroll-tech/go-ethereum/cmd/geth@develop
+      - name: Init geth
+        run: |
+          geth --datadir $GITHUB_WORKSPACE/geth/ init ./integration-tests/genesis.json
+          cp ./integration-tests/keystore $GITHUB_WORKSPACE/geth/keystore/
+          echo -n scroll > password
+      - name: Run Tests
+        working-directory: ./integration-tests
+        run: |
+          geth --datadir=$GITHUB_WORKSPACE/geth/ --unlock 0x4cb1ab63af5d8931ce09673ebd8ae2ce16fd6571 --password $GITHUB_WORKSPACE/password --mine --allow-insecure-unlock --http --http.api=net,eth,scroll --maxpeers 0 --trace.mptwitness=1 &
+          mv hardhat.config.js.example hardhat.config.js
+          npm ci
+          npx hardhat compile
+          npx hardhat run scripts/deploy.js
+          for TX_FILE in `find ./scripts -name 'tx_*.js' -type f`
+          do
+            npx hardhat run ${TX_FILE:2}
+            npx hardhat run scripts/trace_tx.js
+            (cd .. && cargo run --release integration-test)
+          done
+
