@@ -43,30 +43,27 @@ contract Greeter {
 }
 
 /**
- * @title DualGreeter
+ * @title MultiGreeter
  * @dev Store & retrieve value in a variable, has 2 slots
  */
-contract DualGreeter {
-
-    uint256 number1;
-    uint256 number2;
+contract MutipleGreeter {
+    mapping(uint => uint256) public values;
 
     constructor() {
     }
 
-    function retrieve1() public view returns (uint256){
-        return number1;
+    function retrieve(uint which) public view returns (uint256){
+        return values[which];
     }
 
-    function retrieve2() public view returns (uint256){
-        return number2;
+    function set_multiple(uint num, uint256 val) public {
+        for (uint i = 0; i < num; i++){
+            values[i] = val;
+        }
     }
 
-    function set_value1(uint256 num) public{
-        number1 = num;
+    function set_one(uint which, uint256 val) public{
+        values[which] = val;
     }
 
-    function set_value2(uint256 num) public{
-        number2 = num;
-    }
 }

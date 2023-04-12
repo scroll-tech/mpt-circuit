@@ -26,23 +26,15 @@ async function greeter() {
   return ["greeter", greeter.address]
 }
 
-async function dualGreeter() {
-  // Hardhat always runs the compile task when running scripts with its command
-  // line interface.
-  //
-  // If this script is run directly using `node` you may want to call compile
-  // manually to make sure everything is compiled
-  // await hre.run('compile');
-
-  // We get the contract to deploy
-  const Greeter = await hre.ethers.getContractFactory("DualGreeter");
+async function multiGreeter(greeterName) {
+  const Greeter = await hre.ethers.getContractFactory("MutipleGreeter");
   const greeter = await Greeter.deploy();
 
   await greeter.deployed();
 
-  console.log("DualGreeter deployed to:", greeter.address);
+  console.log(`${greeterName} deployed to:`, greeter.address);
 
-  return ["dualgreeter", greeter.address]
+  return [greeterName, greeter.address]
 }
 
 let greeterDep = greeter()
@@ -224,7 +216,7 @@ async function dao() {
 
 // We recommend this pattern to be able to use async/await everywhere
 // and properly handle errors.
-Promise.all([greeterDep, dualGreeter(), erc20(), createrDep, createrDeep(), destructor(), callerDep, callerDeep(), nft(), sushiDep, chef(), voteDep, dao()])
+Promise.all([greeterDep, multiGreeter("dualgreeter"), multiGreeter("trigreeter"), erc20(), createrDep, createrDeep(), destructor(), callerDep, callerDeep(), nft(), sushiDep, chef(), voteDep, dao()])
   .then(res => {
     let fd = fs.openSync(path.join(__dirname, 'deploy.json'), 'w')
     fs.writeFileSync(fd, JSON.stringify(Object.fromEntries(res)))
