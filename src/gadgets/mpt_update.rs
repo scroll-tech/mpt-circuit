@@ -690,6 +690,11 @@ fn configure_code_size<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptU
 
                 let code_size = (config.old_hash.current() - config.old_value_rlc.current())
                     * Query::Constant(F::from(1 << 32).invert().unwrap());
+                cb.add_constraint(
+                    "old code size is 0",
+                    config.selector.current(),
+                    code_size.clone(),
+                );
                 cb.add_lookup(
                     "old nonce is 8 bytes",
                     [config.old_value_rlc.current(), Query::from(7)],
