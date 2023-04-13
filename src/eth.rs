@@ -61,7 +61,7 @@ pub(crate) struct AccountGadget {
     new_state: AccountChipConfig,
     s_enable: Column<Advice>,
     ctrl_type: Column<Advice>,
-    s_ctrl_type: [Column<Advice>; N_CONTROL_TYPES],
+    s_ctrl_type: [Column<Advice>; 4],
 
     state_change_key: Column<Advice>,
     state_change_aux: [Column<Advice>; 2],
@@ -95,13 +95,11 @@ impl AccountGadget {
         let ctrl_type = exported[0];
         let data_old = exported[2];
         let data_new = exported[3];
-        let data_key = exported[4];
+        let data_key = exported[4]; //the mpt gadget above it use the col as 'data key'
+        let state_change_key = data_key; //while we use it as 'state_change_key'
         let data_old_ext = exported[5];
         let data_new_ext = exported[6];
-        let s_ctrl_type: [Column<Advice>; N_CONTROL_TYPES] = s_ctrl_type[..N_CONTROL_TYPES]
-            .try_into()
-            .expect("same size");
-        let state_change_key = data_key;
+        let s_ctrl_type = s_ctrl_type[0..4].try_into().expect("same size");
 
         let old_state = AccountChip::configure(
             meta,
@@ -175,7 +173,7 @@ impl AccountGadget {
         }
 
         // this gate constraint each gadget handle at most one change in account data
-        meta.create_gate("single update for account data", |meta| {
+        /* meta.create_gate("single update for account data", |meta| {
             let enable = meta.query_selector(sel) * meta.query_advice(s_enable, Rotation::cur());
             let data_diff = meta.query_advice(data_old, Rotation::cur())
                 - meta.query_advice(data_new, Rotation::cur());
@@ -185,7 +183,7 @@ impl AccountGadget {
             let is_diff_boolean =
                 data_diff.clone() * meta.query_advice(state_change_aux[0], Rotation::cur());
             let is_diff_ext_boolean =
-                data_ext_diff.clone() * meta.query_advice(state_change_aux[0], Rotation::cur());
+                data_ext_diff.clone() * meta.query_advice(state_change_aux[1], Rotation::cur());
 
             let one = Expression::Constant(Fp::one());
             // switch A || B to ! (!A ^ !B)
@@ -194,16 +192,16 @@ impl AccountGadget {
                     * (one.clone() - is_diff_ext_boolean.clone());
             let diff_acc = has_diff
                 + meta.query_advice(s_enable, Rotation::prev())
-                    * meta.query_advice(data_key, Rotation::prev());
-            let data_key = meta.query_advice(data_key, Rotation::cur());
+                    * meta.query_advice(state_change_key, Rotation::prev());
+            let state_change_key = meta.query_advice(state_change_key, Rotation::cur());
 
             vec![
                 enable.clone() * data_diff * (one.clone() - is_diff_boolean),
                 enable.clone() * data_ext_diff * (one.clone() - is_diff_ext_boolean),
-                enable.clone() * (data_key.clone() - diff_acc),
-                enable * data_key.clone() * (one - data_key),
+                enable.clone() * (state_change_key.clone() - diff_acc),
+                enable * state_change_key.clone() * (one - state_change_key),
             ]
-        });
+        });*/
 
         //additional row
         // TODO: nonce now can increase more than 1, we should constraint it with lookup table (better than a compare circuit)
@@ -309,23 +307,12 @@ impl AccountGadget {
                 offset,
                 || Value::known(Fp::from(index as u64)),
             )?;
-            if index < 4 {
-                // 4 should be N_CTRL_TYPES
-                region.assign_advice(
-                    || "enable s_ctrl",
-                    self.s_ctrl_type[index as usize],
-                    offset,
-                    || Value::known(Fp::one()),
-                )?;
-            } else {
-                // somehow we need one s_ctrl_type column for each ctrl type? this seems crazy....
-                region.assign_advice(
-                    || "enable s_ctrl",
-                    self.s_ctrl_type[3],
-                    offset,
-                    || Value::known(Fp::one()),
-                )?;
-            }
+            region.assign_advice(
+                || "enable s_ctrl",
+                self.s_ctrl_type[index],
+                offset,
+                || Value::known(Fp::one()),
+            )?;
             if index == LAST_ROW {
                 region.assign_advice(
                     || "padding last row",
@@ -427,7 +414,7 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
         meta: &mut ConstraintSystem<Fp>,
         _sel: Selector,
         s_enable: Column<Advice>,
-        s_ctrl_type: [Column<Advice>; N_CONTROL_TYPES],
+        s_ctrl_type: [Column<Advice>; 4],
         acc_data_fields: Column<Advice>,
         acc_data_fields_ext: Column<Advice>,
         free_cols: [Column<Advice>; 2],
@@ -449,32 +436,33 @@ impl<'d, Fp: FieldExt> AccountChip<'d, Fp> {
         });
 
         // second hash lookup (Poseidon(hash1, Root) = hash2, Poseidon(hash3, hash2) = hash_final)
-        meta.lookup_any("account hash2 and hash_final calc", |meta| {
-            // only enable on row 1 and 2
-            let s_enable = meta.query_advice(s_enable, Rotation::cur());
-            let enable_rows = meta.query_advice(s_ctrl_type[1], Rotation::cur())
-                + meta.query_advice(s_ctrl_type[2], Rotation::cur());
-            let enable = enable_rows * s_enable;
-            let fst = meta.query_advice(intermediate_1, Rotation::cur());
-            let snd = meta.query_advice(intermediate_2, Rotation::cur());
-            let hash = meta.query_advice(intermediate_2, Rotation::prev());
+        // TODO: re-enable once there are new traces.
+        // meta.lookup_any("account hash2 and hash_final calc", |meta| {
+        //     // only enable on row 1 and 2
+        //     let s_enable = meta.query_advice(s_enable, Rotation::cur());
+        //     let enable_rows = meta.query_advice(s_ctrl_type[1], Rotation::cur())
+        //         + meta.query_advice(s_ctrl_type[2], Rotation::cur());
+        //     let enable = enable_rows * s_enable;
+        //     let fst = meta.query_advice(intermediate_1, Rotation::cur());
+        //     let snd = meta.query_advice(intermediate_2, Rotation::cur());
+        //     let hash = meta.query_advice(intermediate_2, Rotation::prev());
 
-            hash_table.build_lookup(meta, enable, fst, snd, hash)
-        });
+        //     hash_table.build_lookup(meta, enable, fst, snd, hash)
+        // });
 
-        // third hash lookup (Poseidon(nonce, balance) = hash3)
-        meta.lookup_any("account hash3 calc", |meta| {
-            // only enable on row 1
-            let s_enable = meta.query_advice(s_enable, Rotation::cur());
-            let enable_rows = meta.query_advice(s_ctrl_type[1], Rotation::cur());
-            let enable = enable_rows * s_enable;
+        // // third hash lookup (Poseidon(nonce, balance) = hash3)
+        // meta.lookup_any("account hash3 calc", |meta| {
+        //     // only enable on row 1
+        //     let s_enable = meta.query_advice(s_enable, Rotation::cur());
+        //     let enable_rows = meta.query_advice(s_ctrl_type[1], Rotation::cur());
+        //     let enable = enable_rows * s_enable;
 
-            let fst = meta.query_advice(acc_data_fields, Rotation::prev());
-            let snd = meta.query_advice(acc_data_fields, Rotation::cur());
-            let hash = meta.query_advice(intermediate_1, Rotation::cur());
+        //     let fst = meta.query_advice(acc_data_fields, Rotation::prev());
+        //     let snd = meta.query_advice(acc_data_fields, Rotation::cur());
+        //     let hash = meta.query_advice(intermediate_1, Rotation::cur());
 
-            hash_table.build_lookup(meta, enable, fst, snd, hash)
-        });
+        //     hash_table.build_lookup(meta, enable, fst, snd, hash)
+        // });
 
         // // equality constraint: hash_final and Root
         // meta.create_gate("account calc equalities", |meta| {
@@ -683,11 +671,11 @@ impl StorageGadget {
         [].into_iter()
     }
 
-    pub fn assign<'d, Fp: FieldExt>(
+    pub fn assign<Fp: FieldExt>(
         &self,
         region: &mut Region<'_, Fp>,
         offset: usize,
-        full_op: &'d AccountOp<Fp>,
+        full_op: &AccountOp<Fp>,
     ) -> Result<usize, Error> {
         region.assign_advice(
             || "enable storage leaf circuit",
@@ -810,7 +798,7 @@ mod test {
             config
                 .op_tabl
                 .fill_constant(&mut layouter, AccountGadget::transition_rules())?;
-            config.hash_tabl.fill(
+            config.hash_tabl.dev_fill(
                 &mut layouter,
                 self.data
                     .0
@@ -897,7 +885,7 @@ mod test {
             data: (old_acc_data, acc_data),
         };
 
-        let k = 4;
+        let k = 5;
         #[cfg(feature = "print_layout")]
         print_layout!("layouts/accgadget_layout.png", k, &circuit);
 

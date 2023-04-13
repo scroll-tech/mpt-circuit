@@ -51,11 +51,11 @@ impl<F: FieldExt, const N: usize> Chip<F, N> {
 
     pub fn load(&self, layouter: &mut impl Layouter<F>) -> Result<(), Error> {
         layouter.assign_table(
-            || format!("range check {}", N),
+            || format!("range check {N}"),
             |mut table| {
                 for i in 0..Self::RANGE {
                     table.assign_cell(
-                        || format!("assign {} in rng_check{} fixed column", i, N),
+                        || format!("assign {i} in rng_check{N} fixed column"),
                         self.config.0,
                         i,
                         || Value::known(F::from(i as u64)),

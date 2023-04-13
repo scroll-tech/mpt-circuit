@@ -26,9 +26,9 @@ impl<const N: usize, const EXP: usize> Config<N, EXP> {
         Self { limbs }
     }
 
-    pub fn bind_mpi_value<'d, F: PrimeField>(
+    pub fn bind_mpi_value<F: PrimeField>(
         &self,
-        meta: &mut VirtualCells<'d, F>,
+        meta: &mut VirtualCells<'_, F>,
         val: Expression<F>,
         effect_limbs: Option<usize>,
     ) -> Expression<F> {
@@ -42,9 +42,9 @@ impl<const N: usize, const EXP: usize> Config<N, EXP> {
         )
     }
 
-    pub fn bind_rlc_value<'d, F: Field>(
+    pub fn bind_rlc_value<F: Field>(
         &self,
-        meta: &mut VirtualCells<'d, F>,
+        meta: &mut VirtualCells<'_, F>,
         val: Expression<F>,
         randomness: Expression<F>,
         effect_limbs: Option<usize>,
@@ -94,7 +94,7 @@ impl<const N: usize, const EXP: usize> Config<N, EXP> {
     ) -> Result<bool, Error> {
         for (limb, col) in limbs.into_iter().zip(self.limbs.as_slice().iter()) {
             region.assign_advice(
-                || format!("assign for limbs on rep {}", N),
+                || format!("assign for limbs on rep {N}"),
                 *col,
                 offset,
                 || Value::known(*limb),

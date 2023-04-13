@@ -7,9 +7,9 @@ edition = "2021"
 
 [dependencies]
 ethers-core = "0.17.0"
-hash-circuit = { package = "poseidon-circuit", git = "https://github.com/scroll-tech/poseidon-circuit.git", branch = "scroll-dev-0111"}
-halo2_proofs = { git = "https://github.com/scroll-tech/halo2.git", branch = "scroll-dev-1220" }
 itertools = "0.10.5"
+hash-circuit = { package = "poseidon-circuit", git = "https://github.com/scroll-tech/poseidon-circuit.git", branch = "scroll-dev-0408", features=['short']}
+halo2_proofs = { git = "https://github.com/privacy-scaling-explorations/halo2.git", tag = "v2022_09_10" }
 rand = "0.8"
 lazy_static = "1.4.0"
 num-traits = "0.2.15"
@@ -21,6 +21,9 @@ num-bigint = "0.4"
 hex = "0.4"
 thiserror = "1.0"
 
+[patch."https://github.com/privacy-scaling-explorations/halo2.git"]
+halo2_proofs = { git = "https://github.com/scroll-tech/halo2.git", branch = "scroll-dev-0220" }
+
 [features]
 # printout the layout of circuits for demo and some unittests
 print_layout = ["halo2_proofs/dev-graph"]
@@ -31,9 +34,9 @@ plotters = "0.3"
 bencher = "0.1"
 subtle = "2"
 
-[patch.crates-io]
-# temporary solution to funty@1.2.0 being yanked, tracking issue: https://github.com/ferrilab/funty/issues/7
-funty = { git = "https://github.com/ferrilab/funty/", rev = "7ef0d890fbcd8b3def1635ac1a877fc298488446" }
+[[bin]]
+name = "integration-test"
+path = "integration-tests/src/main.rs"
 
 [profile.test]
 opt-level = 3

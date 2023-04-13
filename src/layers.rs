@@ -180,7 +180,7 @@ impl LayerGadget {
                 .reduce(|exp, col_exp| exp + col_exp)
                 .map(|sum_exp| sel.clone() * (Expression::Constant(Fp::one()) - sum_exp));
 
-            let _ctrl_type_cond = s_ctrl
+            let ctrl_type_cond = s_ctrl
                 .into_iter()
                 .enumerate()
                 .map(|(idx, col_exp)| Expression::Constant(Fp::from(idx as u64)) * col_exp)
@@ -189,10 +189,15 @@ impl LayerGadget {
                     sel.clone() * (meta.query_advice(ctrl_type, Rotation::cur()) - w_sum_exp)
                 });
 
-            bool_cond
+            let constraints = bool_cond
                 .chain(one_flag_cond)
-                // .chain(ctrl_type_cond)
-                .collect::<Vec<_>>()
+                .chain(ctrl_type_cond)
+                .collect::<Vec<_>>();
+            if constraints.is_empty() {
+                vec![sel * Expression::Constant(Fp::zero())]
+            } else {
+                constraints
+            }
         });
 
         meta.create_gate("index identical", |meta| {

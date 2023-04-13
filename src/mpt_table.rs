@@ -21,7 +21,7 @@ type RangeCheckConfig = RangeCheckCfg<8>;
 #[derive(Clone, Debug)]
 pub(crate) struct Config {
     sel: Selector,
-    proof_sel: [Column<Advice>; 7],
+    proof_sel: [Column<Advice>; 9], // one boolean column for each variant of MPTProofType
 
     address: Column<Advice>,
     storage_key: Column<Advice>,
@@ -179,8 +179,10 @@ impl Config {
                 .collect()
         });
 
+        // notice: Eth Account Gadget has no row for poseidon codehas and codesize (for proof_sel[3] and proof_sel[4]) yet
+
         meta.lookup_any("mpt account not exist entry lookup", |meta| {
-            let s_enable = meta.query_advice(self.proof_sel[3], Rotation::cur());
+            let s_enable = meta.query_advice(self.proof_sel[5], Rotation::cur());
 
             build_entry_lookup_common(meta, (3, 0))
                 .into_iter()
@@ -190,7 +192,7 @@ impl Config {
         });
 
         meta.lookup_any("mpt account destroy entry lookup", |meta| {
-            let s_enable = meta.query_advice(self.proof_sel[4], Rotation::cur());
+            let s_enable = meta.query_advice(self.proof_sel[6], Rotation::cur());
 
             // TODO: not handle AccountDestructed yet (this entry has no lookup: i.e. no verification)
             build_entry_lookup_common(meta, (3, 2))
@@ -201,7 +203,7 @@ impl Config {
 
         // all lookup into storage raised for gadget id = OP_STORAGE (4)
         meta.lookup_any("mpt storage entry lookup", |meta| {
-            let s_enable = meta.query_advice(self.proof_sel[5], Rotation::cur());
+            let s_enable = meta.query_advice(self.proof_sel[7], Rotation::cur());
 
             build_entry_lookup_common(meta, (4, 0))
                 .into_iter()
@@ -212,7 +214,7 @@ impl Config {
         });
 
         meta.lookup_any("mpt storage not exist entry lookup", |meta| {
-            let s_enable = meta.query_advice(self.proof_sel[6], Rotation::cur());
+            let s_enable = meta.query_advice(self.proof_sel[8], Rotation::cur());
 
             build_entry_lookup_common(meta, (4, 0))
                 .into_iter()
@@ -231,8 +233,12 @@ pub enum MPTProofType {
     NonceChanged = 1,
     /// balance
     BalanceChanged,
-    /// codehash updated
+    /// keccak codehash updated
     CodeHashExists,
+    /// poseidon codehash updated
+    PoseidonCodeHashExists,
+    /// code size updated
+    CodeSizeExists,
     /// non exist proof for account
     AccountDoesNotExist,
     /// account destructed
@@ -247,7 +253,7 @@ pub enum MPTProofType {
 #[derive(Clone, Debug)]
 pub(crate) struct MPTEntry<F: Field> {
     proof_type: MPTProofType,
-    base: Option<[F; 7]>,
+    base: [Option<F>; 7],
     storage_key: KeyValue<F>,
     new_value: KeyValue<F>,
     old_value: KeyValue<F>,
@@ -305,7 +311,15 @@ impl<F: FieldExt> MPTEntry<F> {
 
         Self {
             proof_type,
-            base: None,
+            base: [
+                Some(op.address),
+                None,
+                Some(F::from(proof_type as u64)),
+                None,
+                None,
+                None,
+                None,
+            ],
             storage_key,
             new_value,
             old_value,
@@ -343,15 +357,15 @@ impl<F: FieldExt> MPTEntry<F> {
             _ => (F::zero(), F::zero()),
         };
 
-        ret.base.replace([
-            op.address,
-            ret.storage_key.u8_rlc(randomness),
-            F::from(proof_type as u64),
-            op.account_root(),
-            op.account_root_before(),
-            new_value_f,
-            old_value_f,
-        ]);
+        ret.base = [
+            ret.base[0],
+            Some(ret.storage_key.u8_rlc(randomness)),
+            ret.base[2],
+            Some(op.account_root()),
+            Some(op.account_root_before()),
+            Some(new_value_f),
+            Some(old_value_f),
+        ];
 
         ret
     }
@@ -366,15 +380,15 @@ impl<F: FieldExt> MPTEntry<F> {
     ) -> Self {
         let mut ret = Self::from_op_no_base(proof_type, op);
 
-        ret.base.replace([
-            op.address,
-            store_key.unwrap_or_default(),
-            F::from(proof_type as u64),
-            op.account_root(),
-            op.account_root_before(),
-            new_value_f,
-            old_value_f,
-        ]);
+        ret.base = [
+            ret.base[0],
+            store_key,
+            ret.base[1],
+            Some(op.account_root()),
+            Some(op.account_root_before()),
+            Some(new_value_f),
+            Some(old_value_f),
+        ];
 
         ret
     }
@@ -414,7 +428,7 @@ impl<F: FieldExt> MPTTable<F> {
         let new_value = tbl_base[5];
         let old_value = tbl_base[6];
 
-        let proof_sel = [0; 7].map(|_| meta.advice_column());
+        let proof_sel = [0; 9].map(|_| meta.advice_column());
 
         let range_check_u8 = RangeCheckChip::<F, 8>::configure(meta);
 
@@ -424,8 +438,8 @@ impl<F: FieldExt> MPTTable<F> {
 
         meta.create_gate("bind reps", |meta| {
             let sel = meta.query_selector(sel);
-            let enable_key_rep = meta.query_advice(proof_sel[5], Rotation::cur())
-                + meta.query_advice(proof_sel[6], Rotation::cur());
+            let enable_key_rep = meta.query_advice(proof_sel[7], Rotation::cur())
+                + meta.query_advice(proof_sel[8], Rotation::cur());
             let enable_val_rep =
                 meta.query_advice(proof_sel[2], Rotation::cur()) + enable_key_rep.clone();
             let key_val = enable_key_rep * meta.query_advice(storage_key, Rotation::cur());
@@ -508,7 +522,7 @@ impl<F: FieldExt> MPTTable<F> {
                 for (offset, entry) in self.entries.iter().enumerate() {
                     for (index, col) in config.proof_sel.as_slice().iter().copied().enumerate() {
                         region.assign_advice(
-                            || format!("assign for proof type enabler {}", offset),
+                            || format!("assign for proof type enabler {offset}"),
                             col,
                             offset,
                             || {
@@ -521,26 +535,25 @@ impl<F: FieldExt> MPTTable<F> {
                         )?;
                     }
 
-                    if let Some(base_entries) = entry.base {
-                        for (val, col) in base_entries.iter().zip(
-                            [
-                                config.address,
-                                config.storage_key,
-                                config.proof_type,
-                                config.new_root,
-                                config.old_root,
-                                config.new_value,
-                                config.old_value,
-                            ]
-                            .as_slice(),
-                        ) {
-                            region.assign_advice(
-                                || format!("assign for mpt table offset {}", offset),
-                                *col,
-                                offset,
-                                || Value::known(*val),
-                            )?;
-                        }
+                    let base_entries = entry
+                        .base
+                        .map(|entry| entry.map(Value::known).unwrap_or_else(Value::unknown));
+
+                    for (val, col) in base_entries.into_iter().zip([
+                        config.address,
+                        config.storage_key,
+                        config.proof_type,
+                        config.new_root,
+                        config.old_root,
+                        config.new_value,
+                        config.old_value,
+                    ]) {
+                        region.assign_advice(
+                            || format!("assign for mpt table offset {offset}"),
+                            col,
+                            offset,
+                            || val,
+                        )?;
                     }
 
                     config.storage_key_2.assign(
@@ -747,7 +760,7 @@ mod test {
 
         let randomness = Fp::from(0x10000u64);
         let entry = MPTEntry::from_op(MPTProofType::StorageChanged, &op, randomness);
-        let base = entry.base.unwrap();
+        let base = entry.base.map(|v| v.unwrap());
 
         assert_eq!(base[0], address);
         assert_eq!(base[1], store_key.u8_rlc(randomness));
@@ -769,7 +782,7 @@ mod test {
 
         let entry1 = MPTEntry {
             proof_type: MPTProofType::BalanceChanged,
-            base: Some([
+            base: [
                 address,
                 Fp::zero(),
                 Fp::from(MPTProofType::BalanceChanged as u64),
@@ -777,7 +790,8 @@ mod test {
                 rand_fp(),
                 Fp::from(123456789u64),
                 Fp::from(123456790u64),
-            ]),
+            ]
+            .map(Some),
             storage_key: Default::default(),
             new_value: Default::default(),
             old_value: Default::default(),
@@ -787,15 +801,16 @@ mod test {
 
         let entry2 = MPTEntry {
             proof_type: MPTProofType::StorageChanged,
-            base: Some([
+            base: [
                 address,
                 storage_key.u8_rlc(randomness),
                 Fp::from(MPTProofType::StorageChanged as u64),
                 rand_fp(),
-                entry1.base.unwrap()[4],
+                entry1.base[4].unwrap(),
                 Fp::from(10u64) + (Fp::from(3u64) * bit128),
                 Fp::from(1u64) + (Fp::from(3u64) * bit128),
-            ]),
+            ]
+            .map(Some),
             storage_key: storage_key.clone(),
             new_value: KeyValue::create_base((Fp::from(3u64), Fp::from(10u64))),
             old_value: KeyValue::create_base((Fp::from(3u64), Fp::from(1u64))),
@@ -803,22 +818,40 @@ mod test {
 
         let entry3 = MPTEntry {
             proof_type: MPTProofType::AccountDoesNotExist,
-            base: Some([
+            base: [
                 address + Fp::one(),
                 Fp::zero(),
                 Fp::from(MPTProofType::AccountDoesNotExist as u64),
-                entry2.base.unwrap()[4],
-                entry2.base.unwrap()[4],
+                entry2.base[4].unwrap(),
+                entry2.base[4].unwrap(),
                 Fp::zero(),
                 Fp::zero(),
-            ]),
+            ]
+            .map(Some),
+            storage_key: Default::default(),
+            new_value: Default::default(),
+            old_value: Default::default(),
+        };
+
+        let entry4 = MPTEntry {
+            proof_type: MPTProofType::PoseidonCodeHashExists,
+            base: [
+                address + Fp::one(),
+                Fp::zero(),
+                Fp::from(MPTProofType::PoseidonCodeHashExists as u64),
+                rand_fp(),
+                rand_fp(),
+                Fp::one(),
+                Fp::one(),
+            ]
+            .map(Some),
             storage_key: Default::default(),
             new_value: Default::default(),
             old_value: Default::default(),
         };
 
         let circuit = TestMPTTableCircuit {
-            entries: vec![entry1, entry2, entry3],
+            entries: vec![entry1, entry2, entry3, entry4],
         };
         let k = 9;
         let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();

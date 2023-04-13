@@ -169,6 +169,8 @@ impl MptUpdateConfig {
                 MPTProofType::AccountDestructed => configure_self_destruct(cb, &config),
                 MPTProofType::StorageChanged => configure_storage(cb, &config),
                 MPTProofType::StorageDoesNotExist => configure_empty_storage(cb, &config),
+                MPTProofType::PoseidonCodeHashExists => todo!(),
+                MPTProofType::CodeSizeExists => todo!(),
             };
             cb.condition(config.proof_type.matches(variant), conditional_constraints);
         }
