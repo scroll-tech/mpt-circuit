@@ -163,8 +163,8 @@ impl MptUpdateConfig {
         for variant in MPTProofType::iter() {
             let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
                 MPTProofType::NonceChanged => configure_nonce(cb, &config, bytes),
-                MPTProofType::BalanceChanged => configure_balance(cb, &config),
-                MPTProofType::CodeHashExists => configure_code_hash(cb, &config),
+                MPTProofType::BalanceChanged => configure_balance(cb, &config, rlc),
+                MPTProofType::CodeHashExists => configure_code_hash(cb, &config, bytes),
                 MPTProofType::AccountDoesNotExist => configure_empty_account(cb, &config),
                 MPTProofType::AccountDestructed => configure_self_destruct(cb, &config),
                 MPTProofType::StorageChanged => configure_storage(cb, &config),
@@ -531,9 +531,387 @@ fn configure_nonce<F: FieldExt>(
     );
 }
 
-fn configure_balance<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {}
+fn configure_balance<F: FieldExt>(
+    cb: &mut ConstraintBuilder<F>,
+    config: &MptUpdateConfig,
+    rlc: &impl RlcLookup,
+) {
+    for variant in SegmentType::iter() {
+        let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
+            SegmentType::Start => {
+                cb.add_constraint(
+                    "depth is 0",
+                    config.selector.current(),
+                    config.depth.current(),
+                );
+            }
+            SegmentType::AccountTrie => {
+                cb.assert(
+                    "previous is Start or AccountTrie",
+                    config.selector.current(),
+                    config
+                        .segment_type
+                        .previous_matches(SegmentType::Start)
+                        .or(config
+                            .segment_type
+                            .previous_matches(SegmentType::AccountTrie)),
+                );
+                cb.assert(
+                    "next is AccountTrie or AccountLeaf0",
+                    config.selector.current(),
+                    config
+                        .segment_type
+                        .next_matches(SegmentType::AccountTrie)
+                        .or(config.segment_type.matches(SegmentType::AccountLeaf0)),
+                );
+                cb.add_constraint(
+                    "depth increased by 1",
+                    config.selector.current(),
+                    config.depth.delta() - Query::one(),
+                );
+            }
+            SegmentType::AccountLeaf0 => {
+                cb.assert(
+                    "from Start or AccountTrie",
+                    config.selector.current(),
+                    config
+                        .segment_type
+                        .previous_matches(SegmentType::Start)
+                        .or(config
+                            .segment_type
+                            .previous_matches(SegmentType::AccountTrie)),
+                );
+                cb.assert(
+                    "next is AccountLeaf1",
+                    config.selector.current(),
+                    config.segment_type.next_matches(SegmentType::AccountLeaf1),
+                );
+                cb.assert(
+                    "path_type is Common",
+                    config.selector.current(),
+                    config.path_type.matches(PathType::Common),
+                );
+                cb.add_constraint(
+                    "depth is 0",
+                    config.selector.current(),
+                    config.depth.current(),
+                );
+                cb.add_constraint(
+                    "direction is 0",
+                    config.selector.current(),
+                    config.direction.current(),
+                );
+                // add constraints that sibling = old_path_key and new_path_key
+            }
+            SegmentType::AccountLeaf1 => {
+                cb.assert(
+                    "previous is AccountLeaf0",
+                    config.selector.current(),
+                    config
+                        .segment_type
+                        .previous_matches(SegmentType::AccountLeaf0),
+                );
+                cb.assert(
+                    "next is AccountLeaf2",
+                    config.selector.current(),
+                    config.segment_type.next_matches(SegmentType::AccountLeaf2),
+                );
+                cb.assert(
+                    "path_type is Common",
+                    config.selector.current(),
+                    config.path_type.matches(PathType::Common),
+                );
+                cb.add_constraint(
+                    "depth is 0",
+                    config.selector.current(),
+                    config.depth.current(),
+                );
+                cb.add_constraint(
+                    "direction is 0",
+                    config.selector.current(),
+                    config.direction.current(),
+                );
+            }
+            SegmentType::AccountLeaf2 => {
+                cb.assert(
+                    "previous is AccountLeaf1",
+                    config.selector.current(),
+                    config
+                        .segment_type
+                        .previous_matches(SegmentType::AccountLeaf1),
+                );
+                cb.assert(
+                    "next is AccountLeaf3",
+                    config.selector.current(),
+                    config.segment_type.next_matches(SegmentType::AccountLeaf3),
+                );
+                cb.assert(
+                    "path_type is Common",
+                    config.selector.current(),
+                    config.path_type.matches(PathType::Common),
+                );
+                cb.add_constraint(
+                    "depth is 0",
+                    config.selector.current(),
+                    config.depth.current(),
+                );
+                cb.add_constraint(
+                    "direction is 0",
+                    config.selector.current(),
+                    config.direction.current(),
+                );
+            }
+            SegmentType::AccountLeaf3 => {
+                cb.assert(
+                    "previous is AccountLeaf2",
+                    config.selector.current(),
+                    config
+                        .segment_type
+                        .previous_matches(SegmentType::AccountLeaf2),
+                );
+                cb.assert(
+                    "next is Start",
+                    config.selector.current(),
+                    config.segment_type.next_matches(SegmentType::Start),
+                );
+                cb.assert(
+                    "path_type is Common",
+                    config.selector.current(),
+                    config.path_type.matches(PathType::Common),
+                );
+                cb.add_constraint(
+                    "depth is 0",
+                    config.selector.current(),
+                    config.depth.current(),
+                );
+                cb.add_constraint(
+                    "direction is 1",
+                    config.selector.current(),
+                    Query::one() - config.direction.current(),
+                );
 
-fn configure_code_hash<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {}
+                cb.add_lookup(
+                    "old balance is 32 bytes",
+                    [config.old_value_rlc.current(), Query::from(31)],
+                    rlc.lookup(),
+                );
+            }
+            SegmentType::AccountLeaf4
+            | SegmentType::StorageTrie
+            | SegmentType::StorageLeaf0
+            | SegmentType::StorageLeaf1 => cb.assert_unreachable("", config.selector.current()),
+        };
+        cb.condition(
+            config.segment_type.matches(variant),
+            conditional_constraints,
+        );
+    }
+
+    cb.condition(
+        config.segment_type.matches(SegmentType::AccountTrie),
+        |cb| {
+            cb.add_constraint(
+                "0",
+                config
+                    .segment_type
+                    .previous_matches(SegmentType::Start)
+                    .or(config
+                        .segment_type
+                        .previous_matches(SegmentType::AccountTrie)),
+                Query::one(),
+            );
+        },
+    );
+}
+
+fn configure_code_hash<F: FieldExt>(
+    cb: &mut ConstraintBuilder<F>,
+    config: &MptUpdateConfig,
+    bytes: &impl BytesLookup,
+) {
+    for variant in SegmentType::iter() {
+        let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
+            SegmentType::Start => {
+                cb.add_constraint(
+                    "depth is 0",
+                    config.selector.current(),
+                    config.depth.current(),
+                );
+            }
+            SegmentType::AccountTrie => {
+                cb.assert(
+                    "previous is Start or AccountTrie",
+                    config.selector.current(),
+                    config
+                        .segment_type
+                        .previous_matches(SegmentType::Start)
+                        .or(config
+                            .segment_type
+                            .previous_matches(SegmentType::AccountTrie)),
+                );
+                cb.assert(
+                    "next is AccountTrie or AccountLeaf0",
+                    config.selector.current(),
+                    config
+                        .segment_type
+                        .next_matches(SegmentType::AccountTrie)
+                        .or(config.segment_type.matches(SegmentType::AccountLeaf0)),
+                );
+                cb.add_constraint(
+                    "depth increased by 1",
+                    config.selector.current(),
+                    config.depth.delta() - Query::one(),
+                );
+            }
+            SegmentType::AccountLeaf0 => {
+                cb.assert(
+                    "from Start or AccountTrie",
+                    config.selector.current(),
+                    config
+                        .segment_type
+                        .previous_matches(SegmentType::Start)
+                        .or(config
+                            .segment_type
+                            .previous_matches(SegmentType::AccountTrie)),
+                );
+                cb.assert(
+                    "next is AccountLeaf1",
+                    config.selector.current(),
+                    config.segment_type.next_matches(SegmentType::AccountLeaf1),
+                );
+                cb.assert(
+                    "path_type is Common",
+                    config.selector.current(),
+                    config.path_type.matches(PathType::Common),
+                );
+                cb.add_constraint(
+                    "depth is 0",
+                    config.selector.current(),
+                    config.depth.current(),
+                );
+                cb.add_constraint(
+                    "direction is 0",
+                    config.selector.current(),
+                    config.direction.current(),
+                );
+                // add constraints that sibling = old_path_key and new_path_key
+            }
+            SegmentType::AccountLeaf1 => {
+                cb.assert(
+                    "previous is AccountLeaf0",
+                    config.selector.current(),
+                    config
+                        .segment_type
+                        .previous_matches(SegmentType::AccountLeaf0),
+                );
+                cb.assert(
+                    "next is AccountLeaf2",
+                    config.selector.current(),
+                    config.segment_type.next_matches(SegmentType::AccountLeaf2),
+                );
+                cb.assert(
+                    "path_type is Common",
+                    config.selector.current(),
+                    config.path_type.matches(PathType::Common),
+                );
+                cb.add_constraint(
+                    "depth is 0",
+                    config.selector.current(),
+                    config.depth.current(),
+                );
+                cb.add_constraint(
+                    "direction is 0",
+                    config.selector.current(),
+                    config.direction.current(),
+                );
+            }
+            SegmentType::AccountLeaf2 => {
+                cb.assert(
+                    "previous is AccountLeaf1",
+                    config.selector.current(),
+                    config
+                        .segment_type
+                        .previous_matches(SegmentType::AccountLeaf1),
+                );
+                cb.assert(
+                    "next is AccountLeaf3",
+                    config.selector.current(),
+                    config.segment_type.next_matches(SegmentType::AccountLeaf3),
+                );
+                cb.assert(
+                    "path_type is Common",
+                    config.selector.current(),
+                    config.path_type.matches(PathType::Common),
+                );
+                cb.add_constraint(
+                    "depth is 0",
+                    config.selector.current(),
+                    config.depth.current(),
+                );
+                cb.add_constraint(
+                    "direction is 0",
+                    config.selector.current(),
+                    config.direction.current(),
+                );
+            }
+            SegmentType::AccountLeaf3 => {
+                cb.assert(
+                    "previous is AccountLeaf2",
+                    config.selector.current(),
+                    config
+                        .segment_type
+                        .previous_matches(SegmentType::AccountLeaf2),
+                );
+                cb.assert(
+                    "next is Start",
+                    config.selector.current(),
+                    config.segment_type.next_matches(SegmentType::Start),
+                );
+                cb.assert(
+                    "path_type is Common",
+                    config.selector.current(),
+                    config.path_type.matches(PathType::Common),
+                );
+                cb.add_constraint(
+                    "depth is 0",
+                    config.selector.current(),
+                    config.depth.current(),
+                );
+                cb.add_constraint(
+                    "direction is 1",
+                    config.selector.current(),
+                    Query::one() - config.direction.current(),
+                );
+
+                // TODO: split code-hash rlc into two 128-bits, then do lookups.
+            }
+            SegmentType::AccountLeaf4
+            | SegmentType::StorageTrie
+            | SegmentType::StorageLeaf0
+            | SegmentType::StorageLeaf1 => cb.assert_unreachable("", config.selector.current()),
+        };
+        cb.condition(
+            config.segment_type.matches(variant),
+            conditional_constraints,
+        );
+    }
+
+    cb.condition(
+        config.segment_type.matches(SegmentType::AccountTrie),
+        |cb| {
+            cb.add_constraint(
+                "0",
+                config
+                    .segment_type
+                    .previous_matches(SegmentType::Start)
+                    .or(config
+                        .segment_type
+                        .previous_matches(SegmentType::AccountTrie)),
+                Query::one(),
+            );
+        },
+    );
+}
 
 fn configure_empty_account<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {}
 
