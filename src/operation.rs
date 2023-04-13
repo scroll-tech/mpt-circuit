@@ -1,6 +1,4 @@
 //! represent the data for a single operation on the MPT
-//!
-#![allow(clippy::derive_hash_xor_eq)]
 
 use super::{eth, serde, HashType};
 use crate::hash::Hashable;
@@ -32,7 +30,7 @@ pub struct MPTPath<Fp: FieldExt> {
     /// hashes from beginning of path, from the root of MPT to leaf node
     pub hashes: Vec<Fp>,
     /// the cached traces for calculated all hashes required in verifing a MPT path,
-    /// include the leaf hashing      
+    /// include the leaf hashing
     pub hash_traces: Vec<(Fp, Fp, Fp)>,
     /// the key of path, which is purposed to be known (though not need while constructing
     /// empty leaf node)
@@ -153,12 +151,15 @@ impl<Fp: FieldExt> MPTPath<Fp> {
         mut hasher: impl FnMut(&Fp, &Fp) -> Fp,
     ) -> Self {
         assert_eq!(path.len(), siblings.len());
+        // dbg!(path.clone());
 
         let (status, mut hashes, mut hash_types, mut hash_traces) = if let Some(fp) = leaf {
             let one = Fp::one();
             let key_immediate = hasher(&one, &key);
+            // dbg!(key, key_immediate, fp);
 
             let leaf_hash = hasher(&key_immediate, &fp);
+            // dbg!(leaf_hash);
             (
                 MPTPathStatus::Leaf((key, key_immediate)),
                 vec![fp, leaf_hash],
@@ -569,6 +570,7 @@ pub struct AccountOp<Fp: FieldExt> {
     /// address (the preimage of acc_trie's key)
     pub address: Fp,
     /// address (the preimage of acc_trie's key, splitted by 2 fields)
+    // here....
     pub address_rep: KeyValue<Fp>,
     /// the key being store (preimage of state_trie's key)
     pub store_key: Option<KeyValue<Fp>>,
@@ -664,7 +666,7 @@ pub enum TraceError {
 }
 
 // parse Trace data into MPTPath and additional data (siblings and path)
-struct SMTPathParse<Fp: FieldExt>(MPTPath<Fp>, Vec<Fp>, Vec<Fp>);
+pub(crate) struct SMTPathParse<Fp: FieldExt>(pub MPTPath<Fp>, pub Vec<Fp>, pub Vec<Fp>);
 
 impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTPath> for SMTPathParse<Fp> {
     type Error = TraceError;
@@ -695,7 +697,8 @@ impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTPath> for SMTPathParse<Fp> {
         let mpt_path = MPTPath::create(&path_bits, &siblings, key, leaf);
         // sanity check
         let root = Fp::from_bytes_wide(&path_trace.root.cast());
-        assert_eq!(root, mpt_path.root());
+        // dbg!(root, mpt_path.root());
+        assert_eq!(root, mpt_path.root()); // trying to recreate this logic....
 
         Ok(SMTPathParse(mpt_path, siblings, path))
     }
@@ -871,6 +874,7 @@ impl<'d, Fp: Hashable> From<&'d serde::HexBytes<32>> for KeyValue<Fp> {
 }
 
 impl<'d, Fp: Hashable> From<&'d serde::HexBytes<20>> for KeyValue<Fp> {
+    // here we are.....
     fn from(byte20: &'d serde::HexBytes<20>) -> Self {
         let bytes = byte20.0;
         let first_16bytes: [u8; 16] = bytes[..16].try_into().expect("expect first 16 bytes");
@@ -923,6 +927,7 @@ impl<'d, Fp: Hashable> TryFrom<&'d serde::SMTTrace> for AccountOp<Fp> {
                 .unwrap_or(comm_state_root);
             let account: Account<Fp> = (account_data, old_state_root).try_into()?;
             // sanity check
+            dbg!("try_from SMTTrace to Account", account.account_hash(), leaf);
             assert_eq!(account.account_hash(), leaf);
 
             Some(account)

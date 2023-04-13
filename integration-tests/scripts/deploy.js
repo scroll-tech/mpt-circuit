@@ -26,6 +26,17 @@ async function greeter() {
   return ["greeter", greeter.address]
 }
 
+async function multiGreeter(greeterName) {
+  const Greeter = await hre.ethers.getContractFactory("MutipleGreeter");
+  const greeter = await Greeter.deploy();
+
+  await greeter.deployed();
+
+  console.log(`${greeterName} deployed to:`, greeter.address);
+
+  return [greeterName, greeter.address]
+}
+
 let greeterDep = greeter()
 
 async function erc20() {
@@ -205,7 +216,7 @@ async function dao() {
 
 // We recommend this pattern to be able to use async/await everywhere
 // and properly handle errors.
-Promise.all([greeterDep, erc20(), createrDep, createrDeep(), destructor(), callerDep, callerDeep(), nft(), sushiDep, chef(), voteDep, dao()])
+Promise.all([greeterDep, multiGreeter("dualgreeter"), multiGreeter("trigreeter"), erc20(), createrDep, createrDeep(), destructor(), callerDep, callerDeep(), nft(), sushiDep, chef(), voteDep, dao()])
   .then(res => {
     let fd = fs.openSync(path.join(__dirname, 'deploy.json'), 'w')
     fs.writeFileSync(fd, JSON.stringify(Object.fromEntries(res)))
