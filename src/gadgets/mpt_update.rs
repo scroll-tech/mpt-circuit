@@ -565,12 +565,12 @@ mod test {
 
     impl Circuit<Fr> for TestCircuit {
         type Config = (
-            MptUpdateConfig,
+            // MptUpdateConfig,
             PoseidonConfig,
             CanonicalRepresentationConfig,
             KeyBitConfig,
             ByteBitGadget,
-            ByteRepresentationConfig,
+            // ByteRepresentationConfig,
         );
         type FloorPlanner = SimpleFloorPlanner;
 
@@ -582,7 +582,7 @@ mod test {
             let mut cb = ConstraintBuilder::new();
             let poseidon = PoseidonConfig::configure(cs, &mut cb);
             let byte_bit = ByteBitGadget::configure(cs, &mut cb);
-            let byte_representation = ByteRepresentationConfig::configure(cs, &mut cb, &byte_bit);
+            // let byte_representation = ByteRepresentationConfig::configure(cs, &mut cb, &byte_bit);
             let canonical_representation =
                 CanonicalRepresentationConfig::configure(cs, &mut cb, &byte_bit);
             let key_bit = KeyBitConfig::configure(
@@ -594,25 +594,25 @@ mod test {
                 &byte_bit,
             );
 
-            let byte_representation = ByteRepresentationConfig::configure(cs, &mut cb, &byte_bit);
+            // let byte_representation = ByteRepresentationConfig::configure(cs, &mut cb, &byte_bit);
 
-            let mpt_update = MptUpdateConfig::configure(
-                cs,
-                &mut cb,
-                &poseidon,
-                &key_bit,
-                &byte_representation,
-                &byte_representation,
-            );
+            // let mpt_update = MptUpdateConfig::configure(
+            //     cs,
+            //     &mut cb,
+            //     &poseidon,
+            //     &key_bit,
+            //     &byte_representation,
+            //     &byte_representation,
+            // );
 
             cb.build(cs);
             (
-                mpt_update,
+                // mpt_update,
                 poseidon,
                 canonical_representation,
                 key_bit,
                 byte_bit,
-                byte_representation,
+                // byte_representation,
             )
         }
 
@@ -622,22 +622,21 @@ mod test {
             mut layouter: impl Layouter<Fr>,
         ) -> Result<(), Error> {
             let (
-                mpt_update,
+                // mpt_update,
                 poseidon,
                 canonical_representation,
                 key_bit,
                 byte_bit,
-                byte_representation,
+                // byte_representation,
             ) = config;
 
             layouter.assign_region(
                 || "asdfasdf",
                 |mut region| {
-                    mpt_update.assign(&mut region, &self.updates);
+                    // mpt_update.assign(&mut region, &self.updates);
                     poseidon.assign(&mut region, &self.hash_traces());
-                    dbg!(self.keys());
                     canonical_representation.assign(&mut region, &self.keys());
-                    key_bit.assign(&mut region, &self.key_bit_lookups());
+                    // key_bit.assign(&mut region, &self.key_bit_lookups());
                     byte_bit.assign(&mut region);
                     // byte_representation.assign(&mut region, &self.byte_representations())
                     Ok(())

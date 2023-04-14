@@ -16,7 +16,6 @@ pub struct ConstraintBuilder<F: FieldExt> {
     lookups: Vec<(&'static str, Vec<(Query<F>, Query<F>)>)>,
 
     conditions: Vec<BinaryQuery<F>>,
-
     // every_row: FixedColumn,
     // nonfirst_rows: FixedColumn,
     // first_row: FixedColumn,
