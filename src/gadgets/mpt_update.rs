@@ -495,6 +495,7 @@ mod test {
     };
     use super::*;
     use crate::types::{account_key, hash};
+    use ethers_core::types::{H256, U256};
     use halo2_proofs::{
         circuit::{Layouter, SimpleFloorPlanner},
         dev::MockProver,
@@ -561,6 +562,13 @@ mod test {
             dbg!(lookups.clone());
             lookups
         }
+
+        fn byte_representations(&self) -> (Vec<Address>, Vec<H256>, Vec<U256>) {
+            let addresses = vec![];
+            let hashes = vec![];
+            let words = vec![];
+            (addresses, hashes, words)
+        }
     }
 
     impl Circuit<Fr> for TestCircuit {
@@ -570,7 +578,7 @@ mod test {
             CanonicalRepresentationConfig,
             KeyBitConfig,
             ByteBitGadget,
-            // ByteRepresentationConfig,
+            ByteRepresentationConfig,
         );
         type FloorPlanner = SimpleFloorPlanner;
 
@@ -582,7 +590,7 @@ mod test {
             let mut cb = ConstraintBuilder::new();
             let poseidon = PoseidonConfig::configure(cs, &mut cb);
             let byte_bit = ByteBitGadget::configure(cs, &mut cb);
-            // let byte_representation = ByteRepresentationConfig::configure(cs, &mut cb, &byte_bit);
+            let byte_representation = ByteRepresentationConfig::configure(cs, &mut cb, &byte_bit);
             let canonical_representation =
                 CanonicalRepresentationConfig::configure(cs, &mut cb, &byte_bit);
             let key_bit = KeyBitConfig::configure(
@@ -593,8 +601,6 @@ mod test {
                 &byte_bit,
                 &byte_bit,
             );
-
-            // let byte_representation = ByteRepresentationConfig::configure(cs, &mut cb, &byte_bit);
 
             // let mpt_update = MptUpdateConfig::configure(
             //     cs,
@@ -612,7 +618,7 @@ mod test {
                 canonical_representation,
                 key_bit,
                 byte_bit,
-                // byte_representation,
+                byte_representation,
             )
         }
 
@@ -627,8 +633,10 @@ mod test {
                 canonical_representation,
                 key_bit,
                 byte_bit,
-                // byte_representation,
+                byte_representation,
             ) = config;
+
+            let (addresses, hashes, words) = self.byte_representations();
 
             layouter.assign_region(
                 || "asdfasdf",
@@ -636,9 +644,9 @@ mod test {
                     // mpt_update.assign(&mut region, &self.updates);
                     poseidon.assign(&mut region, &self.hash_traces());
                     canonical_representation.assign(&mut region, &self.keys());
-                    // key_bit.assign(&mut region, &self.key_bit_lookups());
+                    key_bit.assign(&mut region, &self.key_bit_lookups());
                     byte_bit.assign(&mut region);
-                    // byte_representation.assign(&mut region, &self.byte_representations())
+                    byte_representation.assign(&mut region, &addresses, &hashes, &words);
                     Ok(())
                 },
             )

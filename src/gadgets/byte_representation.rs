@@ -80,7 +80,7 @@ impl ByteRepresentationConfig {
         }
     }
 
-    fn assign<F: FieldExt>(
+    pub fn assign<F: FieldExt>(
         &self,
         region: &mut Region<'_, F>,
         addresses: &[Address],
