@@ -55,8 +55,9 @@ impl KeyBitConfig {
             [index_mod_8.current()],
             range_check_8.lookup(),
         );
+        // are these in the same order??
         cb.add_lookup(
-            "byte is correct",
+            "byte in canonical representation",
             [value.current(), index_div_8.current(), byte.current()],
             representation.lookup(),
         );
@@ -170,7 +171,7 @@ mod test {
         ) -> Result<(), Error> {
             let keys: Vec<_> = self.lookups.iter().map(|lookup| lookup.0).collect();
             layouter.assign_region(
-                || "",
+                || "asdfawef",
                 |mut region| {
                     config.0.assign(&mut region, &self.lookups);
                     config.1.assign(&mut region);
@@ -184,7 +185,12 @@ mod test {
     #[test]
     fn test_key_bit() {
         let circuit = TestCircuit {
-            lookups: vec![(Fr::one(), 0, true), (Fr::one(), 1, false)],
+            lookups: vec![
+                (Fr::one(), 0, true),
+                (Fr::one(), 1, false),
+                (Fr::from(2342341), 10, true),
+                (Fr::from(2342341), 255, false),
+            ],
         };
         let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));

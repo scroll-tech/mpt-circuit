@@ -215,7 +215,7 @@ impl From<&SMTTrace> for ClaimKind {
 
 impl From<SMTTrace> for Proof {
     fn from(trace: SMTTrace) -> Self {
-        dbg!(&trace);
+        // dbg!(&trace);
 
         let claim = Claim::from(&trace);
 
@@ -643,11 +643,11 @@ fn u256_from_hex(x: HexBytes<32>) -> U256 {
     U256::from_big_endian(&x.0)
 }
 
-fn hash(x: Fr, y: Fr) -> Fr {
+pub fn hash(x: Fr, y: Fr) -> Fr {
     Hashable::hash([x, y])
 }
 
-fn account_key(address: Address) -> Fr {
+pub fn account_key(address: Address) -> Fr {
     // TODO: the names of these are reversed
     let high_bytes: [u8; 16] = address.0[..16].try_into().unwrap();
     let low_bytes: [u8; 4] = address.0[16..].try_into().unwrap();
@@ -698,7 +698,7 @@ fn hi_lo(x: BigUint) -> (Fr, Fr) {
     )
 }
 
-trait Bit {
+pub trait Bit {
     fn bit(&self, i: usize) -> bool;
 }
 

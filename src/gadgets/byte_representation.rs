@@ -173,7 +173,7 @@ mod test {
             mut layouter: impl Layouter<Fr>,
         ) -> Result<(), Error> {
             layouter.assign_region(
-                || "",
+                || "asdfawefasdf",
                 |mut region| {
                     config.0.assign(&mut region);
                     config

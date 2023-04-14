@@ -103,17 +103,17 @@ impl MptUpdateConfig {
         let segment_type = OneHot::configure(cs, cb);
         let path_type = OneHot::configure(cs, cb);
 
-        cb.add_lookup(
-            "direction is correct for key and depth",
-            [path_key.current(), depth.current(), direction.current()],
-            key_bit.lookup(),
-        );
+        // cb.add_lookup(
+        //     "direction is correct for key and depth",
+        //     [path_key.current(), depth.current(), direction.current()],
+        //     key_bit.lookup(),
+        // );
 
-        cb.add_lookup(
-            "direction = key.bit(depth)",
-            [path_key.current(), depth.current(), direction.current()],
-            key_bit.lookup(),
-        );
+        // cb.add_lookup(
+        //     "direction = key.bit(depth)",
+        //     [path_key.current(), depth.current(), direction.current()],
+        //     key_bit.lookup(),
+        // );
 
         let config = Self {
             selector,
@@ -264,24 +264,24 @@ fn configure_common_path<F: FieldExt>(
     config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
 ) {
-    cb.add_lookup(
-        "poseidon hash correct for old path",
-        [
-            old_left(config),
-            old_right(config),
-            config.old_hash.current(),
-        ],
-        poseidon.lookup(),
-    );
-    cb.add_lookup(
-        "poseidon hash correct for new path",
-        [
-            new_left(config),
-            new_right(config),
-            config.new_hash.current(),
-        ],
-        poseidon.lookup(),
-    );
+    // cb.add_lookup(
+    //     "poseidon hash correct for old path",
+    //     [
+    //         old_left(config),
+    //         old_right(config),
+    //         config.old_hash.current(),
+    //     ],
+    //     poseidon.lookup(),
+    // );
+    // cb.add_lookup(
+    //     "poseidon hash correct for new path",
+    //     [
+    //         new_left(config),
+    //         new_right(config),
+    //         config.new_hash.current(),
+    //     ],
+    //     poseidon.lookup(),
+    // );
 }
 
 fn configure_extension_old<F: FieldExt>(
@@ -289,15 +289,15 @@ fn configure_extension_old<F: FieldExt>(
     config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
 ) {
-    cb.add_lookup(
-        "poseidon hash correct for old path",
-        [
-            old_left(config),
-            old_right(config),
-            config.old_hash.current(),
-        ],
-        poseidon.lookup(),
-    );
+    // cb.add_lookup(
+    //     "poseidon hash correct for old path",
+    //     [
+    //         old_left(config),
+    //         old_right(config),
+    //         config.old_hash.current(),
+    //     ],
+    //     poseidon.lookup(),
+    // );
     cb.add_constraint(
         "sibling is zero for extension path",
         config.selector.current(),
@@ -325,15 +325,15 @@ fn configure_extension_new<F: FieldExt>(
         config.selector.current(),
         config.sibling.current(),
     );
-    cb.add_lookup(
-        "poseidon hash correct for new path",
-        [
-            new_left(config),
-            new_right(config),
-            config.new_hash.current(),
-        ],
-        poseidon.lookup(),
-    );
+    // cb.add_lookup(
+    //     "poseidon hash correct for new path",
+    //     [
+    //         new_left(config),
+    //         new_right(config),
+    //         config.new_hash.current(),
+    //     ],
+    //     poseidon.lookup(),
+    // );
 }
 
 fn configure_nonce<F: FieldExt>(
@@ -426,28 +426,30 @@ fn configure_nonce<F: FieldExt>(
                     config.direction.current(),
                 );
 
-                let code_size = (config.old_hash.current() - config.old_value_rlc.current())
-                    * Query::Constant(F::from(1 << 32).invert().unwrap());
-                cb.add_lookup(
-                    "old nonce is 8 bytes",
-                    [config.old_value_rlc.current(), Query::from(7)],
-                    bytes.lookup(),
-                );
-                cb.add_lookup(
-                    "old code size is 8 bytes",
-                    [code_size, Query::from(7)],
-                    bytes.lookup(),
-                );
-                cb.add_lookup(
-                    "hash input is 16 bytes",
-                    [config.old_hash.current(), Query::from(15)],
-                    bytes.lookup(),
-                );
+                // let code_size = (config.old_hash.current() - config.old_value_rlc.current())
+                //     * Query::Constant(F::from(1 << 32).invert().unwrap());
+                // cb.add_lookup(
+                //     "old nonce is 8 bytes",
+                //     [config.old_value_rlc.current(), Query::from(7)],
+                //     bytes.lookup(),
+                // );
+                // cb.add_lookup(
+                //     "old code size is 8 bytes",
+                //     [code_size, Query::from(7)],
+                //     bytes.lookup(),
+                // );
+                // cb.add_lookup(
+                //     "hash input is 16 bytes",
+                //     [config.old_hash.current(), Query::from(15)],
+                //     bytes.lookup(),
+                // );
             }
             SegmentType::AccountLeaf4
             | SegmentType::StorageTrie
             | SegmentType::StorageLeaf0
-            | SegmentType::StorageLeaf1 => cb.assert_unreachable("", config.selector.current()),
+            | SegmentType::StorageLeaf1 => {
+                cb.assert_unreachable("asdfasdf", config.selector.current())
+            }
         };
         cb.condition(
             config.segment_type.matches(variant),
@@ -492,6 +494,7 @@ mod test {
         poseidon::PoseidonConfig,
     };
     use super::*;
+    use crate::types::{account_key, hash};
     use halo2_proofs::{
         circuit::{Layouter, SimpleFloorPlanner},
         dev::MockProver,
@@ -506,11 +509,57 @@ mod test {
 
     impl TestCircuit {
         fn hash_traces(&self) -> Vec<(Fr, Fr, Fr)> {
-            vec![]
+            let mut hash_traces = vec![(Fr::zero(), Fr::zero(), Fr::zero())];
+            for update in self.updates.iter() {
+                let address_hash_traces = Proof::from(update.clone()).address_hash_traces;
+                for (direction, old_hash, new_hash, sibling, is_padding_open, is_padding_close) in
+                    &address_hash_traces
+                {
+                    if *is_padding_open {
+                        let (left, right) = if *direction {
+                            (sibling, old_hash)
+                        } else {
+                            (old_hash, sibling)
+                        };
+                        hash_traces.push((*left, *right, hash(*left, *right)));
+                    }
+                    if *is_padding_close {
+                        let (left, right) = if *direction {
+                            (sibling, new_hash)
+                        } else {
+                            (new_hash, sibling)
+                        };
+                        hash_traces.push((*left, *right, hash(*left, *right)));
+                    }
+                }
+            }
+            hash_traces
         }
 
         fn keys(&self) -> Vec<Fr> {
-            vec![]
+            let mut keys = vec![Fr::zero()];
+            for update in self.updates.iter() {
+                let proof = Proof::from(update.clone());
+                let key = account_key(proof.claim.address);
+                dbg!(account_key(proof.claim.address));
+                keys.push(key);
+            }
+            dbg!(keys.clone());
+            keys
+        }
+
+        fn key_bit_lookups(&self) -> Vec<(Fr, usize, bool)> {
+            let mut lookups = vec![(Fr::zero(), 0, false)];
+            for update in self.updates.iter() {
+                let proof = Proof::from(update.clone());
+                for (i, (direction, _, _, _, _, _)) in
+                    proof.address_hash_traces.iter().rev().enumerate()
+                {
+                    lookups.push((account_key(proof.claim.address), i, *direction));
+                }
+            }
+            dbg!(lookups.clone());
+            lookups
         }
     }
 
@@ -582,12 +631,13 @@ mod test {
             ) = config;
 
             layouter.assign_region(
-                || "",
+                || "asdfasdf",
                 |mut region| {
                     mpt_update.assign(&mut region, &self.updates);
                     poseidon.assign(&mut region, &self.hash_traces());
+                    dbg!(self.keys());
                     canonical_representation.assign(&mut region, &self.keys());
-                    // key_bit.assign(region, &[]); // self.
+                    key_bit.assign(&mut region, &self.key_bit_lookups());
                     byte_bit.assign(&mut region);
                     // byte_representation.assign(&mut region, &self.byte_representations())
                     Ok(())
@@ -599,6 +649,16 @@ mod test {
     #[test]
     fn test_mpt_updates() {
         let circuit = TestCircuit { updates: vec![] };
+        let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
+        assert_eq!(prover.verify(), Ok(()));
+    }
+
+    #[test]
+    fn test_nonce_updates() {
+        const NONCE_TRACES: &str = include_str!("../../tests/nonce.json");
+        let updates: Vec<SMTTrace> = serde_json::from_str(NONCE_TRACES).unwrap();
+
+        let circuit = TestCircuit { updates };
         let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
     }

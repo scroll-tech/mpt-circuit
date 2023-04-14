@@ -31,13 +31,14 @@ impl BinaryColumn {
         _cb: &mut ConstraintBuilder<F>,
     ) -> Self {
         let advice_column = cs.advice_column();
+        // TODO: constrain to be binary here...
         // cb.add_constraint()
         Self(advice_column)
     }
 
     pub fn assign<F: FieldExt>(&self, region: &mut Region<'_, F>, offset: usize, value: bool) {
         region
-            .assign_advice(|| "", self.0, offset, || Value::known(F::from(value)))
+            .assign_advice(|| "binary", self.0, offset, || Value::known(F::from(value)))
             .expect("failed assign_advice");
     }
 }

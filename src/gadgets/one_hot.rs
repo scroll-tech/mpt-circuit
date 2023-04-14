@@ -17,6 +17,7 @@ impl<T: IntoEnumIterator + Eq> OneHot<T> {
         cs: &mut ConstraintSystem<F>,
         cb: &mut ConstraintBuilder<F>,
     ) -> Self {
+        // TODO: the selector here is just dicarded, so the constraints are not enabled!!!
         let ([selector], [], []) = cb.build_columns(cs);
         let columns: Vec<_> = T::iter().map(|_| cb.binary_columns::<1>(cs)[0]).collect();
         cb.add_constraint(

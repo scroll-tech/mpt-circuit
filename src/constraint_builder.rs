@@ -16,6 +16,11 @@ pub struct ConstraintBuilder<F: FieldExt> {
     lookups: Vec<(&'static str, Vec<(Query<F>, Query<F>)>)>,
 
     conditions: Vec<BinaryQuery<F>>,
+
+    // every_row: FixedColumn,
+    // nonfirst_rows: FixedColumn,
+    // first_row: FixedColumn,
+    // last_row: FixedColumn,
 }
 
 impl<F: FieldExt> ConstraintBuilder<F> {
@@ -67,6 +72,10 @@ impl<F: FieldExt> ConstraintBuilder<F> {
         left: [Query<F>; N],
         right: [Query<F>; N],
     ) {
+        //         let condition = self
+        // .conditions
+        // .iter()
+        // .fold(BinaryQuery::one(), |a, b| a.clone().and(b.clone()));
         let lookup = left.into_iter().zip(right.into_iter()).collect();
         self.lookups.push((name, lookup))
     }

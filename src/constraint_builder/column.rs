@@ -16,7 +16,7 @@ impl SelectorColumn {
 
     pub fn enable<F: FieldExt>(&self, region: &mut Region<'_, F>, offset: usize) {
         region
-            .assign_fixed(|| "", self.0, offset, || Value::known(F::one()))
+            .assign_fixed(|| "selector", self.0, offset, || Value::known(F::one()))
             .expect("failed enable selector");
     }
 }
@@ -47,7 +47,7 @@ impl FixedColumn {
     {
         region
             .assign_fixed(
-                || "",
+                || "asdfasdfawe",
                 self.0,
                 offset,
                 || Value::known(value.try_into().unwrap()),
@@ -90,7 +90,7 @@ impl AdviceColumn {
     {
         region
             .assign_advice(
-                || "",
+                || "advice",
                 self.0,
                 offset,
                 || Value::known(value.try_into().unwrap()),
