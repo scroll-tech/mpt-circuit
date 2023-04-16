@@ -41,7 +41,7 @@ fn transitions(proof: MPTProofType) -> HashMap<SegmentType, Vec<SegmentType>> {
             (
                 SegmentType::AccountLeaf0,
                 vec![
-                    SegmentType::Start, // empty account witness = another leaf
+                    SegmentType::Start,        // empty account witness = another leaf
                     SegmentType::AccountLeaf1, // proving existence of a nonce for an existing account
                 ],
             ),

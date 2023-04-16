@@ -86,6 +86,14 @@ pub struct Proof {
     storage_hash_traces: Option<Vec<(bool, Fr, Fr, Fr, bool, bool)>>,
     // TODO: make this a struct plz.
     storage_key_value_hash_traces: Option<[[[Fr; 3]; 3]; 2]>,
+
+    pub old: Path,
+    pub new: Path,
+}
+
+#[derive(Clone, Debug)]
+pub struct Path {
+    pub key: Fr,
 }
 
 impl From<&SMTTrace> for Claim {
@@ -278,6 +286,10 @@ impl From<SMTTrace> for Proof {
             Some(account) => account_hash_traces(claim.address, account, new_storage_root),
         };
 
+        let [old, new] = trace.account_path.map(|path| Path {
+            key: fr(path.leaf.unwrap().sibling),
+        });
+
         Self {
             claim,
             address_hash_traces,
@@ -286,6 +298,8 @@ impl From<SMTTrace> for Proof {
             leafs,
             storage_hash_traces,
             storage_key_value_hash_traces,
+            old,
+            new,
         }
     }
 }
@@ -308,14 +322,15 @@ fn leaf_hash(path: SMTPath) -> Fr {
 }
 
 fn account_hash_traces(address: Address, account: AccountData, storage_root: Fr) -> [[Fr; 3]; 7] {
-        // h5 is sibling of node?
+    // h5 is sibling of node?
     let real_account: Account<Fr> = (&account, storage_root).try_into().unwrap();
 
     let (codehash_hi, codehash_lo) = hi_lo(account.code_hash);
     let h1 = hash(codehash_hi, codehash_lo);
     let h2 = hash(storage_root, h1);
 
-    let nonce_and_codesize = Fr::from(account.nonce) + Fr::from(account.code_size) * Fr::from(1 << 32).square();
+    let nonce_and_codesize =
+        Fr::from(account.nonce) + Fr::from(account.code_size) * Fr::from(1 << 32).square();
     let balance = balance_convert(account.balance);
     let h3 = hash(nonce_and_codesize, balance);
 

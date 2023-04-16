@@ -47,7 +47,8 @@ struct MptUpdateConfig {
     path_type: OneHot<PathType>,
     depth: AdviceColumn,
 
-    path_key: AdviceColumn,
+    old_key: AdviceColumn,
+    new_key: AdviceColumn,
     direction: AdviceColumn, // this actually must be binary because of a KeyBitLookup
 
     sibling: AdviceColumn,
@@ -95,10 +96,8 @@ impl MptUpdateConfig {
 
         let proof_type = OneHot::configure(cs, cb);
         let [address, storage_key_rlc] = cb.advice_columns(cs);
-
         let [old_value_rlc, new_value_rlc] = cb.advice_columns(cs);
-
-        let [depth, proof_key, path_key, direction, sibling] = cb.advice_columns(cs);
+        let [depth, proof_key, old_key, new_key, direction, sibling] = cb.advice_columns(cs);
 
         let segment_type = OneHot::configure(cs, cb);
         let path_type = OneHot::configure(cs, cb);
@@ -127,7 +126,8 @@ impl MptUpdateConfig {
             storage_key_rlc,
             segment_type,
             path_type,
-            path_key,
+            old_key,
+            new_key,
             depth,
             direction,
             sibling,
@@ -223,6 +223,8 @@ impl MptUpdateConfig {
                 self.new_hash.assign(region, offset, *new_hash);
                 self.old_hash.assign(region, offset, *old_hash);
                 self.direction.assign(region, offset, *direction);
+                self.old_key.assign(region, offset, proof.old.key);
+                self.new_key.assign(region, offset, proof.new.key);
 
                 offset += 1;
             }
