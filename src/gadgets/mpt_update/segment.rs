@@ -1,3 +1,4 @@
+use crate::MPTProofType;
 use std::collections::HashMap;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
@@ -20,7 +21,7 @@ pub enum SegmentType {
 // TODO: use this
 fn transitions(proof: MPTProofType) -> HashMap<SegmentType, Vec<SegmentType>> {
     match proof {
-        MPTProofType::NonceChanged => vec![
+        MPTProofType::NonceChanged => [
             (
                 SegmentType::Start,
                 vec![
@@ -41,15 +42,15 @@ fn transitions(proof: MPTProofType) -> HashMap<SegmentType, Vec<SegmentType>> {
                 SegmentType::AccountLeaf0,
                 vec![
                     SegmentType::Start, // empty account witness = another leaf
-                    AccountLeaf1,       // proving existence of a nonce for an existing account
+                    SegmentType::AccountLeaf1, // proving existence of a nonce for an existing account
                 ],
             ),
-            (SegmentType::AccountLeaf1, vec![AccountLeaf2]),
-            (SegmentType::AccountLeaf2, vec![AccountLeaf3]),
+            (SegmentType::AccountLeaf1, vec![SegmentType::AccountLeaf2]),
+            (SegmentType::AccountLeaf2, vec![SegmentType::AccountLeaf3]),
             (SegmentType::AccountLeaf3, vec![SegmentType::Start]),
         ]
         .into(),
-        _ => vec![],
+        _ => [].into(),
     }
 }
 
