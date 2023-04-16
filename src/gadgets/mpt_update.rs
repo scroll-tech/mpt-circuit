@@ -883,7 +883,9 @@ fn configure_code_hash<F: FieldExt>(
                     Query::one() - config.direction.current(),
                 );
 
-                // TODO: split code-hash rlc into two 128-bits, then do lookups.
+                // TODO:
+                // Add byte lookup for code_hash[0..16] if direction is 0, and
+                // code_hash[16..32] if direction is 1.
             }
             SegmentType::AccountLeaf4
             | SegmentType::StorageTrie
