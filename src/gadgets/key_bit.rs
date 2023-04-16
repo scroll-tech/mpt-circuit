@@ -58,7 +58,11 @@ impl KeyBitConfig {
         // TODO: standardize endianess to remove this 31 here?
         cb.add_lookup(
             "byte in canonical representation",
-            [value.current(), Query::from(31) - index_div_8.current(), byte.current()],
+            [
+                value.current(),
+                Query::from(31) - index_div_8.current(),
+                byte.current(),
+            ],
             representation.lookup(),
         );
         cb.add_lookup(
