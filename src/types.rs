@@ -80,22 +80,12 @@ pub struct Proof {
     // TODO: make this optional
     leafs: [LeafNode; 2],
 
-    old_account_hash_traces: [[Fr; 3]; 6],
-    new_account_hash_traces: [[Fr; 3]; 6],
+    old_account_hash_traces: [[Fr; 3]; 7],
+    new_account_hash_traces: [[Fr; 3]; 7],
 
     storage_hash_traces: Option<Vec<(bool, Fr, Fr, Fr, bool, bool)>>,
     // TODO: make this a struct plz.
     storage_key_value_hash_traces: Option<[[[Fr; 3]; 3]; 2]>,
-}
-
-#[derive(Clone, Copy, Debug)]
-enum NodeKind {
-    AddressPrefix(bool),
-    AddressTail(Address),
-    CodeHashHighLow,
-    NonceBalance,
-    StorageKeyPrefix(bool),
-    StorageKeyTail(U256),
 }
 
 impl From<&SMTTrace> for Claim {
@@ -317,35 +307,39 @@ fn leaf_hash(path: SMTPath) -> Fr {
     }
 }
 
-fn account_hash_traces(address: Address, account: AccountData, storage_root: Fr) -> [[Fr; 3]; 6] {
+fn account_hash_traces(address: Address, account: AccountData, storage_root: Fr) -> [[Fr; 3]; 7] {
+        // h5 is sibling of node?
     let real_account: Account<Fr> = (&account, storage_root).try_into().unwrap();
 
     let (codehash_hi, codehash_lo) = hi_lo(account.code_hash);
     let h1 = hash(codehash_hi, codehash_lo);
-    let h2 = hash(h1, storage_root);
+    let h2 = hash(storage_root, h1);
 
-    let nonce = Fr::from(account.nonce);
+    let nonce_and_codesize = Fr::from(account.nonce) + Fr::from(account.code_size) * Fr::from(1 << 32).square();
     let balance = balance_convert(account.balance);
-    let h3 = hash(nonce, balance);
+    let h3 = hash(nonce_and_codesize, balance);
 
     let h4 = hash(h3, h2);
 
     let account_key = account_key(address);
     let h5 = hash(Fr::one(), account_key);
 
-    let h6 = hash(h5, h4);
+    // TODO: rename balance_convert;
+    let poseidon_codehash = balance_convert(account.poseidon_code_hash);
+    let account_hash = hash(h4, poseidon_codehash);
 
-    let mut account_hash_traces = [[Fr::zero(); 3]; 6];
+    let mut account_hash_traces = [[Fr::zero(); 3]; 7];
     account_hash_traces[0] = [codehash_hi, codehash_lo, h1];
     account_hash_traces[1] = [h1, storage_root, h2];
-    account_hash_traces[2] = [nonce, balance, h3];
+    account_hash_traces[2] = [nonce_and_codesize, balance, h3];
     account_hash_traces[3] = [h3, h2, h4]; //
-    account_hash_traces[4] = [Fr::one(), account_key, h5]; // this should be the sibling?
-    account_hash_traces[5] = [h5, h4, h6];
+    account_hash_traces[4] = [h4, poseidon_codehash, account_hash];
+    account_hash_traces[5] = [Fr::one(), account_key, h5]; // this should be the sibling?
+    account_hash_traces[6] = [h5, account_hash, hash(h5, account_hash)];
 
     // h4 is value of node?
-    // h5 is sibling of node?
-    assert_eq!(real_account.account_hash(), h4);
+    assert_eq!(real_account.account_hash(), account_hash);
+
     account_hash_traces
 }
 
@@ -397,14 +391,14 @@ fn get_internal_hash_traces(
     address_hash_traces
 }
 
-fn empty_account_hash_traces(leaf: LeafNode) -> [[Fr; 3]; 6] {
-    let mut hash_traces = [[Fr::zero(); 3]; 6];
+fn empty_account_hash_traces(leaf: LeafNode) -> [[Fr; 3]; 7] {
+    let mut hash_traces = [[Fr::zero(); 3]; 7];
 
     let h5 = hash(Fr::one(), leaf.key);
     let h6 = hash(h5, leaf.value_hash);
 
-    hash_traces[4] = [Fr::one(), leaf.key, h5];
-    hash_traces[5] = [h5, leaf.value_hash, h6];
+    hash_traces[5] = [Fr::one(), leaf.key, h5];
+    hash_traces[6] = [h5, leaf.value_hash, h6];
 
     hash_traces
 }
