@@ -16,47 +16,36 @@ pub struct ConstraintBuilder<F: FieldExt> {
     lookups: Vec<(&'static str, Vec<(Query<F>, Query<F>)>)>,
 
     conditions: Vec<BinaryQuery<F>>,
-    // every_row: FixedColumn,
-    // nonfirst_rows: FixedColumn,
-    // first_row: FixedColumn,
-    // last_row: FixedColumn,
 }
 
 impl<F: FieldExt> ConstraintBuilder<F> {
-    pub fn new() -> Self {
+    pub fn new(every_row: SelectorColumn) -> Self {
         Self {
             constraints: vec![],
             lookups: vec![],
 
-            conditions: vec![],
+            conditions: vec![every_row.current()],
         }
     }
 
-    pub fn add_constraint(
-        &mut self,
-        name: &'static str,
-        selector: BinaryQuery<F>,
-        constraint: Query<F>,
-    ) {
+    pub fn assert_zero(&mut self, name: &'static str, query: Query<F>) {
         let condition = self
             .conditions
             .iter()
             .fold(BinaryQuery::one(), |a, b| a.clone().and(b.clone()));
-        self.constraints
-            .push((name, condition.and(selector).condition(constraint)))
+        self.constraints.push((name, condition.condition(query)))
     }
 
-    pub fn assert(
-        &mut self,
-        name: &'static str,
-        selector: BinaryQuery<F>,
-        condition: BinaryQuery<F>,
-    ) {
-        self.add_constraint(name, selector, Query::one() - condition);
+    pub fn assert_equal(&mut self, name: &'static str, left: Query<F>, right: Query<F>) {
+        self.assert_zero(name, left - right)
     }
 
-    pub fn assert_unreachable(&mut self, name: &'static str, selector: BinaryQuery<F>) {
-        self.assert(name, selector, BinaryQuery::zero());
+    pub fn assert(&mut self, name: &'static str, condition: BinaryQuery<F>) {
+        self.assert_zero(name, Query::one() - condition);
+    }
+
+    pub fn assert_unreachable(&mut self, name: &'static str) {
+        self.assert(name, BinaryQuery::zero());
     }
 
     pub fn condition(&mut self, condition: BinaryQuery<F>, configure: impl FnOnce(&mut Self)) {
@@ -104,6 +93,12 @@ impl<F: FieldExt> ConstraintBuilder<F> {
     }
 
     pub fn build(self, cs: &mut ConstraintSystem<F>) {
+        assert_eq!(
+            self.conditions.len(),
+            1,
+            "Cannot call build while in a condition"
+        );
+
         for (name, query) in self.constraints {
             cs.create_gate(&name, |meta| vec![query.run(meta)])
         }

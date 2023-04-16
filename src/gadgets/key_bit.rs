@@ -66,10 +66,10 @@ impl KeyBitConfig {
             [byte.current(), index_mod_8.current(), bit.current()],
             byte_bit.lookup(),
         );
-        cb.add_constraint(
+        cb.assert_equal(
             "index = index_div_8 * 8 + index_mod_8",
-            selector.current(),
-            index.current() - (Query::from(31) - index_div_8.current()) * 8 - index_mod_8.current(),
+            index.current(),
+            (Query::from(31) - index_div_8.current()) * 8 + index_mod_8.current(),
         );
 
         Self {
@@ -86,8 +86,6 @@ impl KeyBitConfig {
     pub fn assign(&self, region: &mut Region<'_, Fr>, lookups: &[(Fr, usize, bool)]) {
         // TODO; dedup lookups
         for (offset, (value, index, bit)) in lookups.iter().enumerate() {
-            self.selector.enable(region, offset); // TODO fix this for constant vk/pk
-
             // TODO: switch endianess?
             let mut bytes = value.to_bytes();
             bytes.reverse();

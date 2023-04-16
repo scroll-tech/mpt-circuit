@@ -144,7 +144,6 @@ impl MptUpdateConfig {
             cb.condition(config.segment_type.matches(*sink), |cb| {
                 cb.assert(
                     "backward transition for segment",
-                    config.selector.current(),
                     config.segment_type.previous_in(&sources),
                 );
             });
@@ -153,7 +152,6 @@ impl MptUpdateConfig {
             cb.condition(config.path_type.matches(*sink), |cb| {
                 cb.assert(
                     "backward transition for path",
-                    config.selector.current(),
                     config.path_type.previous_in(&sources),
                 );
             });
@@ -298,15 +296,14 @@ fn configure_extension_old<F: FieldExt>(
     //     ],
     //     poseidon.lookup(),
     // );
-    cb.add_constraint(
+    cb.assert_zero(
         "sibling is zero for extension path",
-        config.selector.current(),
         config.sibling.current(),
     );
-    cb.add_constraint(
+    cb.assert_equal(
         "new_hash unchanged for path_type=Old",
-        config.selector.current(),
-        config.new_hash.current() - config.new_hash.previous(),
+        config.new_hash.current(),
+        config.new_hash.previous(),
     );
 }
 
@@ -315,14 +312,13 @@ fn configure_extension_new<F: FieldExt>(
     config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
 ) {
-    cb.add_constraint(
+    cb.assert_equal(
         "old_hash unchanged for path_type=new",
-        config.selector.current(),
-        config.old_hash.current() - config.old_hash.previous(),
+        config.old_hash.current(),
+        config.old_hash.previous(),
     );
-    cb.add_constraint(
+    cb.assert_zero(
         "sibling is zero for extension path",
-        config.selector.current(),
         config.sibling.current(),
     );
     // cb.add_lookup(
@@ -344,87 +340,43 @@ fn configure_nonce<F: FieldExt>(
     for variant in SegmentType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
             SegmentType::Start => {
-                cb.add_constraint(
-                    "depth is 0",
-                    config.selector.current(),
-                    config.depth.current(),
-                );
+                cb.assert_zero("depth is 0", config.depth.current());
             }
             SegmentType::AccountTrie => {
-                cb.add_constraint(
-                    "depth increased by 1",
-                    config.selector.current(),
-                    config.depth.delta() - Query::one(),
-                );
+                cb.assert_equal("depth increased by 1", config.depth.delta(), Query::one());
             }
             SegmentType::AccountLeaf0 => {
                 cb.assert(
                     "path_type is Common",
-                    config.selector.current(),
                     config.path_type.matches(PathType::Common),
                 );
-                cb.add_constraint(
-                    "depth is 0",
-                    config.selector.current(),
-                    config.depth.current(),
-                );
-                cb.add_constraint(
-                    "direction is 0",
-                    config.selector.current(),
-                    config.direction.current(),
-                );
+                cb.assert_zero("depth is 0", config.depth.current());
+                cb.assert_zero("direction is 0", config.direction.current());
                 // add constraints that sibling = old_path_key and new_path_key
             }
             SegmentType::AccountLeaf1 => {
                 cb.assert(
                     "path_type is Common",
-                    config.selector.current(),
                     config.path_type.matches(PathType::Common),
                 );
-                cb.add_constraint(
-                    "depth is 0",
-                    config.selector.current(),
-                    config.depth.current(),
-                );
-                cb.add_constraint(
-                    "direction is 0",
-                    config.selector.current(),
-                    config.direction.current(),
-                );
+                cb.assert_zero("depth is 0", config.depth.current());
+                cb.assert_zero("direction is 0", config.direction.current());
             }
             SegmentType::AccountLeaf2 => {
                 cb.assert(
                     "path_type is Common",
-                    config.selector.current(),
                     config.path_type.matches(PathType::Common),
                 );
-                cb.add_constraint(
-                    "depth is 0",
-                    config.selector.current(),
-                    config.depth.current(),
-                );
-                cb.add_constraint(
-                    "direction is 0",
-                    config.selector.current(),
-                    config.direction.current(),
-                );
+                cb.assert_zero("depth is 0", config.depth.current());
+                cb.assert_zero("direction is 0", config.direction.current());
             }
             SegmentType::AccountLeaf3 => {
                 cb.assert(
                     "path_type is Common",
-                    config.selector.current(),
                     config.path_type.matches(PathType::Common),
                 );
-                cb.add_constraint(
-                    "depth is 0",
-                    config.selector.current(),
-                    config.depth.current(),
-                );
-                cb.add_constraint(
-                    "direction is 0",
-                    config.selector.current(),
-                    config.direction.current(),
-                );
+                cb.assert_zero("depth is 0", config.depth.current());
+                cb.assert_zero("direction is 0", config.direction.current());
 
                 // let code_size = (config.old_hash.current() - config.old_value_rlc.current())
                 //     * Query::Constant(F::from(1 << 32).invert().unwrap());
@@ -448,7 +400,7 @@ fn configure_nonce<F: FieldExt>(
             | SegmentType::StorageTrie
             | SegmentType::StorageLeaf0
             | SegmentType::StorageLeaf1 => {
-                cb.assert_unreachable("asdfasdf", config.selector.current())
+                cb.assert_unreachable("unreachable state for nonce update")
             }
         };
         cb.condition(
@@ -457,21 +409,21 @@ fn configure_nonce<F: FieldExt>(
         );
     }
 
-    cb.condition(
-        config.segment_type.matches(SegmentType::AccountTrie),
-        |cb| {
-            cb.add_constraint(
-                "0",
-                config
-                    .segment_type
-                    .previous_matches(SegmentType::Start)
-                    .or(config
-                        .segment_type
-                        .previous_matches(SegmentType::AccountTrie)),
-                Query::one(),
-            );
-        },
-    );
+    // cb.condition(
+    //     config.segment_type.matches(SegmentType::AccountTrie),
+    //     |cb| {
+    //         cb.add_constraint(
+    //             "0",
+    //             config
+    //                 .segment_type
+    //                 .previous_matches(SegmentType::Start)
+    //                 .or(config
+    //                     .segment_type
+    //                     .previous_matches(SegmentType::AccountTrie)),
+    //             Query::one(),
+    //         );
+    //     },
+    // );
 }
 
 fn configure_balance<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {}

@@ -1,5 +1,5 @@
 use super::super::constraint_builder::{
-    AdviceColumn, ConstraintBuilder, FixedColumn, Query, SelectorColumn,
+    AdviceColumn, BinaryColumn, ConstraintBuilder, FixedColumn, Query, SelectorColumn,
 };
 use super::{byte_bit::RangeCheck256Lookup, is_zero::IsZeroGadget};
 use ethers_core::types::U256;
@@ -18,8 +18,6 @@ pub trait CanonicalRepresentationLookup {
 
 #[derive(Clone)]
 pub struct CanonicalRepresentationConfig {
-    selector: SelectorColumn, // always enabled selector for constraints we want always enabled.
-
     // Lookup columns
     value: AdviceColumn, // We're proving value.to_le_bytes()[i] = byte in this gadget
     index: FixedColumn,  // (0..32).repeat()
@@ -30,7 +28,7 @@ pub struct CanonicalRepresentationConfig {
     modulus_byte: FixedColumn,     // (0..32).repeat().map(|i| Fr::MODULUS.to_le_bytes()[i])
     difference: AdviceColumn,      // modulus_byte - byte
     difference_is_zero: IsZeroGadget,
-    differences_are_zero_so_far: AdviceColumn, // difference[0] ... difference[index - 1] are all 0.
+    differences_are_zero_so_far: BinaryColumn, // difference[0] ... difference[index - 1] are all 0.
 }
 
 impl CanonicalRepresentationConfig {
@@ -39,62 +37,57 @@ impl CanonicalRepresentationConfig {
         cb: &mut ConstraintBuilder<Fr>,
         range_check: &impl RangeCheck256Lookup,
     ) -> Self {
-        let (
-            [selector, index_is_zero],
-            [index, modulus_byte],
-            [value, byte, difference, differences_are_zero_so_far],
-        ) = cb.build_columns(cs);
+        let ([index_is_zero], [index, modulus_byte], [value, byte, difference]) =
+            cb.build_columns(cs);
 
-        cb.add_constraint(
-            "differences_are_zero_so_far is binary",
-            selector.current(),
-            differences_are_zero_so_far.current()
-                * (Query::one() - differences_are_zero_so_far.current()),
-        );
-        cb.add_constraint(
+        let [differences_are_zero_so_far] = cb.binary_columns(cs);
+        let difference_is_zero = IsZeroGadget::configure(cs, cb, difference);
+
+        cb.assert_equal(
             "difference = modulus_byte - byte",
-            selector.current(),
-            difference.current() - (modulus_byte.current() - byte.current()),
+            difference.current(),
+            modulus_byte.current() - byte.current(),
         );
-        cb.add_constraint(
-            "bytes represent value",
-            index_is_zero.current(),
-            value.current()
-                - (0..32)
+        // TODO: just add an accumlator column?
+        cb.condition(index_is_zero.current(), |cb| {
+            cb.assert_equal(
+                "every group of 32 bytes represent value",
+                value.current(),
+                (0..32)
                     .map(|i| byte.rotation(i))
                     .fold(Query::zero(), |acc, x| acc * 256 + x),
+            );
+            cb.assert(
+                "differences_are_zero_so_far = 1 when index = 0",
+                differences_are_zero_so_far.current(),
+            );
+        });
+        cb.condition(!index_is_zero.current(), |cb| {
+            cb.assert_equal(
+                "value only changes when index = 0",
+                value.current(),
+                value.previous(),
+            );
+            cb.assert_equal(
+            "differences_are_zero_so_far = difference == 0 && differences_are_zero_so_far.previous() when index != 0",
+            differences_are_zero_so_far.current().into(),
+            differences_are_zero_so_far.previous().and( difference_is_zero.previous()).into()
         );
-        cb.add_constraint(
-            "value only changes when index = 0",
-            selector.current().and(!index_is_zero.current()),
-            value.current() - value.previous(),
-        );
+        });
+
         cb.add_lookup("0 <= byte < 256", [byte.current()], range_check.lookup());
 
-        let difference_is_zero = IsZeroGadget::configure(cs, cb, selector.current(), difference);
-        cb.add_constraint(
-            "differences_are_zero_so_far = 1 when index = 0",
-            index_is_zero.current(),
-            differences_are_zero_so_far.current() - 1,
-        );
-        cb.add_constraint(
-            "differences_are_zero_so_far = difference is 0 * differences_are_zero_so_far.previous() when index != 0",
-            selector.current().and(!index_is_zero.current()), // TODO: need to throw in selector here to avoid ConstraintPoisoned error.
-            differences_are_zero_so_far.current()
-                - differences_are_zero_so_far.previous() * difference_is_zero.previous()
-        );
-        cb.add_lookup(
+        cb.condition(differences_are_zero_so_far.current()
+                .and( !difference_is_zero.current()), |cb| {cb.add_lookup(
             "if differences are 0 so far, either current difference is 0, or it is the first and 1 <= difference < 257",
             // We already know that difference < 256 because difference = modulus_byte - byte which are both 8 bit.
             // There do not exist two 8 bit numbers whose difference is 256 in Fr.
-            [differences_are_zero_so_far.current()
-                * !difference_is_zero.current()
-                * (difference.current() - 1)],
+            [difference.current() - 1], // TODO: can remove -1 here because difference is non-zero anyways?
             range_check.lookup(),
-        );
+        );});
+        // TODO: need a constraut that !difference_is_zero.current() for when index = 31?
 
         Self {
-            selector,
             value,
             index,
             byte,
@@ -117,7 +110,6 @@ impl CanonicalRepresentationConfig {
             bytes.reverse();
             let mut differences_are_zero_so_far = true;
             for (index, (byte, modulus_byte)) in bytes.iter().zip_eq(&modulus_bytes).enumerate() {
-                self.selector.enable(region, offset);
                 self.byte.assign(region, offset, u64::from(*byte));
                 self.modulus_byte
                     .assign(region, offset, u64::from(*modulus_byte));

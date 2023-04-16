@@ -15,8 +15,6 @@ pub trait BytesLookup {
 
 #[derive(Clone)]
 pub struct ByteRepresentationConfig {
-    selector: SelectorColumn, // always enabled selector for constraints we want always enabled.
-
     randomness: FixedColumn, // TODO: this should be an instance column.
 
     // lookup columns
@@ -47,30 +45,26 @@ impl ByteRepresentationConfig {
         cb: &mut ConstraintBuilder<F>,
         range_check: &impl RangeCheck256Lookup,
     ) -> Self {
-        let ([selector], [randomness], [value, rlc, index, byte]) = cb.build_columns(cs);
-        let index_is_zero = IsZeroGadget::configure(cs, cb, selector.current(), index);
+        let ([], [randomness], [value, rlc, index, byte]) = cb.build_columns(cs);
+        let index_is_zero = IsZeroGadget::configure(cs, cb, index);
 
-        cb.add_constraint(
+        cb.assert_zero(
             "index increases by 1 or resets to 0",
-            selector.current(),
             index.current() * (index.current() - index.previous() - 1),
         );
-        cb.add_constraint(
+        cb.assert_equal(
             "current value = previous value * 8 * (index == 0) + byte",
-            selector.current(),
-            value.current() - (value.previous() * 8 * !index_is_zero.current() + byte.current()),
+            value.current(),
+            value.previous() * 8 * !index_is_zero.current() + byte.current(),
         );
-        cb.add_constraint(
+        cb.assert_equal(
             "current rlc = previous rlc * randomness * (index == 0) + byte",
-            selector.current(),
-            rlc.current()
-                - (rlc.previous() * randomness.current() * !index_is_zero.current()
-                    + byte.current()),
+            rlc.current(),
+            rlc.previous() * randomness.current() * !index_is_zero.current() + byte.current(),
         );
         cb.add_lookup("0 <= byte < 256", [byte.current()], range_check.lookup());
 
         Self {
-            selector,
             randomness,
             value,
             rlc,
@@ -104,7 +98,6 @@ impl ByteRepresentationConfig {
                 value = value * F::from(8) + byte;
                 rlc = rlc * randomness + byte;
 
-                self.selector.enable(region, offset);
                 self.randomness.assign(region, offset, randomness);
                 self.value.assign(region, offset, value);
                 self.rlc.assign(region, offset, rlc);
