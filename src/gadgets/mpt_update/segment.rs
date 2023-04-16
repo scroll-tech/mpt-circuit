@@ -17,6 +17,55 @@ pub enum SegmentType {
     StorageLeaf1,
 }
 
+// TODO: use this
+fn transitions(proof: MPTProofType) -> HashMap<SegmentType, Vec<SegmentType>> {
+    match proof {
+        MPTProofType::NonceChanged => vec![
+            (
+                SegmentType::Start,
+                vec![
+                    SegmentType::Start,        // mpt has no accounts
+                    SegmentType::AccountTrie,  // mpt has more than one account
+                    SegmentType::AccountLeaf0, // mpt has only one account
+                ],
+            ),
+            (
+                SegmentType::AccountTrie,
+                vec![
+                    SegmentType::AccountTrie, // subtree contains multiple accounts
+                    SegmentType::AccountLeaf0,
+                    SegmentType::Start, // empty account witness = empty tree
+                ],
+            ),
+            (
+                SegmentType::AccountLeaf0,
+                vec![
+                    SegmentType::Start, // empty account witness = another leaf
+                    AccountLeaf1,       // proving existence of a nonce for an existing account
+                ],
+            ),
+            (SegmentType::AccountLeaf1, vec![AccountLeaf2]),
+            (SegmentType::AccountLeaf2, vec![AccountLeaf3]),
+            (SegmentType::AccountLeaf3, vec![SegmentType::Start]),
+        ]
+        .into(),
+        _ => vec![],
+    }
+}
+
+// TODO: use this
+fn unreachable_states(proof: MPTProofType) -> Vec<SegmentType> {
+    match proof {
+        MPTProofType::NonceChanged => vec![
+            SegmentType::AccountLeaf4,
+            SegmentType::StorageTrie,
+            SegmentType::StorageLeaf0,
+            SegmentType::StorageLeaf1,
+        ],
+        _ => vec![],
+    }
+}
+
 // Allowed transitions within on mpt update. Additionally, every state can
 // transition to Start, marking the end of the current update and the start of the next one.
 // The is the union of possible transitions over all MPTProofType's. In the mpt update gadget, we conditionally
