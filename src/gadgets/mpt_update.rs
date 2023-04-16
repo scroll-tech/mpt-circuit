@@ -525,6 +525,7 @@ mod test {
 
     impl Circuit<Fr> for TestCircuit {
         type Config = (
+            SelectorColumn,
             // MptUpdateConfig,
             PoseidonConfig,
             CanonicalRepresentationConfig,
@@ -539,7 +540,9 @@ mod test {
         }
 
         fn configure(cs: &mut ConstraintSystem<Fr>) -> Self::Config {
-            let mut cb = ConstraintBuilder::new();
+            let selector = SelectorColumn(cs.fixed_column());
+            let mut cb = ConstraintBuilder::new(selector);
+
             let poseidon = PoseidonConfig::configure(cs, &mut cb);
             let byte_bit = ByteBitGadget::configure(cs, &mut cb);
             let byte_representation = ByteRepresentationConfig::configure(cs, &mut cb, &byte_bit);
@@ -565,6 +568,7 @@ mod test {
 
             cb.build(cs);
             (
+                selector,
                 // mpt_update,
                 poseidon,
                 canonical_representation,
@@ -580,6 +584,7 @@ mod test {
             mut layouter: impl Layouter<Fr>,
         ) -> Result<(), Error> {
             let (
+                selector,
                 // mpt_update,
                 poseidon,
                 canonical_representation,
@@ -593,6 +598,9 @@ mod test {
             layouter.assign_region(
                 || "asdfasdf",
                 |mut region| {
+                    for offset in 0..256 {
+                        selector.enable(&mut region, offset);
+                    }
                     // mpt_update.assign(&mut region, &self.updates);
                     poseidon.assign(&mut region, &self.hash_traces());
                     canonical_representation.assign(&mut region, &self.keys());

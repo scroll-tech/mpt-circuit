@@ -138,7 +138,12 @@ mod test {
     }
 
     impl Circuit<Fr> for TestCircuit {
-        type Config = (KeyBitConfig, ByteBitGadget, CanonicalRepresentationConfig);
+        type Config = (
+            SelectorColumn,
+            KeyBitConfig,
+            ByteBitGadget,
+            CanonicalRepresentationConfig,
+        );
         type FloorPlanner = SimpleFloorPlanner;
 
         fn without_witnesses(&self) -> Self {
@@ -146,7 +151,9 @@ mod test {
         }
 
         fn configure(cs: &mut ConstraintSystem<Fr>) -> Self::Config {
-            let mut cb = ConstraintBuilder::new();
+            let selector = SelectorColumn(cs.fixed_column());
+            let mut cb = ConstraintBuilder::new(selector);
+
             let byte_bit = ByteBitGadget::configure(cs, &mut cb);
             let canonical_representation =
                 CanonicalRepresentationConfig::configure(cs, &mut cb, &byte_bit);
@@ -159,7 +166,7 @@ mod test {
                 &byte_bit,
             );
             cb.build(cs);
-            (key_bit, byte_bit, canonical_representation)
+            (selector, key_bit, byte_bit, canonical_representation)
         }
 
         fn synthesize(
@@ -168,12 +175,19 @@ mod test {
             mut layouter: impl Layouter<Fr>,
         ) -> Result<(), Error> {
             let keys: Vec<_> = self.lookups.iter().map(|lookup| lookup.0).collect();
+
+            let (selector, key_bit, byte_bit, canonical_representation) = config;
+
             layouter.assign_region(
-                || "asdfawef",
+                || "",
                 |mut region| {
-                    config.0.assign(&mut region, &self.lookups);
-                    config.1.assign(&mut region);
-                    config.2.assign(&mut region, &keys);
+                    for offset in 0..256 {
+                        selector.enable(&mut region, offset);
+                    }
+
+                    key_bit.assign(&mut region, &self.lookups);
+                    byte_bit.assign(&mut region);
+                    canonical_representation.assign(&mut region, &keys);
                     Ok(())
                 },
             )

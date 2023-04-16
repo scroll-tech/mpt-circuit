@@ -60,11 +60,15 @@ impl<F: FieldExt> ConstraintBuilder<F> {
         left: [Query<F>; N],
         right: [Query<F>; N],
     ) {
-        //         let condition = self
-        // .conditions
-        // .iter()
-        // .fold(BinaryQuery::one(), |a, b| a.clone().and(b.clone()));
-        let lookup = left.into_iter().zip(right.into_iter()).collect();
+        let condition = self
+            .conditions
+            .iter()
+            .fold(BinaryQuery::one(), |a, b| a.clone().and(b.clone()));
+        let lookup = left
+            .into_iter()
+            .map(|q| q * condition.clone())
+            .zip(right.into_iter())
+            .collect();
         self.lookups.push((name, lookup))
     }
 

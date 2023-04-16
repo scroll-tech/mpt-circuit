@@ -11,7 +11,11 @@ pub struct SelectorColumn(pub Column<Fixed>);
 
 impl SelectorColumn {
     pub fn current<F: FieldExt>(self) -> BinaryQuery<F> {
-        BinaryQuery(Query::Fixed(self.0, 0))
+        self.rotation(0)
+    }
+
+    pub fn rotation<F: FieldExt>(self, i: i32) -> BinaryQuery<F> {
+        BinaryQuery(Query::Fixed(self.0, i))
     }
 
     pub fn enable<F: FieldExt>(&self, region: &mut Region<'_, F>, offset: usize) {

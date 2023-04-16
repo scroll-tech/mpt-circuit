@@ -64,28 +64,41 @@ impl CanonicalRepresentationConfig {
         });
         cb.condition(!index_is_zero.current(), |cb| {
             cb.assert_equal(
-                "value only changes when index = 0",
+                "value can only change when index = 0",
                 value.current(),
                 value.previous(),
             );
             cb.assert_equal(
-            "differences_are_zero_so_far = difference == 0 && differences_are_zero_so_far.previous() when index != 0",
-            differences_are_zero_so_far.current().into(),
-            differences_are_zero_so_far.previous().and( difference_is_zero.previous()).into()
-        );
+                "differences_are_zero_so_far = difference == 0 && differences_are_zero_so_far.previous() when index != 0",
+                differences_are_zero_so_far.current().into(),
+                differences_are_zero_so_far
+                    .previous()
+                    .and(difference_is_zero.previous())
+                    .into(),
+            );
         });
 
         cb.add_lookup("0 <= byte < 256", [byte.current()], range_check.lookup());
 
-        cb.condition(differences_are_zero_so_far.current()
-                .and( !difference_is_zero.current()), |cb| {cb.add_lookup(
-            "if differences are 0 so far, either current difference is 0, or it is the first and 1 <= difference < 257",
-            // We already know that difference < 256 because difference = modulus_byte - byte which are both 8 bit.
-            // There do not exist two 8 bit numbers whose difference is 256 in Fr.
-            [difference.current() - 1], // TODO: can remove -1 here because difference is non-zero anyways?
-            range_check.lookup(),
-        );});
-        // TODO: need a constraut that !difference_is_zero.current() for when index = 31?
+        let is_first_nonzero_difference = differences_are_zero_so_far
+            .current()
+            .and(!difference_is_zero.current());
+        cb.condition(is_first_nonzero_difference, |cb| {
+            cb.add_lookup(
+                "0 <= first nonzero difference < 256",
+                // We know that the first nonzero difference is actually non-zero, but we don't have a [1..255] range check.
+                [difference.current()],
+                range_check.lookup(),
+            );
+        });
+        cb.condition(index_is_zero.rotation(-31), |cb| {
+            cb.assert(
+                "there is at least 1 nonzero difference",
+                !(differences_are_zero_so_far
+                    .current()
+                    .and(difference_is_zero.current())),
+            )
+        });
 
         Self {
             value,
@@ -105,7 +118,8 @@ impl CanonicalRepresentationConfig {
         modulus.to_big_endian(&mut modulus_bytes);
 
         let mut offset = 0;
-        for value in values {
+        // TODO: we add a final Fr::zero() to handle the always enabled selector. Add a default assignment instead?
+        for value in values.iter().chain(&[Fr::zero()]) {
             let mut bytes = value.to_bytes();
             bytes.reverse();
             let mut differences_are_zero_so_far = true;
@@ -164,7 +178,7 @@ mod test {
     }
 
     impl Circuit<Fr> for TestCircuit {
-        type Config = (ByteBitGadget, CanonicalRepresentationConfig);
+        type Config = (SelectorColumn, ByteBitGadget, CanonicalRepresentationConfig);
         type FloorPlanner = SimpleFloorPlanner;
 
         fn without_witnesses(&self) -> Self {
@@ -172,12 +186,14 @@ mod test {
         }
 
         fn configure(cs: &mut ConstraintSystem<Fr>) -> Self::Config {
-            let mut cb = ConstraintBuilder::new();
+            let selector = SelectorColumn(cs.fixed_column());
+            let mut cb = ConstraintBuilder::new(selector);
+
             let byte_bit = ByteBitGadget::configure(cs, &mut cb);
             let canonical_representation =
                 CanonicalRepresentationConfig::configure(cs, &mut cb, &byte_bit);
             cb.build(cs);
-            (byte_bit, canonical_representation)
+            (selector, byte_bit, canonical_representation)
         }
 
         fn synthesize(
@@ -185,11 +201,15 @@ mod test {
             config: Self::Config,
             mut layouter: impl Layouter<Fr>,
         ) -> Result<(), Error> {
+            let (selector, byte_bit, canonical_representation) = config;
             layouter.assign_region(
-                || "asfwf121asfasd",
+                || "",
                 |mut region| {
-                    config.0.assign(&mut region);
-                    config.1.assign(&mut region, &self.values);
+                    for offset in 0..256 {
+                        selector.enable(&mut region, offset);
+                    }
+                    byte_bit.assign(&mut region);
+                    canonical_representation.assign(&mut region, &self.values);
                     Ok(())
                 },
             )

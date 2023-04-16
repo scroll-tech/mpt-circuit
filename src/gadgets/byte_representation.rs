@@ -153,7 +153,9 @@ mod test {
         }
 
         fn configure(cs: &mut ConstraintSystem<Fr>) -> Self::Config {
-            let mut cb = ConstraintBuilder::new();
+            let selector = SelectorColumn(cs.fixed_column());
+            let mut cb = ConstraintBuilder::new(selector);
+
             let byte_bit = ByteBitGadget::configure(cs, &mut cb);
             let byte_representation = ByteRepresentationConfig::configure(cs, &mut cb, &byte_bit);
             cb.build(cs);
