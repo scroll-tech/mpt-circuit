@@ -1,0 +1,15 @@
+node_modules
+.env
+coverage
+coverage.json
+trace.json
+witness.json
+typechain
+*.exe
+
+#Hardhat files
+cache
+artifacts
+hardhat.config.js
+
+scripts/*.json
