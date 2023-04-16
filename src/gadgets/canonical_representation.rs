@@ -25,7 +25,7 @@ pub struct CanonicalRepresentationConfig {
 
     // Witness columns
     index_is_zero: SelectorColumn, // (0..32).repeat().map(|i| i == 0)
-    modulus_byte: FixedColumn,     // (0..32).repeat().map(|i| Fr::MODULUS.to_le_bytes()[i])
+    modulus_byte: FixedColumn,     // (0..32).repeat().map(|i| Fr::MODULUS.to_be_bytes()[i])
     difference: AdviceColumn,      // modulus_byte - byte
     difference_is_zero: IsZeroGadget,
     differences_are_zero_so_far: BinaryColumn, // difference[0] ... difference[index - 1] are all 0.

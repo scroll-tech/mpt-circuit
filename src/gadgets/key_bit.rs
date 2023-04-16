@@ -18,7 +18,7 @@ pub struct KeyBitConfig {
 
     // Lookup columns
     value: AdviceColumn, // We're proving value.bit(i) = bit in this gadget
-    index: AdviceColumn, // 0 <= index <256
+    index: AdviceColumn, // 0 <= index < 256
     bit: AdviceColumn,
 
     // Witness columns
@@ -55,10 +55,10 @@ impl KeyBitConfig {
             [index_mod_8.current()],
             range_check_8.lookup(),
         );
-        // are these in the same order??
+        // TODO: standardize endianess to remove this 31 here?
         cb.add_lookup(
             "byte in canonical representation",
-            [value.current(), index_div_8.current(), byte.current()],
+            [value.current(), Query::from(31) - index_div_8.current(), byte.current()],
             representation.lookup(),
         );
         cb.add_lookup(
@@ -69,7 +69,7 @@ impl KeyBitConfig {
         cb.assert_equal(
             "index = index_div_8 * 8 + index_mod_8",
             index.current(),
-            (Query::from(31) - index_div_8.current()) * 8 + index_mod_8.current(),
+            index_div_8.current() * 8 + index_mod_8.current(),
         );
 
         Self {
@@ -86,11 +86,9 @@ impl KeyBitConfig {
     pub fn assign(&self, region: &mut Region<'_, Fr>, lookups: &[(Fr, usize, bool)]) {
         // TODO; dedup lookups
         for (offset, (value, index, bit)) in lookups.iter().enumerate() {
-            // TODO: switch endianess?
-            let mut bytes = value.to_bytes();
-            bytes.reverse();
+            let bytes = value.to_bytes();
 
-            let index_div_8 = 31 - index / 8;
+            let index_div_8 = index / 8; // index = (31 - index/8) * 8
             let index_mod_8 = index % 8;
             let byte = bytes[index_div_8];
             // sanity check. TODO: Get rid of bit in the assign fn?
@@ -105,6 +103,8 @@ impl KeyBitConfig {
             self.index_mod_8
                 .assign(region, offset, u64::try_from(index_mod_8).unwrap());
             self.byte.assign(region, offset, u64::from(byte));
+
+            dbg!(offset);
         }
         // panic!();
     }
@@ -181,7 +181,7 @@ mod test {
             layouter.assign_region(
                 || "",
                 |mut region| {
-                    for offset in 0..256 {
+                    for offset in 0..32 {
                         selector.enable(&mut region, offset);
                     }
 
