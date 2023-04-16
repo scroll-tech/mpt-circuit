@@ -190,7 +190,6 @@ impl Config {
                 .map(|(fst, snd)| (fst * s_enable.clone(), snd))
                 .collect()
         });
-        }
 
         meta.lookup_any("mpt account destroy entry lookup", |meta| {
             let s_enable = meta.query_advice(self.proof_sel[6], Rotation::cur());
@@ -248,10 +247,6 @@ pub enum MPTProofType {
     StorageChanged,
     /// non exist proof for storage
     StorageDoesNotExist,
-    /// poseidon code hash
-    PoseidonCodeHashExists,
-    /// code length, in bytes
-    CodeSizeExists,
 }
 
 /// the Entry for mpt table
