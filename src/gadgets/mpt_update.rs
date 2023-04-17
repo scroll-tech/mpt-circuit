@@ -160,19 +160,23 @@ impl MptUpdateConfig {
             cb.condition(config.path_type.matches(variant), conditional_constraints);
         }
 
-        for variant in MPTProofType::iter() {
+        for variant in SegmentType::iter() {
             let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
-                MPTProofType::NonceChanged => configure_nonce(cb, &config, bytes),
-                MPTProofType::BalanceChanged => configure_balance(cb, &config),
-                MPTProofType::CodeHashExists => configure_code_hash(cb, &config),
-                MPTProofType::AccountDoesNotExist => configure_empty_account(cb, &config),
-                MPTProofType::AccountDestructed => configure_self_destruct(cb, &config),
-                MPTProofType::StorageChanged => configure_storage(cb, &config),
-                MPTProofType::StorageDoesNotExist => configure_empty_storage(cb, &config),
-                MPTProofType::PoseidonCodeHashExists => todo!(),
-                MPTProofType::CodeSizeExists => todo!(),
+                SegmentType::Start => configure_start(cb, &config),
+                SegmentType::AccountTrie => configure_account_trie(cb, &config),
+                SegmentType::AccountLeaf0 => configure_account_leaf0(cb, &config),
+                SegmentType::AccountLeaf1 => configure_account_leaf1(cb, &config),
+                SegmentType::AccountLeaf2 => configure_account_leaf2(cb, &config),
+                SegmentType::AccountLeaf3 => configure_account_leaf3(cb, &config, rlc, bytes),
+                SegmentType::AccountLeaf4
+                | SegmentType::StorageTrie
+                | SegmentType::StorageLeaf0
+                | SegmentType::StorageLeaf1 => cb.assert_unreachable("", config.selector.current()),
             };
-            cb.condition(config.proof_type.matches(variant), conditional_constraints);
+            cb.condition(
+                config.segment_type.matches(variant),
+                conditional_constraints,
+            );
         }
 
         config
@@ -331,71 +335,37 @@ fn configure_nonce<F: FieldExt>(
     config: &MptUpdateConfig,
     bytes: &impl BytesLookup,
 ) {
-    for variant in SegmentType::iter() {
-        let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
-            SegmentType::Start => add_constraints_for_start(cb, config),
-            SegmentType::AccountTrie => add_constraints_for_account_trie(cb, config),
-            SegmentType::AccountLeaf0 => {
-                add_constraints_for_account_leaf0(cb, config, config.direction.current())
-            }
-            SegmentType::AccountLeaf1 => {
-                add_constraints_for_account_leaf1(cb, config, config.direction.current())
-            }
-            SegmentType::AccountLeaf2 => {
-                add_constraints_for_account_leaf2(cb, config, config.direction.current())
-            }
-            SegmentType::AccountLeaf3 => {
-                add_constraints_for_account_leaf3(cb, config, config.direction.current());
-
-                let code_size = (config.old_hash.current() - config.old_value_rlc.current())
-                    * Query::Constant(F::from(1 << 32).invert().unwrap());
-                cb.add_lookup(
-                    "old nonce is 8 bytes",
-                    [config.old_value_rlc.current(), Query::from(7)],
-                    bytes.lookup(),
-                );
-                cb.add_lookup(
-                    "old code size is 8 bytes",
-                    [code_size, Query::from(7)],
-                    bytes.lookup(),
-                );
-                cb.add_lookup(
-                    "hash input is 16 bytes",
-                    [config.old_hash.current(), Query::from(15)],
-                    bytes.lookup(),
-                );
-            }
-            SegmentType::AccountLeaf4
-            | SegmentType::StorageTrie
-            | SegmentType::StorageLeaf0
-            | SegmentType::StorageLeaf1 => cb.assert_unreachable("", config.selector.current()),
-        };
-        cb.condition(
-            config.segment_type.matches(variant),
-            conditional_constraints,
-        );
-    }
-
-    cb.condition(
-        config.segment_type.matches(SegmentType::AccountTrie),
-        |cb| {
-            cb.add_constraint(
-                "0",
-                config
-                    .segment_type
-                    .previous_matches(SegmentType::Start)
-                    .or(config
-                        .segment_type
-                        .previous_matches(SegmentType::AccountTrie)),
-                Query::one(),
-            );
-        },
+    let code_size = (config.old_hash.current() - config.old_value_rlc.current())
+        * Query::Constant(F::from(1 << 32).invert().unwrap());
+    cb.add_lookup(
+        "old nonce is 8 bytes",
+        [config.old_value_rlc.current(), Query::from(7)],
+        bytes.lookup(),
+    );
+    cb.add_lookup(
+        "old code size is 8 bytes",
+        [code_size, Query::from(7)],
+        bytes.lookup(),
+    );
+    cb.add_lookup(
+        "hash input is 16 bytes",
+        [config.old_hash.current(), Query::from(15)],
+        bytes.lookup(),
     );
 }
 
-fn configure_balance<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {}
+fn configure_balance<F: FieldExt>(
+    cb: &mut ConstraintBuilder<F>,
+    config: &MptUpdateConfig,
+    rlc: &impl RlcLookup,
+) {
+}
 
-fn configure_code_hash<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {}
+fn configure_keccak_code_hash<F: FieldExt>(
+    cb: &mut ConstraintBuilder<F>,
+    config: &MptUpdateConfig,
+) {
+}
 
 fn configure_empty_account<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {}
 
@@ -405,7 +375,15 @@ fn configure_storage<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpd
 
 fn configure_empty_storage<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {}
 
-fn add_constraints_for_start<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {
+fn configure_poseidon_code_hash<F: FieldExt>(
+    cb: &mut ConstraintBuilder<F>,
+    config: &MptUpdateConfig,
+) {
+}
+
+fn configure_code_size<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {}
+
+fn configure_start<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {
     cb.add_constraint(
         "depth is 0",
         config.selector.current(),
@@ -413,10 +391,7 @@ fn add_constraints_for_start<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config:
     );
 }
 
-fn add_constraints_for_account_trie<F: FieldExt>(
-    cb: &mut ConstraintBuilder<F>,
-    config: &MptUpdateConfig,
-) {
+fn configure_account_trie<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {
     cb.assert(
         "previous is Start or AccountTrie",
         config.selector.current(),
@@ -440,13 +415,19 @@ fn add_constraints_for_account_trie<F: FieldExt>(
         config.selector.current(),
         config.depth.delta() - Query::one(),
     );
+    cb.add_constraint(
+        "0",
+        config
+            .segment_type
+            .previous_matches(SegmentType::Start)
+            .or(config
+                .segment_type
+                .previous_matches(SegmentType::AccountTrie)),
+        Query::one(),
+    );
 }
 
-fn add_constraints_for_account_leaf0<F: FieldExt>(
-    cb: &mut ConstraintBuilder<F>,
-    config: &MptUpdateConfig,
-    direction: Query<F>,
-) {
+fn configure_account_leaf0<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {
     cb.assert(
         "from Start or AccountTrie",
         config.selector.current(),
@@ -472,15 +453,27 @@ fn add_constraints_for_account_leaf0<F: FieldExt>(
         config.selector.current(),
         config.depth.current(),
     );
-    cb.add_constraint("direction is 0", config.selector.current(), direction);
+    for variant in MPTProofType::iter() {
+        let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
+            MPTProofType::AccountDestructed | MPTProofType::AccountDoesNotExist => todo!(),
+            MPTProofType::BalanceChanged
+            | MPTProofType::CodeHashExists
+            | MPTProofType::CodeSizeExists
+            | MPTProofType::NonceChanged
+            | MPTProofType::PoseidonCodeHashExists
+            | MPTProofType::StorageChanged
+            | MPTProofType::StorageDoesNotExist => cb.add_constraint(
+                "direction is 0",
+                config.selector.current(),
+                config.direction.current(),
+            ),
+        };
+        cb.condition(config.proof_type.matches(variant), conditional_constraints);
+    }
     // add constraints that sibling = old_path_key and new_path_key
 }
 
-fn add_constraints_for_account_leaf1<F: FieldExt>(
-    cb: &mut ConstraintBuilder<F>,
-    config: &MptUpdateConfig,
-    direction: Query<F>,
-) {
+fn configure_account_leaf1<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {
     cb.assert(
         "previous is AccountLeaf0",
         config.selector.current(),
@@ -503,14 +496,33 @@ fn add_constraints_for_account_leaf1<F: FieldExt>(
         config.selector.current(),
         config.depth.current(),
     );
-    cb.add_constraint("direction is 0", config.selector.current(), direction);
+    for variant in MPTProofType::iter() {
+        let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
+            MPTProofType::AccountDestructed | MPTProofType::AccountDoesNotExist => todo!(),
+            MPTProofType::BalanceChanged
+            | MPTProofType::CodeHashExists
+            | MPTProofType::CodeSizeExists
+            | MPTProofType::NonceChanged
+            | MPTProofType::StorageChanged
+            | MPTProofType::StorageDoesNotExist => cb.add_constraint(
+                "direction is 0",
+                config.selector.current(),
+                config.direction.current(),
+            ),
+            MPTProofType::PoseidonCodeHashExists => {
+                cb.add_constraint(
+                    "direction is 1",
+                    config.selector.current(),
+                    Query::one() - config.direction.current(),
+                );
+                // TODO: add poseidon lookup
+            }
+        };
+        cb.condition(config.proof_type.matches(variant), conditional_constraints);
+    }
 }
 
-fn add_constraints_for_account_leaf2<F: FieldExt>(
-    cb: &mut ConstraintBuilder<F>,
-    config: &MptUpdateConfig,
-    direction: Query<F>,
-) {
+fn configure_account_leaf2<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {
     cb.assert(
         "previous is AccountLeaf1",
         config.selector.current(),
@@ -533,13 +545,34 @@ fn add_constraints_for_account_leaf2<F: FieldExt>(
         config.selector.current(),
         config.depth.current(),
     );
-    cb.add_constraint("direction is 0", config.selector.current(), direction);
+    for variant in MPTProofType::iter() {
+        let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
+            MPTProofType::AccountDestructed | MPTProofType::AccountDoesNotExist => todo!(),
+            MPTProofType::BalanceChanged
+            | MPTProofType::CodeSizeExists
+            | MPTProofType::NonceChanged => cb.add_constraint(
+                "direction is 0",
+                config.selector.current(),
+                config.direction.current(),
+            ),
+            MPTProofType::CodeHashExists
+            | MPTProofType::StorageChanged
+            | MPTProofType::StorageDoesNotExist => cb.add_constraint(
+                "direction is 1",
+                config.selector.current(),
+                Query::one() - config.direction.current(),
+            ),
+            MPTProofType::PoseidonCodeHashExists => {}
+        };
+        cb.condition(config.proof_type.matches(variant), conditional_constraints);
+    }
 }
 
-fn add_constraints_for_account_leaf3<F: FieldExt>(
+fn configure_account_leaf3<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
-    direction: Query<F>,
+    rlc: &impl RlcLookup,
+    bytes: &impl BytesLookup,
 ) {
     cb.assert(
         "previous is AccountLeaf2",
@@ -563,7 +596,18 @@ fn add_constraints_for_account_leaf3<F: FieldExt>(
         config.selector.current(),
         config.depth.current(),
     );
-    cb.add_constraint("direction is 0", config.selector.current(), direction);
+    for variant in MPTProofType::iter() {
+        let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
+            MPTProofType::AccountDestructed | MPTProofType::AccountDoesNotExist => todo!(),
+            MPTProofType::BalanceChanged => configure_balance(cb, &config, rlc),
+            MPTProofType::CodeSizeExists => configure_code_size(cb, &config),
+            MPTProofType::NonceChanged => configure_nonce(cb, &config, bytes),
+            MPTProofType::CodeHashExists => configure_keccak_code_hash(cb, &config),
+            MPTProofType::StorageChanged | MPTProofType::StorageDoesNotExist => todo!(),
+            MPTProofType::PoseidonCodeHashExists => {}
+        };
+        cb.condition(config.proof_type.matches(variant), conditional_constraints);
+    }
 }
 
 #[cfg(test)]
