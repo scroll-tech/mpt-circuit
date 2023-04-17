@@ -74,7 +74,7 @@ use eth::AccountGadget;
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Layouter, SimpleFloorPlanner},
-    plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Expression},
+    plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Expression, Fixed},
 };
 use hash::Hashable;
 use layers::{LayerGadget, PaddingGadget};
@@ -313,10 +313,10 @@ impl EthTrieConfig {
     /// configure for lite circuit (no mpt table included, for fast testing)
     pub fn configure_base<Fp: FieldExt>(
         meta: &mut ConstraintSystem<Fp>,
-        hash_tbl: [Column<Advice>; 5],
+        hash_tbl: (Column<Fixed>, [Column<Advice>; 5]),
     ) -> Self {
         let tables = mpt::MPTOpTables::configure_create(meta);
-        let hash_tbl = mpt::HashTable::configure_assign(&hash_tbl);
+        let hash_tbl = mpt::HashTable::configure_assign(&hash_tbl.1);
 
         let layer = LayerGadget::configure(
             meta,
@@ -399,15 +399,16 @@ impl EthTrieConfig {
 
     /// configure for lite circuit (no mpt table included, for fast testing)
     pub fn configure_lite<Fp: FieldExt>(meta: &mut ConstraintSystem<Fp>) -> Self {
+        let q_enable = meta.fixed_column();
         let hash_tbl = [0; 5].map(|_| meta.advice_column());
-        Self::configure_base(meta, hash_tbl)
+        Self::configure_base(meta, (q_enable, hash_tbl))
     }
 
     /// configure for full circuit
     pub fn configure_sub<Fp: FieldExt>(
         meta: &mut ConstraintSystem<Fp>,
         mpt_tbl: [Column<Advice>; 7],
-        hash_tbl: [Column<Advice>; 5],
+        hash_tbl: (Column<Fixed>, [Column<Advice>; 5]),
         randomness: Expression<Fp>,
     ) -> Self {
         let mut lite_cfg = Self::configure_base(meta, hash_tbl);
@@ -715,8 +716,13 @@ impl<Fp: Hashable> Circuit<Fp> for HashCircuit<Fp> {
     }
 
     fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
+        let q_enable = meta.fixed_column();
         let hash_tbl = [0; 5].map(|_| meta.advice_column());
-        hash::PoseidonHashConfig::configure_sub(meta, hash_tbl, hash_circuit::DEFAULT_STEP)
+        hash::PoseidonHashConfig::configure_sub(
+            meta,
+            (q_enable, hash_tbl),
+            hash_circuit::DEFAULT_STEP,
+        )
     }
 
     fn synthesize(
@@ -890,9 +896,10 @@ impl<Fp: Hashable, const LITE: bool> Circuit<Fp> for EthTrieCircuit<Fp, LITE> {
             EthTrieConfig::configure_lite(meta)
         } else {
             let base = [0; 7].map(|_| meta.advice_column());
+            let q_enable = meta.fixed_column();
             let hash_tbl = [0; 5].map(|_| meta.advice_column());
             let randomness = Expression::Constant(Fp::from(get_rand_base()));
-            EthTrieConfig::configure_sub(meta, base, hash_tbl, randomness)
+            EthTrieConfig::configure_sub(meta, base, (q_enable, hash_tbl), randomness)
         }
     }
 

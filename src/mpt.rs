@@ -261,7 +261,7 @@ impl HashTable {
         hashing_records: impl Iterator<Item = &'d (Fp, Fp, Fp)> + Clone,
     ) -> Result<(), Error> {
         layouter.assign_region(
-            || "hash table",
+            || "hash table inside mpt circuit",
             |mut table| {
                 // default: 0, 0, 0
                 for col in self.0 {
