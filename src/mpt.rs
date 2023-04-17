@@ -65,7 +65,8 @@ use halo2_proofs::{
     arithmetic::{Field, FieldExt},
     circuit::{Chip, Layouter, Region, Value},
     plonk::{
-        Advice, Column, ConstraintSystem, Error, Expression, Selector, TableColumn, VirtualCells,
+        Advice, Column, ConstraintSystem, Error, Expression, Fixed, Selector, TableColumn,
+        VirtualCells,
     },
     poly::Rotation,
 };
@@ -115,54 +116,54 @@ lazy_static! {
 }
 
 impl MPTOpTables {
-    pub fn configure_create<Fp: Field>(meta: &mut ConstraintSystem<Fp>) -> Self {
+    pub fn configure_create<F: Field>(meta: &mut ConstraintSystem<F>) -> Self {
         Self(
             meta.lookup_table_column(),
             [0; 3].map(|_| meta.lookup_table_column()),
         )
     }
 
-    pub fn build_lookup_any<Fp: FieldExt>(
+    pub fn build_lookup_any<F: FieldExt>(
         &self,
-        enable: Expression<Fp>,
-        rules: impl IntoIterator<Item = Expression<Fp>>,
+        enable: Expression<F>,
+        rules: impl IntoIterator<Item = Expression<F>>,
         mark: u64,
-    ) -> Vec<(Expression<Fp>, TableColumn)> {
+    ) -> Vec<(Expression<F>, TableColumn)> {
         let mut ret: Vec<_> = rules
             .into_iter()
             .map(|exp| enable.clone() * exp)
             .zip(self.1)
             .collect();
-        ret.push((enable * Expression::Constant(Fp::from(mark)), self.0));
+        ret.push((enable * Expression::Constant(F::from(mark)), self.0));
         ret
     }
 
-    pub fn build_lookup<Fp: FieldExt>(
+    pub fn build_lookup<F: FieldExt>(
         &self,
-        enable: Expression<Fp>,
-        old: Expression<Fp>,
-        new: Expression<Fp>,
+        enable: Expression<F>,
+        old: Expression<F>,
+        new: Expression<F>,
         mark: u64,
-    ) -> Vec<(Expression<Fp>, TableColumn)> {
+    ) -> Vec<(Expression<F>, TableColumn)> {
         self.build_lookup_any(enable, [old, new], mark)
     }
 
-    pub fn fill_constant<Fp: FieldExt>(
+    pub fn fill_constant<F: FieldExt>(
         &self,
-        layouter: &mut impl Layouter<Fp>,
+        layouter: &mut impl Layouter<F>,
         rules: impl Iterator<Item = ([u32; 3], u32)> + Clone,
     ) -> Result<(), Error> {
         layouter.assign_table(
             || "op table",
             |mut table| {
                 // default line
-                table.assign_cell(|| "default mark", self.0, 0, || Value::known(Fp::zero()))?;
+                table.assign_cell(|| "default mark", self.0, 0, || Value::known(F::zero()))?;
                 for i in 0..3 {
                     table.assign_cell(
                         || "default rule",
                         self.1[i],
                         0,
-                        || Value::known(Fp::zero()),
+                        || Value::known(F::zero()),
                     )?;
                 }
 
@@ -173,7 +174,7 @@ impl MPTOpTables {
                             || "rule item",
                             col,
                             offset,
-                            || Value::known(Fp::from(rule as u64)),
+                            || Value::known(F::from(rule as u64)),
                         )?;
                     }
 
@@ -181,7 +182,7 @@ impl MPTOpTables {
                         || "mark",
                         self.0,
                         offset,
-                        || Value::known(Fp::from(mark as u64)),
+                        || Value::known(F::from(mark as u64)),
                     )?;
                 }
                 Ok(())
@@ -194,7 +195,7 @@ impl MPTOpTables {
 pub(crate) struct HashTable(pub [Column<Advice>; 5]);
 
 impl HashTable {
-    pub fn configure_create<Fp: Field>(meta: &mut ConstraintSystem<Fp>) -> Self {
+    pub fn configure_create<F: Field>(meta: &mut ConstraintSystem<F>) -> Self {
         Self([0; 5].map(|_| meta.advice_column()))
     }
 
@@ -206,14 +207,14 @@ impl HashTable {
         self.0.map(|col| col.index())
     }
 
-    pub fn build_lookup<Fp: FieldExt>(
+    pub fn build_lookup<F: FieldExt>(
         &self,
-        meta: &mut VirtualCells<'_, Fp>,
-        enable: Expression<Fp>,
-        fst: Expression<Fp>,
-        snd: Expression<Fp>,
-        hash: Expression<Fp>,
-    ) -> Vec<(Expression<Fp>, Expression<Fp>)> {
+        meta: &mut VirtualCells<'_, F>,
+        enable: Expression<F>,
+        fst: Expression<F>,
+        snd: Expression<F>,
+        hash: Expression<F>,
+    ) -> Vec<(Expression<F>, Expression<F>)> {
         vec![
             (
                 enable.clone() * hash,
@@ -228,7 +229,7 @@ impl HashTable {
                 meta.query_advice(self.0[2], Rotation::cur()),
             ),
             (
-                enable * Expression::Constant(Fp::zero()),
+                enable * Expression::Constant(F::zero()),
                 meta.query_advice(self.0[3], Rotation::cur()),
             ),
             // TODO: also lookup from `self.0[4]` after https://github.com/scroll-tech/mpt-circuit/issues/9
@@ -238,11 +239,11 @@ impl HashTable {
 
     /// a helper entry to fill hash table with specified rows, use padding record
     /// when hashing_records is not enough
-    pub fn dev_fill_with_paddings<'d, Fp: FieldExt>(
+    pub fn dev_fill_with_paddings<'d, F: FieldExt>(
         &self,
-        layouter: &mut impl Layouter<Fp>,
-        hashing_records: impl Iterator<Item = &'d (Fp, Fp, Fp)> + Clone,
-        padding: (Fp, Fp, Fp),
+        layouter: &mut impl Layouter<F>,
+        hashing_records: impl Iterator<Item = &'d (F, F, F)> + Clone,
+        padding: (F, F, F),
         filled_rows: usize,
     ) -> Result<(), Error> {
         self.dev_fill(
@@ -255,17 +256,17 @@ impl HashTable {
     }
 
     /// a helper entry to fill hash table, only for dev (in using cases)
-    pub fn dev_fill<'d, Fp: FieldExt>(
+    pub fn dev_fill<'d, F: FieldExt>(
         &self,
-        layouter: &mut impl Layouter<Fp>,
-        hashing_records: impl Iterator<Item = &'d (Fp, Fp, Fp)> + Clone,
+        layouter: &mut impl Layouter<F>,
+        hashing_records: impl Iterator<Item = &'d (F, F, F)> + Clone,
     ) -> Result<(), Error> {
         layouter.assign_region(
             || "hash table inside mpt circuit",
             |mut table| {
                 // default: 0, 0, 0
                 for col in self.0 {
-                    table.assign_advice(|| "default", col, 0, || Value::known(Fp::zero()))?;
+                    table.assign_advice(|| "default", col, 0, || Value::known(F::zero()))?;
                 }
 
                 hashing_records
@@ -285,14 +286,14 @@ impl HashTable {
                             || "ctrl_pad",
                             self.0[3],
                             offset,
-                            || Value::known(Fp::zero()),
+                            || Value::known(F::zero()),
                         )?;
 
                         table.assign_advice(
                             || "heading mark",
                             self.0[4],
                             offset,
-                            || Value::known(Fp::one()),
+                            || Value::known(F::one()),
                         )?;
 
                         Ok(())
@@ -306,7 +307,7 @@ impl HashTable {
 
 #[derive(Clone, Debug)]
 struct MPTOpConfig {
-    s_row: Selector,
+    s_row: Column<Fixed>,
     s_enable: Column<Advice>,
     s_path: Column<Advice>,
     depth: Column<Advice>,
@@ -348,9 +349,9 @@ impl MPTOpGadget {
     }
 
     /// if the gadget would be used only once, this entry is more easy
-    pub fn configure_simple<Fp: FieldExt>(
-        meta: &mut ConstraintSystem<Fp>,
-        sel: Selector,
+    pub fn configure_simple<F: FieldExt>(
+        meta: &mut ConstraintSystem<F>,
+        sel: Column<Fixed>,
         exported: &[Column<Advice>],
         s_ctrl_type: &[Column<Advice>],
         free: &[Column<Advice>],
@@ -377,9 +378,9 @@ impl MPTOpGadget {
     /// + s_op_flags * 6 (corresponding 6 ctrl_types)
     /// + free col * 8
     /// notice the gadget has bi-direction exporting (on top it exporting mpt root and bottom exporting leaf)
-    pub fn configure<Fp: FieldExt>(
-        meta: &mut ConstraintSystem<Fp>,
-        sel: Selector,
+    pub fn configure<F: FieldExt>(
+        meta: &mut ConstraintSystem<F>,
+        sel: Column<Fixed>,
         exported: &[Column<Advice>],
         s_ctrl_type: &[Column<Advice>],
         free: &[Column<Advice>],
@@ -411,15 +412,15 @@ impl MPTOpGadget {
         };
 
         meta.create_gate("flag boolean", |meta| {
-            let s_row = meta.query_selector(g_config.s_row);
+            let s_row = meta.query_fixed(g_config.s_row, Rotation::cur());
             let s_enable = meta.query_advice(g_config.s_enable, Rotation::cur());
             // s_enable ∈ {0, 1}
-            vec![s_row * (Expression::Constant(Fp::one()) - s_enable.clone()) * s_enable]
+            vec![s_row * (Expression::Constant(F::one()) - s_enable.clone()) * s_enable]
         });
 
         if let Some((old_root_index, new_root_index)) = root_index {
             meta.create_gate("root index", |meta| {
-                let s_row = meta.query_selector(g_config.s_row);
+                let s_row = meta.query_fixed(g_config.s_row, Rotation::cur());
                 let s_enable = s_row
                     * meta.query_advice(g_config.s_enable, Rotation::cur())
                     * meta.query_advice(
@@ -446,9 +447,9 @@ impl MPTOpGadget {
 
         Self {
             s_enable: g_config.s_enable,
-            op: OpChip::<Fp>::configure(meta, &g_config),
-            old_path: PathChip::<Fp>::configure(meta, &g_config, true),
-            new_path: PathChip::<Fp>::configure(meta, &g_config, false),
+            op: OpChip::<F>::configure(meta, &g_config),
+            old_path: PathChip::<F>::configure(meta, &g_config, true),
+            new_path: PathChip::<F>::configure(meta, &g_config, false),
             hash_table: g_config.hash_table.clone(),
             tables: g_config.tables.clone(),
         }
@@ -468,24 +469,24 @@ impl MPTOpGadget {
         i1.chain(i2)
     }
 
-    /*    pub fn init<Fp: FieldExt>(&self, layouter: &mut impl Layouter<Fp>) -> Result<(), Error> {
+    /*    pub fn init<F: FieldExt>(&self, layouter: &mut impl Layouter<F>) -> Result<(), Error> {
         self.tables
             .fill_constant(layouter, Self::transition_rules())
     }*/
 
     /// assign data and enable flag for MPT circuit
-    pub fn assign<Fp: FieldExt>(
+    pub fn assign<F: FieldExt>(
         &self,
-        region: &mut Region<'_, Fp>,
+        region: &mut Region<'_, F>,
         offset: usize,
-        data: &SingleOp<Fp>,
+        data: &SingleOp<F>,
     ) -> Result<usize, Error> {
         let ctrl_type = data.ctrl_type();
         let old_path_chip =
-            PathChip::<Fp>::construct(self.old_path.clone(), offset, &data.old, Some(&ctrl_type));
+            PathChip::<F>::construct(self.old_path.clone(), offset, &data.old, Some(&ctrl_type));
         let new_path_chip =
-            PathChip::<Fp>::construct(self.new_path.clone(), offset, &data.new, Some(&ctrl_type));
-        let op_chip = OpChip::<Fp>::construct(self.op.clone(), offset, data);
+            PathChip::<F>::construct(self.new_path.clone(), offset, &data.new, Some(&ctrl_type));
+        let op_chip = OpChip::<F>::construct(self.op.clone(), offset, data);
 
         // caution: we made double assignations on key cell so sequence is important
         let op_end = op_chip.assign(region)?;
@@ -500,7 +501,7 @@ impl MPTOpGadget {
                 || "enable MPT circuit",
                 self.s_enable,
                 offset,
-                || Value::known(Fp::one()),
+                || Value::known(F::one()),
             )?;
         }
 
@@ -509,10 +510,10 @@ impl MPTOpGadget {
 }
 
 /*
-fn lagrange_polynomial_for_hashtype<Fp: FieldExt, const T: usize>(
-    ref_n: Expression<Fp>,
-) -> Expression<Fp> {
-    super::lagrange_polynomial::<Fp, T, 5 /* last Type: Leaf */>(ref_n)
+fn lagrange_polynomial_for_hashtype<F: FieldExt, const T: usize>(
+    ref_n: Expression<F>,
+) -> Expression<F> {
+    super::lagrange_polynomial::<F, T, 5 /* last Type: Leaf */>(ref_n)
 }
 */
 
@@ -537,9 +538,9 @@ struct PathChip<'d, F: FieldExt> {
     ref_ctrl_type: Option<&'d [HashType]>,
 }
 
-impl<Fp: FieldExt> Chip<Fp> for PathChip<'_, Fp> {
+impl<F: FieldExt> Chip<F> for PathChip<'_, F> {
     type Config = PathChipConfig;
-    type Loaded = MPTPath<Fp>;
+    type Loaded = MPTPath<F>;
 
     fn config(&self) -> &Self::Config {
         &self.config
@@ -550,12 +551,12 @@ impl<Fp: FieldExt> Chip<Fp> for PathChip<'_, Fp> {
     }
 }
 
-impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
+impl<'d, F: FieldExt> PathChip<'d, F> {
     fn configure(
-        meta: &mut ConstraintSystem<Fp>,
+        meta: &mut ConstraintSystem<F>,
         g_config: &MPTOpConfig,
         from_old: bool,
-    ) -> <Self as Chip<Fp>>::Config {
+    ) -> <Self as Chip<F>>::Config {
         let s_path = g_config.s_path;
         let s_enable = g_config.s_enable;
         let s_hash_type = g_config.s_ctrl_type;
@@ -613,7 +614,7 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
         //
         // from table formed by (left, right, hash)
         meta.lookup_any("mpt node hash", |meta| {
-            let s_hash_type_not_match = Expression::Constant(Fp::one())
+            let s_hash_type_not_match = Expression::Constant(F::one())
                 - meta.query_advice(s_match_ctrl_type, Rotation::cur());
             let s_path = meta.query_advice(s_enable, Rotation::cur())
                 * (meta.query_advice(s_hash_type[HashType::Middle as usize], Rotation::cur())
@@ -656,7 +657,7 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
 
         //transition, notice the start status is ensured outside of the gadget
         meta.lookup("mpt type trans", |meta| {
-            let s_not_begin = Expression::Constant(Fp::one())
+            let s_not_begin = Expression::Constant(F::one())
                 - meta.query_advice(s_hash_type[HashType::Start as usize], Rotation::cur()); //not Start
 
             let s_block_enable = meta.query_advice(s_enable, Rotation::cur()) * s_not_begin;
@@ -670,7 +671,8 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
         });
 
         meta.create_gate("leaf extended", |meta| {
-            let enable = meta.query_selector(s_row) * meta.query_advice(s_enable, Rotation::cur());
+            let enable = meta.query_fixed(s_row, Rotation::cur())
+                * meta.query_advice(s_enable, Rotation::cur());
             let s_extended = meta.query_advice(s_match_ctrl_type, Rotation::cur())
                 * meta.query_advice(s_hash_type[HashType::LeafExt as usize], Rotation::cur()); //(actually) LeafExt
             let sibling = meta.query_advice(sibling, Rotation::cur());
@@ -687,7 +689,8 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
         });
 
         meta.create_gate("last leaf extended", |meta| {
-            let enable = meta.query_selector(s_row) * meta.query_advice(s_enable, Rotation::cur());
+            let enable = meta.query_fixed(s_row, Rotation::cur())
+                * meta.query_advice(s_enable, Rotation::cur());
             let s_last_extended = meta.query_advice(s_match_ctrl_type, Rotation::cur())
                 * meta.query_advice(
                     s_hash_type[HashType::LeafExtFinal as usize],
@@ -718,7 +721,7 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
             hash_table.build_lookup(
                 meta,
                 s_last_extended,
-                Expression::Constant(Fp::one()),
+                Expression::Constant(F::one()),
                 key_proof,
                 key_proof_immediate,
             )
@@ -757,7 +760,7 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
     fn construct(
         config: PathChipConfig,
         offset: usize,
-        data: &'d <Self as Chip<Fp>>::Loaded,
+        data: &'d <Self as Chip<F>>::Loaded,
         ref_ctrl_type: Option<&'d [HashType]>,
     ) -> Self {
         Self {
@@ -768,7 +771,7 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
         }
     }
 
-    fn assign(&self, region: &mut Region<'_, Fp>) -> Result<usize, Error> {
+    fn assign(&self, region: &mut Region<'_, F>) -> Result<usize, Error> {
         let config = &self.config;
         let offset = self.offset;
         let vals = &self.data.hashes;
@@ -781,13 +784,13 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
                 || format!("hash_type {}", hash_type as u32),
                 config.hash_type,
                 offset + index,
-                || Value::known(Fp::from(hash_type as u64)),
+                || Value::known(F::from(hash_type as u64)),
             )?;
             region.assign_advice(
                 || format!("hash_type {}", hash_type as u32),
                 config.hash_type,
                 offset + index,
-                || Value::known(Fp::from(hash_type as u64)),
+                || Value::known(F::from(hash_type as u64)),
             )?;
             region.assign_advice(
                 || "sel",
@@ -795,8 +798,8 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
                 offset + index,
                 || {
                     Value::known(match hash_type {
-                        HashType::Start | HashType::Empty | HashType::Leaf => Fp::zero(),
-                        _ => Fp::one(),
+                        HashType::Start | HashType::Empty | HashType::Leaf => F::zero(),
+                        _ => F::one(),
                     })
                 },
             )?;
@@ -816,9 +819,9 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
                 offset + index,
                 || {
                     Value::known(
-                        Fp::from(ref_type as u64 - hash_type as u64)
+                        F::from(ref_type as u64 - hash_type as u64)
                             .invert()
-                            .unwrap_or_else(Fp::zero),
+                            .unwrap_or_else(F::zero),
                     )
                 },
             )?;
@@ -828,9 +831,9 @@ impl<'d, Fp: FieldExt> PathChip<'d, Fp> {
                 offset + index,
                 || {
                     Value::known(if hash_type == ref_type {
-                        Fp::one()
+                        F::one()
                     } else {
-                        Fp::zero()
+                        F::zero()
                     })
                 },
             )?;
@@ -859,9 +862,9 @@ struct OpChip<'d, F: FieldExt> {
     data: &'d SingleOp<F>,
 }
 
-impl<Fp: FieldExt> Chip<Fp> for OpChip<'_, Fp> {
+impl<F: FieldExt> Chip<F> for OpChip<'_, F> {
     type Config = OpChipConfig;
-    type Loaded = SingleOp<Fp>;
+    type Loaded = SingleOp<F>;
 
     fn config(&self) -> &Self::Config {
         &self.config
@@ -872,11 +875,11 @@ impl<Fp: FieldExt> Chip<Fp> for OpChip<'_, Fp> {
     }
 }
 
-impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
+impl<'d, F: FieldExt> OpChip<'d, F> {
     fn configure(
-        meta: &mut ConstraintSystem<Fp>,
+        meta: &mut ConstraintSystem<F>,
         g_config: &MPTOpConfig,
-    ) -> <Self as Chip<Fp>>::Config {
+    ) -> <Self as Chip<F>>::Config {
         let path = g_config.path;
         let old_hash_type = g_config.old_hash_type;
         let new_hash_type = g_config.new_hash_type;
@@ -906,40 +909,40 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
         });
 
         meta.create_gate("s_path and path bit", |meta| {
-            let enable = meta.query_selector(s_row) * meta.query_advice(s_enable, Rotation::cur());
+            let enable = meta.query_fixed(s_row, Rotation::cur())
+                * meta.query_advice(s_enable, Rotation::cur());
             let s_path = meta.query_advice(s_path, Rotation::cur());
-            let s_path_not_opened = Expression::Constant(Fp::one()) - s_path.clone();
+            let s_path_not_opened = Expression::Constant(F::one()) - s_path.clone();
 
             let path = meta.query_advice(path, Rotation::cur());
-            let path_bit = (Expression::Constant(Fp::one()) - path.clone()) * path;
+            let path_bit = (Expression::Constant(F::one()) - path.clone()) * path;
 
             let hash_type = meta.query_advice(old_hash_type, Rotation::cur());
             let not_path_type = (hash_type.clone()
-                - Expression::Constant(Fp::from(HashType::Empty as u64)))
-                * (hash_type.clone() - Expression::Constant(Fp::from(HashType::Leaf as u64)))
-                * (hash_type - Expression::Constant(Fp::from(HashType::Start as u64)));
+                - Expression::Constant(F::from(HashType::Empty as u64)))
+                * (hash_type.clone() - Expression::Constant(F::from(HashType::Leaf as u64)))
+                * (hash_type - Expression::Constant(F::from(HashType::Start as u64)));
 
             // s_path ∈ {0, 1}
             // s_path is not open when hash_type is "start" / "leaf" / "empty"
             // when s_path is 1, path ∈ {0, 1}
             vec![
-                enable.clone()
-                    * (Expression::Constant(Fp::one()) - s_path.clone())
-                    * s_path.clone(),
+                enable.clone() * (Expression::Constant(F::one()) - s_path.clone()) * s_path.clone(),
                 enable.clone() * not_path_type * s_path_not_opened,
                 enable * s_path * path_bit,
             ]
         });
 
         meta.create_gate("depth", |meta| {
-            let enable = meta.query_selector(s_row) * meta.query_advice(s_enable, Rotation::cur());
+            let enable = meta.query_fixed(s_row, Rotation::cur())
+                * meta.query_advice(s_enable, Rotation::cur());
             let s_begin = meta.query_advice(s_ctrl_type[HashType::Start as usize], Rotation::cur()); //Start
             let path = meta.query_advice(path, Rotation::cur());
             let depth_aux_start = meta.query_advice(depth_aux, Rotation::cur())
-                - Expression::Constant(Fp::one().double().invert().unwrap());
+                - Expression::Constant(F::one().double().invert().unwrap());
             let depth_aux_common = meta.query_advice(depth_aux, Rotation::cur())
                 - meta.query_advice(depth_aux, Rotation::prev())
-                    * Expression::Constant(Fp::from(2u64));
+                    * Expression::Constant(F::from(2u64));
             let key_acc = meta.query_advice(acc_key, Rotation::cur())
                 - (meta.query_advice(acc_key, Rotation::prev())
                     + path * meta.query_advice(depth_aux, Rotation::cur()));
@@ -951,10 +954,10 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
             vec![
                 enable.clone() * s_begin.clone() * depth_aux_start,
                 enable.clone()
-                    * (Expression::Constant(Fp::one()) - s_begin.clone())
+                    * (Expression::Constant(F::one()) - s_begin.clone())
                     * depth_aux_common,
                 enable.clone() * s_begin.clone() * meta.query_advice(acc_key, Rotation::cur()),
-                enable * (Expression::Constant(Fp::one()) - s_begin) * key_acc,
+                enable * (Expression::Constant(F::one()) - s_begin) * key_acc,
             ]
         });
 
@@ -967,7 +970,7 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
             hash_table.build_lookup(
                 meta,
                 s_leaf,
-                Expression::Constant(Fp::one()),
+                Expression::Constant(F::one()),
                 key,
                 key_immediate,
             )
@@ -984,11 +987,7 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
         }
     }
 
-    fn construct(
-        config: OpChipConfig,
-        offset: usize,
-        data: &'d <Self as Chip<Fp>>::Loaded,
-    ) -> Self {
+    fn construct(config: OpChipConfig, offset: usize, data: &'d <Self as Chip<F>>::Loaded) -> Self {
         Self {
             config,
             offset,
@@ -996,7 +995,7 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
         }
     }
 
-    fn assign(&self, region: &mut Region<'_, Fp>) -> Result<usize, Error> {
+    fn assign(&self, region: &mut Region<'_, F>) -> Result<usize, Error> {
         let config = &self.config;
         let paths = &self.data.path;
         let siblings = &self.data.siblings;
@@ -1007,50 +1006,50 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
             || "path padding",
             config.path,
             offset,
-            || Value::known(Fp::zero()),
+            || Value::known(F::zero()),
         )?;
         region.assign_advice(
             || "acckey padding",
             config.acc_key,
             offset,
-            || Value::known(Fp::zero()),
+            || Value::known(F::zero()),
         )?;
         region.assign_advice(
             || "depth padding",
             config.depth,
             offset,
-            || Value::known(Fp::one().double().invert().unwrap()),
+            || Value::known(F::one().double().invert().unwrap()),
         )?;
         region.assign_advice(
             || "sibling padding",
             config.sibling,
             offset,
-            || Value::known(Fp::zero()),
+            || Value::known(F::zero()),
         )?;
         region.assign_advice(
             || "op type start",
             config.ctrl_type,
             offset,
-            || Value::known(Fp::from(ctrl_type[0] as u64)),
+            || Value::known(F::from(ctrl_type[0] as u64)),
         )?;
         region.assign_advice(
             || "enabling s_op",
             config.s_ctrl_type[ctrl_type[0] as usize],
             offset,
-            || Value::known(Fp::one()),
+            || Value::known(F::one()),
         )?;
 
         region.assign_advice(
             || "sibling padding",
             config.sibling,
             offset,
-            || Value::known(Fp::zero()),
+            || Value::known(F::zero()),
         )?;
 
         offset += 1;
 
-        let mut cur_depth = Fp::one();
-        let mut acc_key = Fp::zero();
+        let mut cur_depth = F::one();
+        let mut acc_key = F::zero();
 
         let extend_proof = self.data.extended_proof();
 
@@ -1082,13 +1081,13 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
                 || "ctrl type",
                 config.ctrl_type,
                 offset,
-                || Value::known(Fp::from(ctrl_type[index + 1] as u64)),
+                || Value::known(F::from(ctrl_type[index + 1] as u64)),
             )?;
             region.assign_advice(
                 || "enabling s_op",
                 config.s_ctrl_type[ctrl_type[index + 1] as usize],
                 offset,
-                || Value::known(Fp::one()),
+                || Value::known(F::one()),
             )?;
 
             cur_depth = cur_depth.double();
@@ -1101,13 +1100,13 @@ impl<'d, Fp: FieldExt> OpChip<'d, Fp> {
             || "op type",
             config.ctrl_type,
             offset,
-            || Value::known(Fp::from(ctrl_type as u64)),
+            || Value::known(F::from(ctrl_type as u64)),
         )?;
         region.assign_advice(
             || "enabling s_op",
             config.s_ctrl_type[ctrl_type as usize],
             offset,
-            || Value::known(Fp::one()),
+            || Value::known(F::one()),
         )?;
         region.assign_advice(
             || "path",
@@ -1156,7 +1155,7 @@ mod test {
 
     impl MPTOpConfig {
         /// assign all required cols directly
-        pub fn create(meta: &mut ConstraintSystem<Fp>) -> Self {
+        pub fn create(meta: &mut ConstraintSystem<F>) -> Self {
             Self {
                 s_row: meta.complex_selector(),
                 s_enable: meta.advice_column(),
@@ -1180,7 +1179,7 @@ mod test {
         }
 
         /// simply flush a row with 0 value to avoid gate poisoned / cell error in debug prover,
-        pub fn flush_row(&self, region: &mut Region<'_, Fp>, offset: usize) -> Result<(), Error> {
+        pub fn flush_row(&self, region: &mut Region<'_, F>, offset: usize) -> Result<(), Error> {
             for rand_flush_col in [
                 self.s_path,
                 self.ctrl_type,
@@ -1212,7 +1211,7 @@ mod test {
                     || "zero flushing",
                     zero_flush_col,
                     offset,
-                    || Value::known(Fp::zero()),
+                    || Value::known(F::zero()),
                 )?;
             }
 
@@ -1229,14 +1228,14 @@ mod test {
     // express for a single path block
     #[derive(Clone)]
     struct TestPathCircuit<const USE_OLD: bool> {
-        key_immediate: Fp,
-        key_residue: Fp,
-        path: Vec<Fp>,
-        siblings: Vec<Fp>,
-        data: MPTPath<Fp>,
+        key_immediate: F,
+        key_residue: F,
+        path: Vec<F>,
+        siblings: Vec<F>,
+        data: MPTPath<F>,
     }
 
-    impl<const USE_OLD: bool> Circuit<Fp> for TestPathCircuit<USE_OLD> {
+    impl<const USE_OLD: bool> Circuit<F> for TestPathCircuit<USE_OLD> {
         type Config = MPTTestConfig;
         type FloorPlanner = SimpleFloorPlanner;
 
@@ -1244,7 +1243,7 @@ mod test {
             self.clone()
         }
 
-        fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
+        fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
             let g_config = MPTOpConfig::create(meta);
             let chip = PathChip::configure(meta, &g_config, USE_OLD);
 
@@ -1257,11 +1256,11 @@ mod test {
         fn synthesize(
             &self,
             config: Self::Config,
-            mut layouter: impl Layouter<Fp>,
+            mut layouter: impl Layouter<F>,
         ) -> Result<(), Error> {
             let offset: usize = 1;
             let chip_cfg = config.chip.clone();
-            let mpt_chip = PathChip::<Fp>::construct(chip_cfg, offset, &self.data, None);
+            let mpt_chip = PathChip::<F>::construct(chip_cfg, offset, &self.data, None);
             layouter.assign_region(
                 || "main",
                 |mut region| {
@@ -1276,14 +1275,14 @@ mod test {
                             || "enable",
                             config.s_ctrl_type[hash_type as usize],
                             working_offset + index,
-                            || Value::known(Fp::one()),
+                            || Value::known(F::one()),
                         )?;
                     }
                     region.assign_advice(
                         || "enable",
                         config.s_enable,
                         working_offset,
-                        || Value::known(Fp::one()),
+                        || Value::known(F::one()),
                     )?;
 
                     working_offset += 1;
@@ -1294,7 +1293,7 @@ mod test {
                             || "enable",
                             config.s_enable,
                             offset,
-                            || Value::known(Fp::one()),
+                            || Value::known(F::one()),
                         )?;
                         region.assign_advice(
                             || "sibling",
@@ -1311,9 +1310,9 @@ mod test {
                     }
 
                     for (col, val, tip) in [
-                        (config.s_enable, Fp::one(), "enable"),
+                        (config.s_enable, F::one(), "enable"),
                         (config.path, self.key_residue, "path"),
-                        (config.sibling, Fp::zero(), "sibling"),
+                        (config.sibling, F::zero(), "sibling"),
                         (config.key_aux, self.key_immediate, "key"),
                     ] {
                         region.assign_advice(|| tip, col, next_offset, || Value::known(val))?;
@@ -1375,21 +1374,21 @@ mod test {
             }
             let key = u32::from_be_bytes(rand_bytes_array()) % MAX_KEY as u32;
             let (path_bits, rev_path) = Self::decompose_path(key, layers);
-            let data = MPTPath::<Fp>::create_with_hasher(
+            let data = MPTPath::<F>::create_with_hasher(
                 &path_bits,
                 &siblings,
-                Fp::from(key as u64),
+                F::from(key as u64),
                 Some(leaf),
                 mock_hash,
             );
-            let path: Vec<Fp> = path_bits
+            let path: Vec<F> = path_bits
                 .into_iter()
-                .map(|not_zero| if not_zero { Fp::one() } else { Fp::zero() })
+                .map(|not_zero| if not_zero { F::one() } else { F::zero() })
                 .collect();
 
             Self {
                 key_immediate: data.key_immediate().unwrap(),
-                key_residue: Fp::from(rev_path as u64),
+                key_residue: F::from(rev_path as u64),
                 data,
                 path,
                 siblings,
@@ -1399,7 +1398,7 @@ mod test {
 
     #[test]
     fn path_gadget_degrees() {
-        let mut cs: ConstraintSystem<Fp> = Default::default();
+        let mut cs: ConstraintSystem<F> = Default::default();
         TestPathCircuit::<true>::configure(&mut cs);
 
         println!("mpt path gadget degree: {}", cs.degree());
@@ -1414,14 +1413,14 @@ mod test {
         #[cfg(feature = "print_layout")]
         print_layout!("layouts/path_layout_old.png", k, &circuit);
 
-        let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
+        let prover = MockProver::<F>::run(k, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
 
         let circuit = TestPathCircuit::<false>::create_rand(3);
         #[cfg(feature = "print_layout")]
         print_layout!("layouts/path_layout_new.png", k, &circuit);
 
-        let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
+        let prover = MockProver::<F>::run(k, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
     }
 
@@ -1434,10 +1433,10 @@ mod test {
     // express for a single path block
     #[derive(Clone)]
     struct TestOpCircuit {
-        data: SingleOp<Fp>,
+        data: SingleOp<F>,
     }
 
-    impl Circuit<Fp> for TestOpCircuit {
+    impl Circuit<F> for TestOpCircuit {
         type Config = OpTestConfig;
         type FloorPlanner = SimpleFloorPlanner;
 
@@ -1445,7 +1444,7 @@ mod test {
             self.clone()
         }
 
-        fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
+        fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
             let g_config = MPTOpConfig::create(meta);
             let chip = OpChip::configure(meta, &g_config);
 
@@ -1458,11 +1457,11 @@ mod test {
         fn synthesize(
             &self,
             config: Self::Config,
-            mut layouter: impl Layouter<Fp>,
+            mut layouter: impl Layouter<F>,
         ) -> Result<(), Error> {
             let offset: usize = 1;
             let chip_cfg = config.chip.clone();
-            let op_chip = OpChip::<Fp>::construct(chip_cfg, offset, &self.data);
+            let op_chip = OpChip::<F>::construct(chip_cfg, offset, &self.data);
             layouter.assign_region(
                 || "main",
                 |mut region| {
@@ -1480,7 +1479,7 @@ mod test {
                             || "enable",
                             config.s_enable,
                             offset,
-                            || Value::known(Fp::one()),
+                            || Value::known(F::one()),
                         )?;
                         region.assign_advice(
                             || "s_path",
@@ -1488,10 +1487,8 @@ mod test {
                             offset,
                             || {
                                 Value::known(match self.data.old.hash_types[index] {
-                                    HashType::Empty | HashType::Leaf | HashType::Start => {
-                                        Fp::zero()
-                                    }
-                                    _ => Fp::one(),
+                                    HashType::Empty | HashType::Leaf | HashType::Start => F::zero(),
+                                    _ => F::one(),
                                 })
                             },
                         )?;
@@ -1499,13 +1496,13 @@ mod test {
                             || "old hash_type",
                             config.old_hash_type,
                             offset,
-                            || Value::known(Fp::from(self.data.old.hash_types[index] as u64)),
+                            || Value::known(F::from(self.data.old.hash_types[index] as u64)),
                         )?;
                         region.assign_advice(
                             || "new hash_type",
                             config.new_hash_type,
                             offset,
-                            || Value::known(Fp::from(self.data.new.hash_types[index] as u64)),
+                            || Value::known(F::from(self.data.new.hash_types[index] as u64)),
                         )?;
                     }
 
@@ -1539,7 +1536,7 @@ mod test {
                     .old
                     .hash_traces
                     .iter()
-                    .chain([(Fp::one(), self.data.key, Fp::zero())].iter()), //dummy for key calc
+                    .chain([(F::one(), self.data.key, F::zero())].iter()), //dummy for key calc
             )?;
 
             Ok(())
@@ -1547,14 +1544,14 @@ mod test {
     }
 
     impl TestOpCircuit {
-        fn from_op(op: SingleOp<Fp>) -> Self {
+        fn from_op(op: SingleOp<F>) -> Self {
             Self { data: op }
         }
     }
 
     #[test]
     fn op_gadget_degrees() {
-        let mut cs: ConstraintSystem<Fp> = Default::default();
+        let mut cs: ConstraintSystem<F> = Default::default();
         TestOpCircuit::configure(&mut cs);
 
         println!("mpt op gadget degree: {}", cs.degree());
@@ -1565,17 +1562,17 @@ mod test {
 
         static ref DEMOCIRCUIT1: TestOpCircuit = {
             TestOpCircuit {
-                data: SingleOp::<Fp>{
+                data: SingleOp::<F>{
                     siblings: Vec::new(),
                     path: Vec::new(),
-                    key: Fp::from(4u64),
-                    key_residual: Fp::from(4u64),
-                    old: MPTPath::<Fp>{
-                        hash_traces: vec![(Fp::one(), Fp::from(4u64), Fp::zero())],
+                    key: F::from(4u64),
+                    key_residual: F::from(4u64),
+                    old: MPTPath::<F>{
+                        hash_traces: vec![(F::one(), F::from(4u64), F::zero())],
                         hash_types: vec![HashType::Start, HashType::Empty],
                         ..Default::default()
                     },
-                    new: MPTPath::<Fp> {
+                    new: MPTPath::<F> {
                         hash_types: vec![HashType::Start, HashType::Leaf],
                         ..Default::default()
                     },
@@ -1586,17 +1583,17 @@ mod test {
 
         static ref DEMOCIRCUIT2: TestOpCircuit = {
             TestOpCircuit {
-                data: SingleOp::<Fp>{
-                    siblings: vec![Fp::from(11u64)],
-                    path: vec![Fp::one()],
-                    key: Fp::from(17u64), //0b10001u64
-                    key_residual: Fp::from(8u64),
-                    old: MPTPath::<Fp>{
-                        hash_traces: vec![(Fp::one(), Fp::from(9u64), Fp::zero())],
+                data: SingleOp::<F>{
+                    siblings: vec![F::from(11u64)],
+                    path: vec![F::one()],
+                    key: F::from(17u64), //0b10001u64
+                    key_residual: F::from(8u64),
+                    old: MPTPath::<F>{
+                        hash_traces: vec![(F::one(), F::from(9u64), F::zero())],
                         hash_types: vec![HashType::Start, HashType::LeafExtFinal, HashType::Empty],
                         ..Default::default()
                     },
-                    new: MPTPath::<Fp> {
+                    new: MPTPath::<F> {
                         hash_types: vec![HashType::Start, HashType::Middle, HashType::Leaf],
                         ..Default::default()
                     },
@@ -1607,13 +1604,13 @@ mod test {
 
         static ref DEMOCIRCUIT3: TestOpCircuit = {
             TestOpCircuit {
-                data: SingleOp::<Fp>{
-                    siblings: vec![Fp::from(11u64), Fp::zero(), Fp::from(22u64)],
-                    path: vec![Fp::one(), Fp::zero(), Fp::one()],
-                    key: Fp::from(45u64), //0b101101u64
-                    key_residual: Fp::from(5u64),
-                    old: MPTPath::<Fp>{
-                        hash_traces: vec![(Fp::one(), Fp::from(45u64), Fp::zero())],
+                data: SingleOp::<F>{
+                    siblings: vec![F::from(11u64), F::zero(), F::from(22u64)],
+                    path: vec![F::one(), F::zero(), F::one()],
+                    key: F::from(45u64), //0b101101u64
+                    key_residual: F::from(5u64),
+                    old: MPTPath::<F>{
+                        hash_traces: vec![(F::one(), F::from(45u64), F::zero())],
                         hash_types: vec![
                             HashType::Start,
                             HashType::Middle,
@@ -1623,7 +1620,7 @@ mod test {
                         ],
                         ..Default::default()
                     },
-                    new: MPTPath::<Fp> {
+                    new: MPTPath::<F> {
                         hash_types: vec![
                             HashType::Start,
                             HashType::Middle,
@@ -1646,23 +1643,23 @@ mod test {
         #[cfg(feature = "print_layout")]
         print_layout!("layouts/op_layout.png", k, &*DEMOCIRCUIT3);
 
-        let prover = MockProver::<Fp>::run(k, &*DEMOCIRCUIT3, vec![]).unwrap();
+        let prover = MockProver::<F>::run(k, &*DEMOCIRCUIT3, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
 
-        let prover = MockProver::<Fp>::run(k, &*DEMOCIRCUIT2, vec![]).unwrap();
+        let prover = MockProver::<F>::run(k, &*DEMOCIRCUIT2, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
 
-        let prover = MockProver::<Fp>::run(k, &*DEMOCIRCUIT1, vec![]).unwrap();
+        let prover = MockProver::<F>::run(k, &*DEMOCIRCUIT1, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
     }
 
     #[test]
     fn rand_case_op() {
-        let op = SingleOp::<Fp>::create_rand_op(3, None, None, mock_hash);
+        let op = SingleOp::<F>::create_rand_op(3, None, None, mock_hash);
 
         let k = 5;
         let circuit = TestOpCircuit { data: op };
-        let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
+        let prover = MockProver::<F>::run(k, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
     }
 
@@ -1676,10 +1673,10 @@ mod test {
     // express for a single path block
     #[derive(Clone, Default)]
     struct MPTTestCircuit {
-        data: SingleOp<Fp>,
+        data: SingleOp<F>,
     }
 
-    impl Circuit<Fp> for MPTTestCircuit {
+    impl Circuit<F> for MPTTestCircuit {
         type Config = GadgetTestConfig;
         type FloorPlanner = SimpleFloorPlanner;
 
@@ -1687,7 +1684,7 @@ mod test {
             Self::default()
         }
 
-        fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
+        fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
             let sel = meta.complex_selector();
             let free_cols: Vec<_> = (0..(8 + //exported
                 MPTOpGadget::min_ctrl_types() +
@@ -1714,7 +1711,7 @@ mod test {
         fn synthesize(
             &self,
             config: Self::Config,
-            mut layouter: impl Layouter<Fp>,
+            mut layouter: impl Layouter<F>,
         ) -> Result<(), Error> {
             config
                 .gadget
@@ -1736,7 +1733,7 @@ mod test {
                                     || "flushing",
                                     *col,
                                     offset,
-                                    || Value::known(Fp::zero()),
+                                    || Value::known(F::zero()),
                                 )
                                 .map(|_| ())
                         })?;
@@ -1755,15 +1752,15 @@ mod test {
         }
     }
 
-    impl From<SingleOp<Fp>> for MPTTestCircuit {
-        fn from(data: SingleOp<Fp>) -> Self {
+    impl From<SingleOp<F>> for MPTTestCircuit {
+        fn from(data: SingleOp<F>) -> Self {
             Self { data }
         }
     }
 
     #[test]
     fn gadget_degrees() {
-        let mut cs: ConstraintSystem<Fp> = Default::default();
+        let mut cs: ConstraintSystem<F> = Default::default();
         MPTTestCircuit::configure(&mut cs);
 
         println!("mpt full gadget degree: {}", cs.degree());
@@ -1772,7 +1769,7 @@ mod test {
 
     #[test]
     fn rand_case_gadget() {
-        let op = SingleOp::<Fp>::create_rand_op(5, None, None, mock_hash);
+        let op = SingleOp::<F>::create_rand_op(5, None, None, mock_hash);
 
         let k = 6;
         let circuit = MPTTestCircuit::from(op);
@@ -1783,7 +1780,7 @@ mod test {
             print_layout!(&path, k, &circuit);
         }
 
-        let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
+        let prover = MockProver::<F>::run(k, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
     }
 }

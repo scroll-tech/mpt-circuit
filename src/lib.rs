@@ -82,18 +82,18 @@ use mpt::MPTOpGadget;
 use operation::{AccountOp, HashTracesSrc, SingleOp};
 
 // building lagrange polynmials L for T so that L(n) = 1 when n = T else 0, n in [0, TO]
-fn lagrange_polynomial<Fp: FieldExt, const T: usize, const TO: usize>(
-    ref_n: Expression<Fp>,
-) -> Expression<Fp> {
-    let mut denominators: Vec<Fp> = (0..=TO)
-        .map(|v| Fp::from(T as u64) - Fp::from(v as u64))
+fn lagrange_polynomial<F: FieldExt, const T: usize, const TO: usize>(
+    ref_n: Expression<F>,
+) -> Expression<F> {
+    let mut denominators: Vec<F> = (0..=TO)
+        .map(|v| F::from(T as u64) - F::from(v as u64))
         .collect();
     denominators.swap_remove(T);
-    let denominator = denominators.into_iter().fold(Fp::one(), |acc, v| v * acc);
-    assert_ne!(denominator, Fp::zero());
+    let denominator = denominators.into_iter().fold(F::one(), |acc, v| v * acc);
+    assert_ne!(denominator, F::zero());
 
-    let mut factors: Vec<Expression<Fp>> = (0..(TO + 1))
-        .map(|v| ref_n.clone() - Expression::Constant(Fp::from(v as u64)))
+    let mut factors: Vec<Expression<F>> = (0..(TO + 1))
+        .map(|v| ref_n.clone() - Expression::Constant(F::from(v as u64)))
         .collect();
     factors.swap_remove(T);
     factors.into_iter().fold(
@@ -122,7 +122,7 @@ pub struct SimpleTrie<F: FieldExt> {
 const OP_MPT: u32 = 1;
 const OP_PADDING: u32 = 0;
 
-impl<Fp: FieldExt> SimpleTrie<Fp> {
+impl<F: FieldExt> SimpleTrie<F> {
     /// create a new, empty circuit with specified size
     pub fn new(c_size: usize) -> Self {
         Self {
@@ -132,7 +132,7 @@ impl<Fp: FieldExt> SimpleTrie<Fp> {
     }
 
     /// Add an op into the circuit data
-    pub fn add_op(&mut self, op: SingleOp<Fp>) {
+    pub fn add_op(&mut self, op: SingleOp<F>) {
         if self.ops.is_empty() {
             self.start_root = op.start_root();
         } else {
@@ -148,7 +148,7 @@ impl<Fp: FieldExt> SimpleTrie<Fp> {
     }
 }
 
-impl<Fp: FieldExt> Circuit<Fp> for SimpleTrie<Fp> {
+impl<F: FieldExt> Circuit<F> for SimpleTrie<F> {
     type Config = SimpleTrieConfig;
     type FloorPlanner = SimpleFloorPlanner;
 
@@ -159,9 +159,11 @@ impl<Fp: FieldExt> Circuit<Fp> for SimpleTrie<Fp> {
         }
     }
 
-    fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
+    fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
+        let q_enable = meta.fixed_column();
         let layer = LayerGadget::configure(
             meta,
+            q_enable,
             2,
             MPTOpGadget::min_free_cols(),
             MPTOpGadget::min_ctrl_types(),
@@ -194,7 +196,7 @@ impl<Fp: FieldExt> Circuit<Fp> for SimpleTrie<Fp> {
     fn synthesize(
         &self,
         config: Self::Config,
-        mut layouter: impl Layouter<Fp>,
+        mut layouter: impl Layouter<F>,
     ) -> Result<(), Error> {
         layouter.assign_region(
             || "main",
@@ -311,8 +313,9 @@ impl EthTrieConfig {
     }
 
     /// configure for lite circuit (no mpt table included, for fast testing)
-    pub fn configure_base<Fp: FieldExt>(
-        meta: &mut ConstraintSystem<Fp>,
+    pub fn configure_base<F: FieldExt>(
+        meta: &mut ConstraintSystem<F>,
+        q_enable: Column<Fixed>,
         hash_tbl: (Column<Fixed>, [Column<Advice>; 5]),
     ) -> Self {
         let tables = mpt::MPTOpTables::configure_create(meta);
@@ -320,6 +323,7 @@ impl EthTrieConfig {
 
         let layer = LayerGadget::configure(
             meta,
+            q_enable,
             5,
             std::cmp::max(
                 MPTOpGadget::min_free_cols(),
@@ -398,21 +402,23 @@ impl EthTrieConfig {
     }
 
     /// configure for lite circuit (no mpt table included, for fast testing)
-    pub fn configure_lite<Fp: FieldExt>(meta: &mut ConstraintSystem<Fp>) -> Self {
-        let q_enable = meta.fixed_column();
+    pub fn configure_lite<F: FieldExt>(meta: &mut ConstraintSystem<F>) -> Self {
+        let q_enable_mpt = meta.fixed_column();
+        let q_enable_poseidon = meta.fixed_column();
         let hash_tbl = [0; 5].map(|_| meta.advice_column());
-        Self::configure_base(meta, (q_enable, hash_tbl))
+        Self::configure_base(meta, q_enable_mpt, (q_enable_poseidon, hash_tbl))
     }
 
     /// configure for full circuit
-    pub fn configure_sub<Fp: FieldExt>(
-        meta: &mut ConstraintSystem<Fp>,
-        mpt_tbl: [Column<Advice>; 7],
+    pub fn configure_sub<F: FieldExt>(
+        meta: &mut ConstraintSystem<F>,
+        mpt_tbl: (Column<Fixed>, [Column<Advice>; 7]),
         hash_tbl: (Column<Fixed>, [Column<Advice>; 5]),
-        randomness: Expression<Fp>,
+        randomness: Expression<F>,
     ) -> Self {
-        let mut lite_cfg = Self::configure_base(meta, hash_tbl);
-        let mpt_tbl = MPTTable::configure(meta, mpt_tbl, randomness);
+        let q_enable = meta.fixed_column();
+        let mut lite_cfg = Self::configure_base(meta, q_enable, hash_tbl);
+        let mpt_tbl = MPTTable::configure(meta, mpt_tbl.1, randomness);
         let layer = &lite_cfg.layer;
         let layer_exported = layer.exported_cols(0);
         let gadget_ind = layer.get_gadget_index();
@@ -436,11 +442,11 @@ impl EthTrieConfig {
 
     /// synthesize the mpt table part, the randomness also specify
     /// if the base part of mpt table should be assigned
-    pub fn load_mpt_table<'d, Fp: Hashable>(
+    pub fn load_mpt_table<'d, F: Hashable>(
         &self,
-        layouter: &mut impl Layouter<Fp>,
-        randomness: Option<Fp>,
-        ops: impl IntoIterator<Item = &'d AccountOp<Fp>>,
+        layouter: &mut impl Layouter<F>,
+        randomness: Option<F>,
+        ops: impl IntoIterator<Item = &'d AccountOp<F>>,
         tbl_tips: impl IntoIterator<Item = MPTProofType>,
         rows: usize,
     ) -> Result<(), Error> {
@@ -462,37 +468,33 @@ impl EthTrieConfig {
 
     /// synthesize the hash table part, it is an development-only
     /// entry which just fill the hashes come from mpt circuit itself
-    pub fn dev_load_hash_table<'d, Fp: Hashable>(
+    pub fn dev_load_hash_table<'d, F: Hashable>(
         &self,
-        layouter: &mut impl Layouter<Fp>,
-        hash_traces: impl Iterator<Item = &'d (Fp, Fp, Fp)> + Clone,
+        layouter: &mut impl Layouter<F>,
+        hash_traces: impl Iterator<Item = &'d (F, F, F)> + Clone,
         rows: usize,
     ) -> Result<(), Error> {
         self.hash_tbl.dev_fill_with_paddings(
             layouter,
             HashTracesSrc::from(hash_traces),
-            (
-                Fp::zero(),
-                Fp::zero(),
-                Hashable::hash([Fp::zero(), Fp::zero()]),
-            ),
+            (F::zero(), F::zero(), Hashable::hash([F::zero(), F::zero()])),
             rows,
         )
     }
 
     /// synthesize core part without advice tables (hash and mpt table),
     /// require a `Hashable` trait on the working field
-    pub fn synthesize_core<'d, Fp: Hashable>(
+    pub fn synthesize_core<'d, F: Hashable>(
         &self,
-        layouter: &mut impl Layouter<Fp>,
-        ops: impl Iterator<Item = &'d AccountOp<Fp>> + Clone,
+        layouter: &mut impl Layouter<F>,
+        ops: impl Iterator<Item = &'d AccountOp<F>> + Clone,
         rows: usize,
     ) -> Result<(), Error> {
         let start_root = ops
             .clone()
             .next()
             .map(|op| op.account_root_before())
-            .unwrap_or_else(Fp::zero);
+            .unwrap_or_else(F::zero);
 
         layouter.assign_region(
             || "main",
@@ -621,14 +623,14 @@ const OP_TRIE_STATE: u32 = 2;
 const OP_ACCOUNT: u32 = 3;
 const OP_STORAGE: u32 = 4;
 
-impl<Fp: FieldExt> EthTrie<Fp> {
+impl<F: FieldExt> EthTrie<F> {
     /// Obtain the wrapped operation sequence
-    pub fn get_ops(&self) -> &[AccountOp<Fp>] {
+    pub fn get_ops(&self) -> &[AccountOp<F>] {
         &self.ops
     }
 
     /// Add an op into the circuit data
-    pub fn add_op(&mut self, op: AccountOp<Fp>) {
+    pub fn add_op(&mut self, op: AccountOp<F>) {
         if self.ops.is_empty() {
             self.start_root = op.account_root_before();
         } else {
@@ -639,14 +641,14 @@ impl<Fp: FieldExt> EthTrie<Fp> {
     }
 
     /// Add an op array
-    pub fn add_ops(&mut self, ops: impl IntoIterator<Item = AccountOp<Fp>>) {
+    pub fn add_ops(&mut self, ops: impl IntoIterator<Item = AccountOp<F>>) {
         for op in ops {
             self.add_op(op)
         }
     }
 
     /// Obtain the final root
-    pub fn final_root(&self) -> Fp {
+    pub fn final_root(&self) -> F {
         self.final_root
     }
 }
@@ -664,9 +666,9 @@ pub struct EthTrieCircuit<F: FieldExt, const LITE: bool> {
     pub mpt_table: Vec<MPTProofType>,
 }
 
-impl<Fp: Hashable> EthTrieCircuit<Fp, true> {
+impl<F: Hashable> EthTrieCircuit<F, true> {
     /// create circuit without mpt table
-    pub fn new_lite(calcs: usize, ops: Vec<AccountOp<Fp>>) -> Self {
+    pub fn new_lite(calcs: usize, ops: Vec<AccountOp<F>>) -> Self {
         Self {
             calcs,
             ops,
@@ -675,9 +677,9 @@ impl<Fp: Hashable> EthTrieCircuit<Fp, true> {
     }
 }
 
-impl<Fp: Hashable> EthTrieCircuit<Fp, false> {
+impl<F: Hashable> EthTrieCircuit<F, false> {
     /// create circuit
-    pub fn new(calcs: usize, ops: Vec<AccountOp<Fp>>, mpt_table: Vec<MPTProofType>) -> Self {
+    pub fn new(calcs: usize, ops: Vec<AccountOp<F>>, mpt_table: Vec<MPTProofType>) -> Self {
         Self {
             calcs,
             ops,
@@ -686,8 +688,8 @@ impl<Fp: Hashable> EthTrieCircuit<Fp, false> {
     }
 
     /// downgrade circuit to lite mode
-    pub fn switch_lite(self) -> EthTrieCircuit<Fp, true> {
-        EthTrieCircuit::<Fp, true> {
+    pub fn switch_lite(self) -> EthTrieCircuit<F, true> {
+        EthTrieCircuit::<F, true> {
             calcs: self.calcs,
             ops: self.ops,
             mpt_table: Vec::new(),
@@ -698,24 +700,24 @@ impl<Fp: Hashable> EthTrieCircuit<Fp, false> {
 /// a companied hash circuit as the companion of mpt hashes
 pub struct HashCircuit<F: Hashable>(hash::PoseidonHashTable<F>, usize);
 
-impl<Fp: Hashable> HashCircuit<Fp> {
+impl<F: Hashable> HashCircuit<F> {
     /// re-warped, all-in-one creation
-    pub fn new(calcs: usize, input_with_check: &[&(Fp, Fp, Fp)]) -> Self {
+    pub fn new(calcs: usize, input_with_check: &[&(F, F, F)]) -> Self {
         let mut tbl = PoseidonHashTable::default();
         tbl.constant_inputs_with_check(input_with_check.iter().copied());
         Self(tbl, calcs)
     }
 }
 
-impl<Fp: Hashable> Circuit<Fp> for HashCircuit<Fp> {
-    type Config = hash::PoseidonHashConfig<Fp>;
+impl<F: Hashable> Circuit<F> for HashCircuit<F> {
+    type Config = hash::PoseidonHashConfig<F>;
     type FloorPlanner = SimpleFloorPlanner;
 
     fn without_witnesses(&self) -> Self {
         Self(Default::default(), self.1)
     }
 
-    fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
+    fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
         let q_enable = meta.fixed_column();
         let hash_tbl = [0; 5].map(|_| meta.advice_column());
         hash::PoseidonHashConfig::configure_sub(
@@ -728,18 +730,18 @@ impl<Fp: Hashable> Circuit<Fp> for HashCircuit<Fp> {
     fn synthesize(
         &self,
         config: Self::Config,
-        mut layouter: impl Layouter<Fp>,
+        mut layouter: impl Layouter<F>,
     ) -> Result<(), Error> {
-        let chip = hash::PoseidonHashChip::<Fp, { hash_circuit::DEFAULT_STEP }>::construct(
+        let chip = hash::PoseidonHashChip::<F, { hash_circuit::DEFAULT_STEP }>::construct(
             config, &self.0, self.1, true, None,
         );
         chip.load(&mut layouter)
     }
 }
 
-impl<Fp: Hashable> EthTrie<Fp> {
+impl<F: Hashable> EthTrie<F> {
     /// export the hashes involved in current operation sequence
-    pub fn hash_traces(&self) -> impl Iterator<Item = &(Fp, Fp, Fp)> + Clone {
+    pub fn hash_traces(&self) -> impl Iterator<Item = &(F, F, F)> + Clone {
         HashTracesSrc::from(self.ops.iter().flat_map(|op| op.hash_traces()))
     }
 
@@ -751,11 +753,11 @@ impl<Fp: Hashable> EthTrie<Fp> {
         let hash_rows =
             HashTracesSrc::from(self.ops.iter().flat_map(|op| op.hash_traces())).count();
 
-        (adv_rows.max(hash_rows), hash_rows * Fp::hash_block_size())
+        (adv_rows.max(hash_rows), hash_rows * F::hash_block_size())
     }
 
     /// Create all associated circuit objects, depecrated
-    pub fn circuits(&self, rows: usize) -> (EthTrieCircuit<Fp, true>, HashCircuit<Fp>) {
+    pub fn circuits(&self, rows: usize) -> (EthTrieCircuit<F, true>, HashCircuit<F>) {
         self.clone().to_circuits_lite((rows, Some(rows)))
     }
 
@@ -763,7 +765,7 @@ impl<Fp: Hashable> EthTrie<Fp> {
     pub fn to_circuits_lite(
         self,
         rows: (usize, Option<usize>),
-    ) -> (EthTrieCircuit<Fp, true>, HashCircuit<Fp>) {
+    ) -> (EthTrieCircuit<F, true>, HashCircuit<F>) {
         let (mpt_circuit, hash_circuit) = self.to_circuits(rows, &[]);
         (mpt_circuit.switch_lite(), hash_circuit)
     }
@@ -778,7 +780,7 @@ impl<Fp: Hashable> EthTrie<Fp> {
         self,
         rows: (usize, Option<usize>),
         tips: &[MPTProofType],
-    ) -> (EthTrieCircuit<Fp, false>, HashCircuit<Fp>) {
+    ) -> (EthTrieCircuit<F, false>, HashCircuit<F>) {
         let (hash_rows, mpt_rows) = rows;
         let mpt_rows = mpt_rows.unwrap_or(hash_rows);
         let hashes: Vec<_> =
@@ -796,8 +798,8 @@ impl<Fp: Hashable> EthTrie<Fp> {
         self,
         maxium_circuit_rows: usize,
         tips: &[MPTProofType],
-    ) -> (EthTrieCircuit<Fp, false>, HashCircuit<Fp>) {
-        self.to_circuits((maxium_circuit_rows / Fp::hash_block_size(), None), tips)
+    ) -> (EthTrieCircuit<F, false>, HashCircuit<F>) {
+        self.to_circuits((maxium_circuit_rows / F::hash_block_size(), None), tips)
     }
 }
 
@@ -839,13 +841,13 @@ impl CommitmentIndexs {
     }
 
     /// get commitment for lite circuit (no mpt)
-    pub fn new<Fp: Hashable>() -> Self {
-        let mut cs: ConstraintSystem<Fp> = Default::default();
+    pub fn new<F: Hashable>() -> Self {
+        let mut cs: ConstraintSystem<F> = Default::default();
         let config = EthTrieCircuit::<_, true>::configure(&mut cs);
 
         let trie_circuit_indexs = config.hash_tbl.commitment_index();
 
-        let mut cs: ConstraintSystem<Fp> = Default::default();
+        let mut cs: ConstraintSystem<F> = Default::default();
         let config = HashCircuit::configure(&mut cs);
 
         let hash_circuit_indexs = config.commitment_index();
@@ -854,8 +856,8 @@ impl CommitmentIndexs {
     }
 
     /// get commitment for full circuit
-    pub fn new_full_circuit<Fp: Hashable>() -> Self {
-        let mut cs: ConstraintSystem<Fp> = Default::default();
+    pub fn new_full_circuit<F: Hashable>() -> Self {
+        let mut cs: ConstraintSystem<F> = Default::default();
         let config = EthTrieCircuit::<_, false>::configure(&mut cs);
 
         let trie_circuit_indexs = config.hash_tbl.commitment_index();
@@ -864,7 +866,7 @@ impl CommitmentIndexs {
             .expect("should has mpt table")
             .mpt_table_begin_index();
 
-        let mut cs: ConstraintSystem<Fp> = Default::default();
+        let mut cs: ConstraintSystem<F> = Default::default();
         let config = HashCircuit::configure(&mut cs);
 
         let hash_circuit_indexs = config.commitment_index();
@@ -879,7 +881,7 @@ impl CommitmentIndexs {
 
 const TEMP_RANDOMNESS: u64 = 1;
 
-impl<Fp: Hashable, const LITE: bool> Circuit<Fp> for EthTrieCircuit<Fp, LITE> {
+impl<F: Hashable, const LITE: bool> Circuit<F> for EthTrieCircuit<F, LITE> {
     type Config = EthTrieConfig;
     type FloorPlanner = SimpleFloorPlanner;
 
@@ -891,22 +893,28 @@ impl<Fp: Hashable, const LITE: bool> Circuit<Fp> for EthTrieCircuit<Fp, LITE> {
         }
     }
 
-    fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
+    fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
         if LITE {
             EthTrieConfig::configure_lite(meta)
         } else {
+            let q_enable_mpt = meta.fixed_column();
             let base = [0; 7].map(|_| meta.advice_column());
-            let q_enable = meta.fixed_column();
+            let q_enable_poseidon = meta.fixed_column();
             let hash_tbl = [0; 5].map(|_| meta.advice_column());
-            let randomness = Expression::Constant(Fp::from(get_rand_base()));
-            EthTrieConfig::configure_sub(meta, base, (q_enable, hash_tbl), randomness)
+            let randomness = Expression::Constant(F::from(get_rand_base()));
+            EthTrieConfig::configure_sub(
+                meta,
+                (q_enable_mpt, base),
+                (q_enable_poseidon, hash_tbl),
+                randomness,
+            )
         }
     }
 
     fn synthesize(
         &self,
         config: Self::Config,
-        mut layouter: impl Layouter<Fp>,
+        mut layouter: impl Layouter<F>,
     ) -> Result<(), Error> {
         config.dev_load_hash_table(
             &mut layouter,
@@ -919,7 +927,7 @@ impl<Fp: Hashable, const LITE: bool> Circuit<Fp> for EthTrieCircuit<Fp, LITE> {
         } else {
             config.load_mpt_table(
                 &mut layouter,
-                Some(Fp::from(get_rand_base())),
+                Some(F::from(get_rand_base())),
                 self.ops.as_slice(),
                 self.mpt_table.iter().copied(),
                 self.calcs,
@@ -937,13 +945,13 @@ mod test {
 
     #[test]
     fn circuit_degrees() {
-        let mut cs: ConstraintSystem<Fp> = Default::default();
+        let mut cs: ConstraintSystem<F> = Default::default();
         EthTrieCircuit::<_, false>::configure(&mut cs);
 
         println!("mpt circuit degree: {}", cs.degree());
         assert!(cs.degree() <= 9);
 
-        let mut cs: ConstraintSystem<Fp> = Default::default();
+        let mut cs: ConstraintSystem<F> = Default::default();
         HashCircuit::configure(&mut cs);
 
         println!("hash circuit degree: {}", cs.degree());
@@ -952,17 +960,17 @@ mod test {
 
     #[test]
     fn mpt_table_index() {
-        let ind = CommitmentIndexs::new_full_circuit::<Fp>().mpt_tbl_begin();
+        let ind = CommitmentIndexs::new_full_circuit::<F>().mpt_tbl_begin();
         println!("mpt table index start: {}", ind)
     }
 
     #[test]
     fn empty_eth_trie() {
         let k = 9;
-        let data: EthTrie<Fp> = Default::default();
+        let data: EthTrie<F> = Default::default();
         let (circuit, _) = data.to_circuits((20, None), &[]);
 
-        let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
+        let prover = MockProver::<F>::run(k, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
     }
 
@@ -972,23 +980,23 @@ mod test {
         let store_before = KeyValue::create_rand(mock_hash);
         let store_after = KeyValue::create_rand(mock_hash);
 
-        let state_trie = SingleOp::<Fp>::create_rand_op(
+        let state_trie = SingleOp::<F>::create_rand_op(
             3,
             Some((store_before.hash(), store_after.hash())),
             Some(store_key.hash()),
             mock_hash,
         );
 
-        let account_before = Account::<Fp> {
-            balance: Fp::from(1000000u64),
-            nonce: Fp::from(42u64),
+        let account_before = Account::<F> {
+            balance: F::from(1000000u64),
+            nonce: F::from(42u64),
             codehash: (rand_fp(), rand_fp()),
             state_root: state_trie.start_root(),
             ..Default::default()
         };
 
-        let account_after = Account::<Fp> {
-            nonce: Fp::from(43u64),
+        let account_after = Account::<F> {
+            nonce: F::from(43u64),
             state_root: state_trie.new_root(),
             ..account_before.clone()
         };
@@ -997,20 +1005,20 @@ mod test {
         let account_after = account_after.complete(mock_hash);
 
         let address_rep = KeyValue::create_rand(mock_hash);
-        let address = address_rep.limb_0() * Fp::from(0x100000000u64)
+        let address = address_rep.limb_0() * F::from(0x100000000u64)
             + address_rep.limb_1()
-                * Fp::from_u128(0x1000000000000000000000000u128)
+                * F::from_u128(0x1000000000000000000000000u128)
                     .invert()
                     .unwrap();
 
-        let acc_trie = SingleOp::<Fp>::create_rand_op(
+        let acc_trie = SingleOp::<F>::create_rand_op(
             4,
             Some((account_before.account_hash(), account_after.account_hash())),
             Some(address_rep.hash()),
             mock_hash,
         );
 
-        let op1 = AccountOp::<Fp> {
+        let op1 = AccountOp::<F> {
             acc_trie,
             state_trie: Some(state_trie),
             account_after: Some(account_after),
@@ -1027,7 +1035,7 @@ mod test {
         let final_root = op1.account_root();
 
         let k = 9;
-        let trie = EthTrie::<Fp> {
+        let trie = EthTrie::<F> {
             start_root,
             final_root,
             ops: vec![op1],
@@ -1038,7 +1046,7 @@ mod test {
         #[cfg(feature = "print_layout")]
         print_layout!("layouts/eth_trie_layout.png", k, &circuit);
 
-        let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
+        let prover = MockProver::<F>::run(k, &circuit, vec![]).unwrap();
         let ret = prover.verify();
         assert_eq!(ret, Ok(()), "{:#?}", ret);
     }
