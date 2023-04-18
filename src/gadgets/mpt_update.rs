@@ -54,7 +54,7 @@ struct MptUpdateConfig {
 
 impl MptUpdateLookup for MptUpdateConfig {
     fn lookup<F: FieldExt>(&self) -> [Query<F>; 7] {
-        let is_root = || self.segment_type.matches(SegmentType::Start);
+        let is_root = || self.segment_type.current_matches(&[SegmentType::Start]);
         let old_root = self.old_hash.current() * is_root();
         let new_root = self.new_hash.current() * is_root();
         // let proof_type = self
@@ -137,18 +137,18 @@ impl MptUpdateConfig {
         // consistent between the tests, where the number of active rows is small,
         // and in production, where the number is much larger.
         for (sink, sources) in segment::backward_transitions().iter() {
-            cb.condition(config.segment_type.matches(*sink), |cb| {
+            cb.condition(config.segment_type.current_matches(&[*sink]), |cb| {
                 cb.assert(
                     "backward transition for segment",
-                    config.segment_type.previous_in(&sources),
+                    config.segment_type.previous_matches(&sources),
                 );
             });
         }
         for (sink, sources) in path::backward_transitions().iter() {
-            cb.condition(config.path_type.matches(*sink), |cb| {
+            cb.condition(config.path_type.current_matches(&[*sink]), |cb| {
                 cb.assert(
                     "backward transition for path",
-                    config.path_type.previous_in(&sources),
+                    config.path_type.previous_matches(&sources),
                 );
             });
         }
@@ -161,7 +161,7 @@ impl MptUpdateConfig {
                 PathType::ExtensionOld => configure_extension_old(cb, &config, poseidon),
                 PathType::ExtensionNew => configure_extension_new(cb, &config, poseidon),
             };
-            cb.condition(config.path_type.matches(variant), conditional_constraints);
+            cb.condition(config.path_type.current_matches(&[variant]), conditional_constraints);
         }
 
         for variant in MPTProofType::iter() {
@@ -177,7 +177,7 @@ impl MptUpdateConfig {
                 // MPTProofType::PoseidonCodeHashExists => todo!(),
                 // MPTProofType::CodeSizeExists => todo!(),
             };
-            cb.condition(config.proof_type.matches(variant), conditional_constraints);
+            cb.condition(config.proof_type.current_matches(&[variant]), conditional_constraints);
         }
 
         config
@@ -351,7 +351,7 @@ fn configure_nonce<F: FieldExt>(
             SegmentType::AccountLeaf0 => {
                 cb.assert(
                     "path_type is Common",
-                    config.path_type.matches(PathType::Common),
+                    config.path_type.current_matches(&[PathType::Common]),
                 );
                 cb.assert_zero("depth is 0", config.depth.current());
                 cb.assert_zero("direction is 0", config.direction.current());
@@ -360,7 +360,7 @@ fn configure_nonce<F: FieldExt>(
             SegmentType::AccountLeaf1 => {
                 cb.assert(
                     "path_type is Common",
-                    config.path_type.matches(PathType::Common),
+                    config.path_type.current_matches(&[PathType::Common]),
                 );
                 cb.assert_zero("depth is 0", config.depth.current());
                 cb.assert_zero("direction is 0", config.direction.current());
@@ -368,7 +368,7 @@ fn configure_nonce<F: FieldExt>(
             SegmentType::AccountLeaf2 => {
                 cb.assert(
                     "path_type is Common",
-                    config.path_type.matches(PathType::Common),
+                    config.path_type.current_matches(&[PathType::Common]),
                 );
                 cb.assert_zero("depth is 0", config.depth.current());
                 cb.assert_zero("direction is 0", config.direction.current());
@@ -376,7 +376,7 @@ fn configure_nonce<F: FieldExt>(
             SegmentType::AccountLeaf3 => {
                 cb.assert(
                     "path_type is Common",
-                    config.path_type.matches(PathType::Common),
+                    config.path_type.current_matches(&[PathType::Common]),
                 );
                 cb.assert_zero("depth is 0", config.depth.current());
                 cb.assert_zero("direction is 0", config.direction.current());
@@ -407,7 +407,7 @@ fn configure_nonce<F: FieldExt>(
             }
         };
         cb.condition(
-            config.segment_type.matches(variant),
+            config.segment_type.current_matches(&[variant]),
             conditional_constraints,
         );
     }

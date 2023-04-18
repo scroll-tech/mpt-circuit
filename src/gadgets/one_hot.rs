@@ -56,7 +56,7 @@ impl<T: IntoEnumIterator + Hash + Eq> OneHot<T> {
                     .get(v)
                     .map_or_else(|| self.sum(r), |c| c.rotation(r))
             })
-            .fold(Query::zero(), std::Sum);
+            .fold(Query::zero(), |a, b| a + b);
         // This cast is ok (if the values are distinct) because at most one column is set.
         BinaryQuery(query)
     }
