@@ -3,6 +3,7 @@ use super::{
     key_bit::KeyBitLookup,
     one_hot::OneHot,
     poseidon::PoseidonLookup,
+    segment_proof::SegmentProofLookup,
 };
 use crate::{
     constraint_builder::{AdviceColumn, ConstraintBuilder, Query, SelectorColumn},
@@ -108,6 +109,7 @@ impl MptUpdateConfig {
         key_bit: &impl KeyBitLookup,
         rlc: &impl RlcLookup,
         bytes: &impl BytesLookup,
+        segment_proof: &impl SegmentProofLookup,
     ) -> Self {
         let ([selector], [], [old_hash, new_hash]) = cb.build_columns(cs);
 
@@ -164,9 +166,9 @@ impl MptUpdateConfig {
             let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
                 SegmentType::Start => configure_start(cb, &config),
                 SegmentType::AccountTrie => configure_account_trie(cb, &config),
-                SegmentType::AccountLeaf0 => configure_account_leaf0(cb, &config),
-                SegmentType::AccountLeaf1 => configure_account_leaf1(cb, &config),
-                SegmentType::AccountLeaf2 => configure_account_leaf2(cb, &config),
+                SegmentType::AccountLeaf0 => configure_account_leaf0(cb, &config, segment_proof),
+                SegmentType::AccountLeaf1 => configure_account_leaf1(cb, &config, segment_proof),
+                SegmentType::AccountLeaf2 => configure_account_leaf2(cb, &config, segment_proof),
                 SegmentType::AccountLeaf3 => configure_account_leaf3(cb, &config, rlc, bytes),
                 SegmentType::AccountLeaf4
                 | SegmentType::StorageTrie
@@ -427,7 +429,11 @@ fn configure_account_trie<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &M
     );
 }
 
-fn configure_account_leaf0<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {
+fn configure_account_leaf0<F: FieldExt>(
+    cb: &mut ConstraintBuilder<F>,
+    config: &MptUpdateConfig,
+    segment_proof: &impl SegmentProofLookup,
+) {
     cb.assert(
         "from Start or AccountTrie",
         config.selector.current(),
@@ -453,6 +459,18 @@ fn configure_account_leaf0<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &
         config.selector.current(),
         config.depth.current(),
     );
+    cb.add_lookup(
+        "direction is correct for segment and proof types",
+        [
+            config.segment_type.current(),
+            config.proof_type.current(),
+            config.direction.current(),
+        ],
+        segment_proof.lookup(),
+    );
+
+    /* TODO: replaced by above SegmentProofLookup.
+
     for variant in MPTProofType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
             MPTProofType::AccountDestructed | MPTProofType::AccountDoesNotExist => todo!(),
@@ -470,10 +488,16 @@ fn configure_account_leaf0<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &
         };
         cb.condition(config.proof_type.matches(variant), conditional_constraints);
     }
+    */
+
     // add constraints that sibling = old_path_key and new_path_key
 }
 
-fn configure_account_leaf1<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {
+fn configure_account_leaf1<F: FieldExt>(
+    cb: &mut ConstraintBuilder<F>,
+    config: &MptUpdateConfig,
+    segment_proof: &impl SegmentProofLookup,
+) {
     cb.assert(
         "previous is AccountLeaf0",
         config.selector.current(),
@@ -496,6 +520,18 @@ fn configure_account_leaf1<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &
         config.selector.current(),
         config.depth.current(),
     );
+    cb.add_lookup(
+        "direction is correct for segment and proof types",
+        [
+            config.segment_type.current(),
+            config.proof_type.current(),
+            config.direction.current(),
+        ],
+        segment_proof.lookup(),
+    );
+
+    /* TODO: replaced by above SegmentProofLookup.
+
     for variant in MPTProofType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
             MPTProofType::AccountDestructed | MPTProofType::AccountDoesNotExist => todo!(),
@@ -520,9 +556,14 @@ fn configure_account_leaf1<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &
         };
         cb.condition(config.proof_type.matches(variant), conditional_constraints);
     }
+    */
 }
 
-fn configure_account_leaf2<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {
+fn configure_account_leaf2<F: FieldExt>(
+    cb: &mut ConstraintBuilder<F>,
+    config: &MptUpdateConfig,
+    segment_proof: &impl SegmentProofLookup,
+) {
     cb.assert(
         "previous is AccountLeaf1",
         config.selector.current(),
@@ -545,6 +586,18 @@ fn configure_account_leaf2<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &
         config.selector.current(),
         config.depth.current(),
     );
+    cb.add_lookup(
+        "direction is correct for segment and proof types",
+        [
+            config.segment_type.current(),
+            config.proof_type.current(),
+            config.direction.current(),
+        ],
+        segment_proof.lookup(),
+    );
+
+    /* TODO: replaced by above SegmentProofLookup.
+
     for variant in MPTProofType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
             MPTProofType::AccountDestructed | MPTProofType::AccountDoesNotExist => todo!(),
@@ -566,6 +619,7 @@ fn configure_account_leaf2<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &
         };
         cb.condition(config.proof_type.matches(variant), conditional_constraints);
     }
+    */
 }
 
 fn configure_account_leaf3<F: FieldExt>(
