@@ -2,99 +2,94 @@ use crate::constraint_builder::BinaryQuery;
 use crate::constraint_builder::{AdviceColumn, BinaryColumn, ConstraintBuilder, Query};
 use halo2_proofs::{arithmetic::FieldExt, circuit::Region, plonk::ConstraintSystem};
 use itertools::Itertools;
-use std::marker::PhantomData;
+use std::{cmp::Eq, collections::HashMap, hash::Hash};
 use strum::IntoEnumIterator;
 
+// One hot encoding for an enum with T::COUNT variants with COUNT - 1 binary columns.
+// It's useful to have 1 less column so that the default assigment for the gadget
+// is valid (it will represent the first variant).
 #[derive(Clone)]
-pub struct OneHot<T> {
-    // TODO: use [BinaryColumn; T::COUNT] once generic_const_exprs is enabled.
-    columns: Vec<BinaryColumn>,
-    phantom_data: PhantomData<T>,
+pub struct OneHot<T: Hash> {
+    columns: HashMap<T, BinaryColumn>,
 }
 
-impl<T: IntoEnumIterator + Eq> OneHot<T> {
+impl<T: IntoEnumIterator + Hash + Eq> OneHot<T> {
     pub fn configure<F: FieldExt>(
         cs: &mut ConstraintSystem<F>,
         cb: &mut ConstraintBuilder<F>,
     ) -> Self {
-        let columns: Vec<_> = T::iter().map(|_| cb.binary_columns::<1>(cs)[0]).collect();
-        cb.assert_equal(
-            "exactly one binary column is set in one hot encoding",
-            columns
-                .iter()
-                .fold(Query::zero(), |a, b| a.clone() + b.current()),
-            Query::one(),
-        );
-        Self {
-            columns,
-            phantom_data: PhantomData,
+        let mut columns = HashMap::new();
+        for variant in Self::nonfirst_variants() {
+            columns.insert(variant, cb.binary_columns::<1>(cs)[0]);
         }
+        let config = Self { columns };
+        cb.assert(
+            "sum of binary columns in OneHot is 0 or 1",
+            config.sum(0).or(!config.sum(0)),
+        );
+        config
     }
 
     pub fn assign<F: FieldExt>(&self, region: &mut Region<'_, F>, offset: usize, value: T) {
-        for (variant, column) in T::iter().zip_eq(&self.columns) {
-            column.assign(region, offset, variant == value);
-        }
+        self.columns
+            .get(&value)
+            .map(|c| c.assign(region, offset, true));
     }
 
-    pub fn matches<F: FieldExt>(&self, value: T) -> BinaryQuery<F> {
-        T::iter()
-            .zip_eq(&self.columns)
-            .find_map(|(variant, column)| {
-                if variant == value {
-                    Some(column.current())
-                } else {
-                    None
-                }
+    pub fn previous_matches<F: FieldExt>(&self, values: &[T]) -> BinaryQuery<F> {
+        self.matches(values, -1)
+    }
+
+    pub fn current_matches<F: FieldExt>(&self, values: &[T]) -> BinaryQuery<F> {
+        self.matches(values, 0)
+    }
+
+    pub fn next_matches<F: FieldExt>(&self, values: &[T]) -> BinaryQuery<F> {
+        self.matches(values, 1)
+    }
+
+    fn matches<F: FieldExt>(&self, values: &[T], r: i32) -> BinaryQuery<F> {
+        let query = values
+            .iter()
+            .map(|v| {
+                self.columns
+                    .get(v)
+                    .map_or_else(|| self.sum(r), |c| c.rotation(r))
             })
-            .unwrap()
+            .fold(Query::zero(), std::Sum);
+        // This cast is ok (if the values are distinct) because at most one column is set.
+        BinaryQuery(query)
     }
 
-    pub fn previous_matches<F: FieldExt>(&self, value: T) -> BinaryQuery<F> {
-        T::iter()
-            .zip_eq(&self.columns)
-            .find_map(|(variant, column)| {
-                if variant == value {
-                    Some(column.previous())
-                } else {
-                    None
-                }
-            })
-            .unwrap()
+    // pub fn current<F: FieldExt>(&self) -> Query<F> {
+    //     T::iter()
+    //         .enumerate()
+    //         .zip(&self.columns)
+    //         .fold(Query::zero(), |acc, ((i, _), column)| {
+    //             acc.clone() + Query::from(u64::try_from(i).unwrap()) * column.current()
+    //         })
+    // }
+
+    // pub fn previous<F: FieldExt>(&self) -> Query<F> {
+    //     T::iter()
+    //         .enumerate()
+    //         .zip(&self.columns)
+    //         .fold(Query::zero(), |acc, ((i, _), column)| {
+    //             acc.clone() + Query::from(u64::try_from(i).unwrap()) * column.previous()
+    //         })
+    // }
+
+    fn sum<F: FieldExt>(&self, r: i32) -> BinaryQuery<F> {
+        BinaryQuery(
+            self.columns
+                .values()
+                .fold(Query::zero(), |a: Query<F>, b| a.clone() + b.rotation(r)),
+        )
     }
 
-    pub fn previous_in<F: FieldExt>(&self, values: &[T]) -> BinaryQuery<F> {
-        BinaryQuery::one()
-    }
-
-    pub fn next_matches<F: FieldExt>(&self, value: T) -> BinaryQuery<F> {
-        T::iter()
-            .zip_eq(&self.columns)
-            .find_map(|(variant, column)| {
-                if variant == value {
-                    Some(column.next())
-                } else {
-                    None
-                }
-            })
-            .unwrap()
-    }
-
-    pub fn current<F: FieldExt>(&self) -> Query<F> {
-        T::iter()
-            .enumerate()
-            .zip(&self.columns)
-            .fold(Query::zero(), |acc, ((i, _), column)| {
-                acc.clone() + Query::from(u64::try_from(i).unwrap()) * column.current()
-            })
-    }
-
-    pub fn previous<F: FieldExt>(&self) -> Query<F> {
-        T::iter()
-            .enumerate()
-            .zip(&self.columns)
-            .fold(Query::zero(), |acc, ((i, _), column)| {
-                acc.clone() + Query::from(u64::try_from(i).unwrap()) * column.previous()
-            })
+    fn nonfirst_variants() -> impl Iterator<Item = T> {
+        let mut variants = T::iter();
+        variants.next();
+        variants
     }
 }

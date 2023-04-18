@@ -28,8 +28,6 @@ pub trait MptUpdateLookup {
 
 #[derive(Clone)]
 struct MptUpdateConfig {
-    selector: SelectorColumn,
-
     old_hash: AdviceColumn,
     new_hash: AdviceColumn,
 
@@ -92,7 +90,7 @@ impl MptUpdateConfig {
         rlc: &impl RlcLookup,
         bytes: &impl BytesLookup,
     ) -> Self {
-        let ([selector], [], [old_hash, new_hash]) = cb.build_columns(cs);
+        let ([], [], [old_hash, new_hash]) = cb.build_columns(cs);
 
         let proof_type = OneHot::configure(cs, cb);
         let [address, storage_key_rlc] = cb.advice_columns(cs);
@@ -103,19 +101,17 @@ impl MptUpdateConfig {
         let path_type = OneHot::configure(cs, cb);
 
         // cb.add_lookup(
-        //     "direction is correct for key and depth",
-        //     [path_key.current(), depth.current(), direction.current()],
+        //     "direction is correct for old_key and depth",
+        //     [old_key.current(), depth.current(), direction.current()],
         //     key_bit.lookup(),
         // );
-
-        // cb.add_lookup(
-        //     "direction = key.bit(depth)",
-        //     [path_key.current(), depth.current(), direction.current()],
-        //     key_bit.lookup(),
-        // );
+        cb.add_lookup(
+            "direction is correct for new_key and depth",
+            [new_key.current(), depth.current(), direction.current()],
+            key_bit.lookup(),
+        );
 
         let config = Self {
-            selector,
             proof_key,
             old_hash,
             new_hash,
@@ -176,9 +172,10 @@ impl MptUpdateConfig {
                 MPTProofType::AccountDoesNotExist => configure_empty_account(cb, &config),
                 MPTProofType::AccountDestructed => configure_self_destruct(cb, &config),
                 MPTProofType::StorageChanged => configure_storage(cb, &config),
-                MPTProofType::StorageDoesNotExist => configure_empty_storage(cb, &config),
-                MPTProofType::PoseidonCodeHashExists => todo!(),
-                MPTProofType::CodeSizeExists => todo!(),
+                _ => configure_empty_storage(cb, &config),
+                //                 MPTProofType::StorageDoesNotExist => configure_empty_storage(cb, &config),
+                // MPTProofType::PoseidonCodeHashExists => todo!(),
+                // MPTProofType::CodeSizeExists => todo!(),
             };
             cb.condition(config.proof_type.matches(variant), conditional_constraints);
         }
@@ -196,7 +193,6 @@ impl MptUpdateConfig {
             for (direction, old_hash, new_hash, sibling, is_padding_open, is_padding_close) in
                 &proof.address_hash_traces
             {
-                self.selector.enable(region, offset);
                 self.address
                     .assign(region, offset, address_to_fr(proof.claim.address));
                 // self.storage_key_rlc.assign(region, offset, rlc(proof.claim.storage_key, randomness));
@@ -211,13 +207,13 @@ impl MptUpdateConfig {
                 self.segment_type
                     .assign(region, offset, SegmentType::AccountTrie);
 
-                // let path_type = match (*is_padding_open, *is_padding_close) {
-                //     (false, false) => PathType::Common,
-                //     (false, true) => PathType::Old,
-                //     (true, false) => PathType::New,
-                //     (true, true) => unreachable!(),
-                // };
-                // self.path_type.assign(region, offset, path_type);
+                let path_type = match (*is_padding_open, *is_padding_close) {
+                    (false, false) => PathType::Common,
+                    (false, true) => PathType::ExtensionOld,
+                    (true, false) => PathType::ExtensionNew,
+                    (true, true) => unreachable!(),
+                };
+                self.path_type.assign(region, offset, path_type);
 
                 self.sibling.assign(region, offset, *sibling);
                 self.new_hash.assign(region, offset, *new_hash);
@@ -323,6 +319,11 @@ fn configure_extension_new<F: FieldExt>(
         "sibling is zero for extension path",
         config.sibling.current(),
     );
+    // cb.condition(config.path_type.previous_matches(PathType::Common), |cb| {
+    // });
+    // cb.condition(config.path_type.matches(PathType::ExtensionNew), |cb| {
+    //     config.sibling()
+    // });
     // cb.add_lookup(
     //     "poseidon hash correct for new path",
     //     [
@@ -495,11 +496,9 @@ mod test {
             let mut keys = vec![Fr::zero()];
             for update in self.updates.iter() {
                 let proof = Proof::from(update.clone());
-                let key = account_key(proof.claim.address);
-                dbg!(account_key(proof.claim.address));
-                keys.push(key);
+                keys.push(proof.old.key);
+                keys.push(proof.new.key)
             }
-            dbg!(keys.clone());
             keys
         }
 
@@ -507,13 +506,20 @@ mod test {
             let mut lookups = vec![(Fr::zero(), 0, false)];
             for update in self.updates.iter() {
                 let proof = Proof::from(update.clone());
-                for (i, (direction, _, _, _, _, _)) in
+                for (i, (direction, _, _, _, is_padding_open, is_padding_close)) in
                     proof.address_hash_traces.iter().rev().enumerate()
                 {
-                    lookups.push((account_key(proof.claim.address), i, *direction));
+                    // TODO: use PathType here
+                    if !is_padding_open {
+                        lookups.push((proof.old.key, i, *direction));
+                    }
+                    if !is_padding_close {
+                        lookups.push((proof.new.key, i, *direction));
+                    }
                 }
             }
             dbg!(lookups.clone());
+            // panic!();
             lookups
         }
 
@@ -528,7 +534,7 @@ mod test {
     impl Circuit<Fr> for TestCircuit {
         type Config = (
             SelectorColumn,
-            // MptUpdateConfig,
+            MptUpdateConfig,
             PoseidonConfig,
             CanonicalRepresentationConfig,
             KeyBitConfig,
@@ -559,19 +565,19 @@ mod test {
                 &byte_bit,
             );
 
-            // let mpt_update = MptUpdateConfig::configure(
-            //     cs,
-            //     &mut cb,
-            //     &poseidon,
-            //     &key_bit,
-            //     &byte_representation,
-            //     &byte_representation,
-            // );
+            let mpt_update = MptUpdateConfig::configure(
+                cs,
+                &mut cb,
+                &poseidon,
+                &key_bit,
+                &byte_representation,
+                &byte_representation,
+            );
 
             cb.build(cs);
             (
                 selector,
-                // mpt_update,
+                mpt_update,
                 poseidon,
                 canonical_representation,
                 key_bit,
@@ -587,7 +593,7 @@ mod test {
         ) -> Result<(), Error> {
             let (
                 selector,
-                // mpt_update,
+                mpt_update,
                 poseidon,
                 canonical_representation,
                 key_bit,
@@ -598,12 +604,12 @@ mod test {
             let (addresses, hashes, words) = self.byte_representations();
 
             layouter.assign_region(
-                || "asdfasdf",
+                || "",
                 |mut region| {
                     for offset in 0..256 {
                         selector.enable(&mut region, offset);
                     }
-                    // mpt_update.assign(&mut region, &self.updates);
+                    mpt_update.assign(&mut region, &self.updates);
                     poseidon.assign(&mut region, &self.hash_traces());
                     canonical_representation.assign(&mut region, &self.keys());
                     key_bit.assign(&mut region, &self.key_bit_lookups());

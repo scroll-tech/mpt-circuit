@@ -227,7 +227,7 @@ impl Config {
 }
 
 /// The defination is greped from state-circuit
-#[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter, Hash)]
 pub enum MPTProofType {
     /// nonce
     NonceChanged = 1,
