@@ -21,7 +21,7 @@ use strum_macros::EnumIter;
 
 /// Each row of an mpt update belongs to one of four segments.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter)]
-enum SegmentType {
+pub(crate) enum SegmentType {
     Start,
     AccountTrie,
     AccountLeaf0,

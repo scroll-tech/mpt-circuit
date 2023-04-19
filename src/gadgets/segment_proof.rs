@@ -1,7 +1,57 @@
-use crate::constraint_builder::{AdviceColumn, ConstraintBuilder, Query};
+use super::mpt_update::SegmentType;
+use crate::{
+    constraint_builder::{AdviceColumn, ConstraintBuilder, Query},
+    MPTProofType,
+};
 use halo2_proofs::{
     arithmetic::FieldExt, circuit::Region, halo2curves::bn256::Fr, plonk::ConstraintSystem,
 };
+
+const SEGMENT_PROOF_DIRECTION_TUPLES: [(SegmentType, MPTProofType, u64); 20] = [
+    // AccountLeaf0
+    (SegmentType::AccountLeaf0, MPTProofType::BalanceChanged, 0),
+    (SegmentType::AccountLeaf0, MPTProofType::CodeHashExists, 0),
+    (SegmentType::AccountLeaf0, MPTProofType::CodeSizeExists, 0),
+    (SegmentType::AccountLeaf0, MPTProofType::NonceChanged, 0),
+    (
+        SegmentType::AccountLeaf0,
+        MPTProofType::PoseidonCodeHashExists,
+        0,
+    ),
+    (SegmentType::AccountLeaf0, MPTProofType::StorageChanged, 0),
+    (
+        SegmentType::AccountLeaf0,
+        MPTProofType::StorageDoesNotExist,
+        0,
+    ),
+    // AccountLeaf1
+    (SegmentType::AccountLeaf1, MPTProofType::BalanceChanged, 0),
+    (SegmentType::AccountLeaf1, MPTProofType::CodeHashExists, 0),
+    (SegmentType::AccountLeaf1, MPTProofType::CodeSizeExists, 0),
+    (SegmentType::AccountLeaf1, MPTProofType::NonceChanged, 0),
+    (SegmentType::AccountLeaf1, MPTProofType::StorageChanged, 0),
+    (
+        SegmentType::AccountLeaf1,
+        MPTProofType::StorageDoesNotExist,
+        0,
+    ),
+    (
+        SegmentType::AccountLeaf1,
+        MPTProofType::PoseidonCodeHashExists,
+        1,
+    ),
+    // AccountLeaf2
+    (SegmentType::AccountLeaf2, MPTProofType::BalanceChanged, 0),
+    (SegmentType::AccountLeaf2, MPTProofType::CodeSizeExists, 0),
+    (SegmentType::AccountLeaf2, MPTProofType::NonceChanged, 0),
+    (SegmentType::AccountLeaf2, MPTProofType::CodeHashExists, 1),
+    (SegmentType::AccountLeaf2, MPTProofType::StorageChanged, 1),
+    (
+        SegmentType::AccountLeaf2,
+        MPTProofType::StorageDoesNotExist,
+        1,
+    ),
+];
 
 pub trait SegmentProofLookup {
     fn lookup<F: FieldExt>(&self) -> [Query<F>; 3];
@@ -27,12 +77,12 @@ impl SegmentProofConfig {
         }
     }
 
-    pub fn assign(&self, region: &mut Region<'_, Fr>, traces: &[(Fr, Fr, Fr)]) {
-        for (offset, trace) in traces.iter().enumerate() {
+    pub fn assign(&self, region: &mut Region<'_, Fr>) {
+        for (offset, tuple) in SEGMENT_PROOF_DIRECTION_TUPLES.iter().enumerate() {
             for (column, value) in [
-                (self.segment_type, trace.0),
-                (self.proof_type, trace.1),
-                (self.direction, trace.2),
+                (self.segment_type, Fr::from(tuple.0 as u64)),
+                (self.proof_type, Fr::from(tuple.1 as u64)),
+                (self.direction, Fr::from(tuple.2)),
             ] {
                 column.assign(region, offset, value);
             }
