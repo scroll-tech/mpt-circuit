@@ -1,6 +1,6 @@
 use super::mpt_update::SegmentType;
 use crate::{
-    constraint_builder::{AdviceColumn, ConstraintBuilder, Query},
+    constraint_builder::{FixedColumn, Query},
     MPTProofType,
 };
 use halo2_proofs::{
@@ -59,17 +59,15 @@ pub trait SegmentProofLookup {
 
 #[derive(Clone, Copy)]
 pub struct SegmentProofConfig {
-    segment_type: AdviceColumn,
-    proof_type: AdviceColumn,
-    direction: AdviceColumn,
+    segment_type: FixedColumn,
+    proof_type: FixedColumn,
+    direction: FixedColumn,
 }
 
 impl SegmentProofConfig {
-    pub fn configure<F: FieldExt>(
-        cs: &mut ConstraintSystem<F>,
-        cb: &mut ConstraintBuilder<F>,
-    ) -> Self {
-        let [segment_type, proof_type, direction] = cb.advice_columns(cs);
+    pub fn configure<F: FieldExt>(cs: &mut ConstraintSystem<F>) -> Self {
+        let [segment_type, proof_type, direction] = [0; 3].map(|_| FixedColumn(cs.fixed_column()));
+
         Self {
             segment_type,
             proof_type,
