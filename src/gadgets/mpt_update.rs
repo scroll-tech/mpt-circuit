@@ -4,7 +4,7 @@ use path::PathType;
 use segment::SegmentType;
 
 use super::{
-    byte_representation::{BytesLookup, RlcLookup},
+    byte_representation::{u256_to_big_endian, BytesLookup, RlcLookup},
     key_bit::KeyBitLookup,
     one_hot::OneHot,
     poseidon::PoseidonLookup,
@@ -13,6 +13,7 @@ use crate::{
     constraint_builder::{AdviceColumn, ConstraintBuilder, Query, SelectorColumn},
     serde::SMTTrace,
     types::Proof,
+    util::rlc,
     MPTProofType,
 };
 use ethers_core::k256::elliptic_curve::PrimeField;
@@ -28,6 +29,8 @@ pub trait MptUpdateLookup {
 
 #[derive(Clone)]
 struct MptUpdateConfig {
+    nonfirst_rows: SelectorColumn, // Enabled on all rows except the last one.
+
     old_hash: AdviceColumn,
     new_hash: AdviceColumn,
 
@@ -90,7 +93,7 @@ impl MptUpdateConfig {
         rlc: &impl RlcLookup,
         bytes: &impl BytesLookup,
     ) -> Self {
-        let ([], [], [old_hash, new_hash]) = cb.build_columns(cs);
+        let ([nonfirst_rows], [], [old_hash, new_hash]) = cb.build_columns(cs);
 
         let proof_type = OneHot::configure(cs, cb);
         let [address, storage_key_rlc] = cb.advice_columns(cs);
@@ -105,13 +108,14 @@ impl MptUpdateConfig {
         //     [old_key.current(), depth.current(), direction.current()],
         //     key_bit.lookup(),
         // );
-        cb.add_lookup(
-            "direction is correct for new_key and depth",
-            [new_key.current(), depth.current(), direction.current()],
-            key_bit.lookup(),
-        );
+        // cb.add_lookup(
+        //     "direction is correct for new_key and depth",
+        //     [new_key.current(), depth.current(), direction.current()],
+        //     key_bit.lookup(),
+        // );
 
         let config = Self {
+            nonfirst_rows,
             proof_key,
             old_hash,
             new_hash,
@@ -136,22 +140,22 @@ impl MptUpdateConfig {
         // of every row except the last). This makes the setting the selectors more
         // consistent between the tests, where the number of active rows is small,
         // and in production, where the number is much larger.
-        for (sink, sources) in segment::backward_transitions().iter() {
-            cb.condition(config.segment_type.current_matches(&[*sink]), |cb| {
-                cb.assert(
-                    "backward transition for segment",
-                    config.segment_type.previous_matches(&sources),
-                );
-            });
-        }
-        for (sink, sources) in path::backward_transitions().iter() {
-            cb.condition(config.path_type.current_matches(&[*sink]), |cb| {
-                cb.assert(
-                    "backward transition for path",
-                    config.path_type.previous_matches(&sources),
-                );
-            });
-        }
+        // for (sink, sources) in segment::backward_transitions().iter() {
+        //     cb.condition(config.segment_type.current_matches(&[*sink]), |cb| {
+        //         cb.assert(
+        //             "backward transition for segment",
+        //             config.segment_type.previous_matches(&sources),
+        //         );
+        //     });
+        // }
+        // for (sink, sources) in path::backward_transitions().iter() {
+        //     cb.condition(config.path_type.current_matches(&[*sink]), |cb| {
+        //         cb.assert(
+        //             "backward transition for path",
+        //             config.path_type.previous_matches(&sources),
+        //         );
+        //     });
+        // }
         // Depth increases by one iff segment type is unchanged, else it is 0?
 
         for variant in PathType::iter() {
@@ -161,7 +165,10 @@ impl MptUpdateConfig {
                 PathType::ExtensionOld => configure_extension_old(cb, &config, poseidon),
                 PathType::ExtensionNew => configure_extension_new(cb, &config, poseidon),
             };
-            cb.condition(config.path_type.current_matches(&[variant]), conditional_constraints);
+            cb.condition(
+                config.path_type.current_matches(&[variant]),
+                conditional_constraints,
+            );
         }
 
         for variant in MPTProofType::iter() {
@@ -177,7 +184,10 @@ impl MptUpdateConfig {
                 // MPTProofType::PoseidonCodeHashExists => todo!(),
                 // MPTProofType::CodeSizeExists => todo!(),
             };
-            cb.condition(config.proof_type.current_matches(&[variant]), conditional_constraints);
+            cb.condition(
+                config.proof_type.current_matches(&[variant]),
+                conditional_constraints,
+            );
         }
 
         config
@@ -190,23 +200,22 @@ impl MptUpdateConfig {
         for update in updates {
             let proof = Proof::from(update.clone());
 
+            let address = address_to_fr(proof.claim.address);
+            let storage_key = rlc(&u256_to_big_endian(&proof.claim.storage_key()), randomness);
+            let old_value = rlc(&u256_to_big_endian(&proof.claim.old_value()), randomness);
+            let new_value = rlc(&u256_to_big_endian(&proof.claim.new_value()), randomness);
+            for i in 0..proof.n_rows() {
+                self.address.assign(region, offset + i, address);
+                self.storage_key_rlc.assign(region, offset + i, storage_key);
+                self.new_value_rlc.assign(region, offset + i, new_value);
+                self.old_value_rlc.assign(region, offset + i, old_value);
+            }
+
             for (direction, old_hash, new_hash, sibling, is_padding_open, is_padding_close) in
                 &proof.address_hash_traces
             {
-                self.address
-                    .assign(region, offset, address_to_fr(proof.claim.address));
-                // self.storage_key_rlc.assign(region, offset, rlc(proof.claim.storage_key, randomness));
-                // self.new_value_rlc.assign(region, offset, ...)
-                // self.old_value_rlc.assign(region, offset, ...)
-
-                // self.is_common_path.assign(
-                //     region,
-                //     offset,
-                //     !(*is_padding_open || *is_padding_close),
-                // );
                 self.segment_type
                     .assign(region, offset, SegmentType::AccountTrie);
-
                 let path_type = match (*is_padding_open, *is_padding_close) {
                     (false, false) => PathType::Common,
                     (false, true) => PathType::ExtensionOld,
@@ -606,7 +615,7 @@ mod test {
             layouter.assign_region(
                 || "",
                 |mut region| {
-                    for offset in 0..256 {
+                    for offset in 0..1024 {
                         selector.enable(&mut region, offset);
                     }
                     mpt_update.assign(&mut region, &self.updates);
@@ -634,6 +643,18 @@ mod test {
         let updates: Vec<SMTTrace> = serde_json::from_str(NONCE_TRACES).unwrap();
 
         let circuit = TestCircuit { updates };
+        let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
+        assert_eq!(prover.verify(), Ok(()));
+    }
+
+    #[test]
+    fn nonce_existing_account() {
+        const TRACE: &str = include_str!("../../tests/dual_code_hash/nonce_existing_account.json");
+        let update: SMTTrace = serde_json::from_str(TRACE).unwrap();
+
+        let circuit = TestCircuit {
+            updates: vec![update],
+        };
         let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
     }

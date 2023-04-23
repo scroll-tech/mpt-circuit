@@ -66,3 +66,9 @@ pub(crate) fn balance_convert(balance: &BigUint) -> Fr {
             a * Fr::from(1 << 32).square() + Fr::from(*b)
         })
 }
+
+pub fn rlc(be_bytes: &[u8], randomness: Fr) -> Fr {
+    be_bytes.iter().fold(Fr::zero(), |acc, byte| {
+        randomness * acc + Fr::from(u64::from(*byte))
+    })
+}

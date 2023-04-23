@@ -117,7 +117,7 @@ fn address_to_big_endian(x: &Address) -> Vec<u8> {
     x.0.to_vec()
 }
 
-fn u256_to_big_endian(x: &U256) -> Vec<u8> {
+pub fn u256_to_big_endian(x: &U256) -> Vec<u8> {
     let mut bytes = [0; 32];
     x.to_big_endian(&mut bytes);
     bytes.to_vec()

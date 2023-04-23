@@ -20,10 +20,38 @@ pub struct Claim {
 
 #[derive(Clone, Copy, Debug)]
 enum ClaimKind {
-    // you should just make make this an update or soemthing....
+    // TODO: There is no need to distinguish between read and writes
     Read(Read),
     Write(Write),
+    // None means we're proving an entire account is empty Some(key) means
+    // we're proving the storage key is empty.
     IsEmpty(Option<U256>),
+}
+
+impl Claim {
+    pub fn storage_key(&self) -> U256 {
+        match self.kind {
+            ClaimKind::Read(Read::Storage { key, .. }) => key,
+            ClaimKind::Write(Write::Storage { key, .. }) => key,
+            _ => U256::zero(),
+        }
+    }
+
+    pub fn old_value(&self) -> U256 {
+        match self.kind {
+            ClaimKind::Read(Read::Nonce(i)) => U256::from(i),
+            ClaimKind::Write(Write::Nonce { old, .. }) => U256::from(old.unwrap_or_default()),
+            _ => unimplemented!("{:?}", self),
+        }
+    }
+
+    pub fn new_value(&self) -> U256 {
+        match self.kind {
+            ClaimKind::Read(Read::Nonce(i)) => U256::from(i),
+            ClaimKind::Write(Write::Nonce { new, .. }) => U256::from(new.unwrap_or_default()),
+            _ => unimplemented!(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -31,8 +59,8 @@ enum Read {
     Nonce(u64),
     Balance(U256),
     CodeHash(U256),
-    // CodeSize(u64),
-    // PoseidonCodeHash(Fr),
+    CodeSize(u64),
+    PoseidonCodeHash(Fr),
     Storage { key: U256, value: U256 },
 }
 
@@ -89,6 +117,17 @@ pub struct Proof {
 
     pub old: Path,
     pub new: Path,
+}
+
+impl Proof {
+    pub fn n_rows(&self) -> usize {
+        match self.claim.kind {
+            ClaimKind::Read(Read::Nonce(_)) | ClaimKind::Write(Write::Nonce { .. }) => {
+                self.address_hash_traces.len() + 5
+            }
+            _ => unimplemented!("{:?}", self.claim),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
