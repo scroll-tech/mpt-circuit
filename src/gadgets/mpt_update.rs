@@ -103,16 +103,17 @@ impl MptUpdateConfig {
         let segment_type = OneHot::configure(cs, cb);
         let path_type = OneHot::configure(cs, cb);
 
-        // cb.add_lookup(
-        //     "direction is correct for old_key and depth",
-        //     [old_key.current(), depth.current(), direction.current()],
-        //     key_bit.lookup(),
-        // );
-        // cb.add_lookup(
-        //     "direction is correct for new_key and depth",
-        //     [new_key.current(), depth.current(), direction.current()],
-        //     key_bit.lookup(),
-        // );
+        // Add unconditional constraints here. Conditional constraints are added using configure_* methods.
+        cb.add_lookup(
+            "direction is correct for old_key and depth",
+            [old_key.current(), depth.current(), direction.current()],
+            key_bit.lookup(),
+        );
+        cb.add_lookup(
+            "direction is correct for new_key and depth",
+            [new_key.current(), depth.current(), direction.current()],
+            key_bit.lookup(),
+        );
 
         let config = Self {
             nonfirst_rows,
@@ -211,9 +212,29 @@ impl MptUpdateConfig {
                 self.old_value_rlc.assign(region, offset + i, old_value);
             }
 
-            for (direction, old_hash, new_hash, sibling, is_padding_open, is_padding_close) in
-                &proof.address_hash_traces
+            // Assign start row
+            dbg!(proof.claim.old_root);
+            self.segment_type.assign(region, offset, SegmentType::Start);
+            self.path_type.assign(region, offset, PathType::Start);
+            self.old_hash.assign(region, offset, proof.claim.old_root);
+            self.new_hash.assign(region, offset, proof.claim.new_root);
+            offset += 1;
+
+            for (
+                depth,
+                (direction, old_hash, new_hash, sibling, is_padding_open, is_padding_close),
+            ) in proof.address_hash_traces.iter().rev().enumerate()
             {
+                dbg!(
+                    depth,
+                    direction,
+                    proof.old.key,
+                    proof.new.key,
+                    old_hash,
+                    sibling
+                );
+                self.depth
+                    .assign(region, offset, u64::try_from(depth).unwrap());
                 self.segment_type
                     .assign(region, offset, SegmentType::AccountTrie);
                 let path_type = match (*is_padding_open, *is_padding_close) {
@@ -238,23 +259,23 @@ impl MptUpdateConfig {
 }
 
 fn old_left<F: FieldExt>(config: &MptUpdateConfig) -> Query<F> {
-    config.direction.current() * config.old_hash.previous()
-        + (Query::one() - config.direction.current()) * config.sibling.previous()
+    config.direction.current() * config.sibling.current()
+        + (Query::one() - config.direction.current()) * config.old_hash.current()
 }
 
 fn old_right<F: FieldExt>(config: &MptUpdateConfig) -> Query<F> {
-    config.direction.current() * config.sibling.previous()
-        + (Query::one() - config.direction.current()) * config.old_hash.previous()
+    config.direction.current() * config.old_hash.current()
+        + (Query::one() - config.direction.current()) * config.sibling.current()
 }
 
 fn new_left<F: FieldExt>(config: &MptUpdateConfig) -> Query<F> {
-    config.direction.current() * config.new_hash.previous()
-        + (Query::one() - config.direction.current()) * config.sibling.previous()
+    config.direction.current() * config.sibling.current()
+        + (Query::one() - config.direction.current()) * config.new_hash.current()
 }
 
 fn new_right<F: FieldExt>(config: &MptUpdateConfig) -> Query<F> {
-    config.direction.current() * config.sibling.previous()
-        + (Query::one() - config.direction.current()) * config.new_hash.previous()
+    config.direction.current() * config.new_hash.current()
+        + (Query::one() - config.direction.current()) * config.sibling.current()
 }
 
 fn address_to_fr(a: Address) -> Fr {
@@ -269,15 +290,15 @@ fn configure_common_path<F: FieldExt>(
     config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
 ) {
-    // cb.add_lookup(
-    //     "poseidon hash correct for old path",
-    //     [
-    //         old_left(config),
-    //         old_right(config),
-    //         config.old_hash.current(),
-    //     ],
-    //     poseidon.lookup(),
-    // );
+    cb.add_lookup(
+        "poseidon hash correct for old path",
+        [
+            old_left(config),
+            old_right(config),
+            config.old_hash.previous(),
+        ],
+        poseidon.lookup(),
+    );
     // cb.add_lookup(
     //     "poseidon hash correct for new path",
     //     [
@@ -478,9 +499,9 @@ mod test {
             for update in self.updates.iter() {
                 let address_hash_traces = Proof::from(update.clone()).address_hash_traces;
                 for (direction, old_hash, new_hash, sibling, is_padding_open, is_padding_close) in
-                    &address_hash_traces
+                    address_hash_traces.iter().rev()
                 {
-                    if *is_padding_open {
+                    if !*is_padding_open {
                         let (left, right) = if *direction {
                             (sibling, old_hash)
                         } else {
@@ -488,7 +509,7 @@ mod test {
                         };
                         hash_traces.push((*left, *right, hash(*left, *right)));
                     }
-                    if *is_padding_close {
+                    if !*is_padding_close {
                         let (left, right) = if *direction {
                             (sibling, new_hash)
                         } else {
@@ -498,11 +519,12 @@ mod test {
                     }
                 }
             }
+            dbg!(hash_traces.clone());
             hash_traces
         }
 
         fn keys(&self) -> Vec<Fr> {
-            let mut keys = vec![Fr::zero()];
+            let mut keys = vec![Fr::zero(), Fr::one()];
             for update in self.updates.iter() {
                 let proof = Proof::from(update.clone());
                 keys.push(proof.old.key);
@@ -512,11 +534,12 @@ mod test {
         }
 
         fn key_bit_lookups(&self) -> Vec<(Fr, usize, bool)> {
-            let mut lookups = vec![(Fr::zero(), 0, false)];
+            let mut lookups = vec![(Fr::zero(), 0, false), (Fr::one(), 0, true)];
             for update in self.updates.iter() {
                 let proof = Proof::from(update.clone());
                 for (i, (direction, _, _, _, is_padding_open, is_padding_close)) in
                     proof.address_hash_traces.iter().rev().enumerate()
+                //
                 {
                     // TODO: use PathType here
                     if !is_padding_open {
@@ -527,8 +550,7 @@ mod test {
                     }
                 }
             }
-            dbg!(lookups.clone());
-            // panic!();
+            // dbg!(lookups.clone());
             lookups
         }
 

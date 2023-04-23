@@ -121,12 +121,11 @@ pub struct Proof {
 
 impl Proof {
     pub fn n_rows(&self) -> usize {
-        match self.claim.kind {
-            ClaimKind::Read(Read::Nonce(_)) | ClaimKind::Write(Write::Nonce { .. }) => {
-                self.address_hash_traces.len() + 5
+        1 + self.address_hash_traces.len()
+            + match self.claim.kind {
+                ClaimKind::Read(Read::Nonce(_)) | ClaimKind::Write(Write::Nonce { .. }) => 5,
+                _ => unimplemented!("{:?}", self.claim),
             }
-            _ => unimplemented!("{:?}", self.claim),
-        }
     }
 }
 
