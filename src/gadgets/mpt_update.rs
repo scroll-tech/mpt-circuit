@@ -246,8 +246,8 @@ impl MptUpdateConfig {
                 self.path_type.assign(region, offset, path_type);
 
                 self.sibling.assign(region, offset, *sibling);
-                self.new_hash.assign(region, offset, *new_hash);
                 self.old_hash.assign(region, offset, *old_hash);
+                self.new_hash.assign(region, offset, *new_hash);
                 self.direction.assign(region, offset, *direction);
                 self.old_key.assign(region, offset, proof.old.key);
                 self.new_key.assign(region, offset, proof.new.key);
@@ -299,15 +299,15 @@ fn configure_common_path<F: FieldExt>(
         ],
         poseidon.lookup(),
     );
-    // cb.add_lookup(
-    //     "poseidon hash correct for new path",
-    //     [
-    //         new_left(config),
-    //         new_right(config),
-    //         config.new_hash.current(),
-    //     ],
-    //     poseidon.lookup(),
-    // );
+    cb.add_lookup(
+        "poseidon hash correct for new path",
+        [
+            new_left(config),
+            new_right(config),
+            config.new_hash.previous(),
+        ],
+        poseidon.lookup(),
+    );
 }
 
 fn configure_extension_old<F: FieldExt>(
