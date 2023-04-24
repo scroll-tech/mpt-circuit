@@ -7,7 +7,8 @@ use halo2_proofs::{
     arithmetic::FieldExt, circuit::Region, halo2curves::bn256::Fr, plonk::ConstraintSystem,
 };
 
-const SEGMENT_PROOF_DIRECTION_TUPLES: [(SegmentType, MPTProofType, u64); 20] = [
+// TODO: need to check and update when implementing the corresponding proof type.
+const SEGMENT_PROOF_DIRECTION_TUPLES: [(SegmentType, MPTProofType, u64); 27] = [
     // AccountLeaf0
     (SegmentType::AccountLeaf0, MPTProofType::BalanceChanged, 0),
     (SegmentType::AccountLeaf0, MPTProofType::CodeHashExists, 0),
@@ -51,6 +52,15 @@ const SEGMENT_PROOF_DIRECTION_TUPLES: [(SegmentType, MPTProofType, u64); 20] = [
         MPTProofType::StorageDoesNotExist,
         1,
     ),
+    // AccountLeaf3
+    (SegmentType::AccountLeaf3, MPTProofType::BalanceChanged, 1),
+    (SegmentType::AccountLeaf3, MPTProofType::CodeSizeExists, 0),
+    (SegmentType::AccountLeaf3, MPTProofType::NonceChanged, 0),
+    (SegmentType::AccountLeaf3, MPTProofType::CodeHashExists, 1),
+    (SegmentType::AccountLeaf3, MPTProofType::StorageChanged, 0),
+    // AccountLeaf4
+    (SegmentType::AccountLeaf4, MPTProofType::CodeHashExists, 0),
+    (SegmentType::AccountLeaf4, MPTProofType::CodeHashExists, 1),
 ];
 
 pub trait SegmentProofLookup {
