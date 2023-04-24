@@ -12,7 +12,7 @@ use super::{
 use crate::{
     constraint_builder::{AdviceColumn, ConstraintBuilder, Query, SelectorColumn},
     serde::SMTTrace,
-    types::Proof,
+    types::{account_key, Proof},
     util::rlc,
     MPTProofType,
 };
@@ -34,7 +34,15 @@ struct MptUpdateConfig {
     old_hash: AdviceColumn,
     new_hash: AdviceColumn,
 
-    proof_key: AdviceColumn,
+    segment_type: OneHot<SegmentType>,
+    path_type: OneHot<PathType>,
+    depth: AdviceColumn,
+
+    // You have three key columns here, which seems like 2 too many?
+    key: AdviceColumn,
+    old_key: AdviceColumn,
+    new_key: AdviceColumn,
+    direction: AdviceColumn, // this actually must be binary because of a KeyBitLookup
 
     old_value_rlc: AdviceColumn,
     new_value_rlc: AdviceColumn,
@@ -43,14 +51,6 @@ struct MptUpdateConfig {
 
     address: AdviceColumn,
     storage_key_rlc: AdviceColumn,
-
-    segment_type: OneHot<SegmentType>,
-    path_type: OneHot<PathType>,
-    depth: AdviceColumn,
-
-    old_key: AdviceColumn,
-    new_key: AdviceColumn,
-    direction: AdviceColumn, // this actually must be binary because of a KeyBitLookup
 
     sibling: AdviceColumn,
 }
@@ -98,26 +98,33 @@ impl MptUpdateConfig {
         let proof_type = OneHot::configure(cs, cb);
         let [address, storage_key_rlc] = cb.advice_columns(cs);
         let [old_value_rlc, new_value_rlc] = cb.advice_columns(cs);
-        let [depth, proof_key, old_key, new_key, direction, sibling] = cb.advice_columns(cs);
+        let [depth, key, old_key, new_key, direction, sibling] = cb.advice_columns(cs);
 
         let segment_type = OneHot::configure(cs, cb);
         let path_type = OneHot::configure(cs, cb);
 
-        // Add unconditional constraints here. Conditional constraints are added using configure_* methods.
-        cb.add_lookup(
-            "direction is correct for old_key and depth",
-            [old_key.current(), depth.current(), direction.current()],
-            key_bit.lookup(),
-        );
-        cb.add_lookup(
-            "direction is correct for new_key and depth",
-            [new_key.current(), depth.current(), direction.current()],
-            key_bit.lookup(),
-        );
+        let is_trie =
+            segment_type.current_matches(&[SegmentType::AccountTrie, SegmentType::StorageTrie]);
+
+        cb.condition(is_trie.clone(), |cb| {
+            cb.add_lookup(
+                "direction is correct for old_key and depth",
+                [key.current(), depth.current() - 1, direction.current()],
+                key_bit.lookup(),
+            );
+            cb.assert_equal(
+                "depth increases by 1 in trie segments",
+                depth.current(),
+                depth.previous() + 1,
+            )
+        });
+        cb.condition(!is_trie, |cb| {
+            cb.assert_zero("depth is 0 in non-trie segments", depth.current())
+        });
 
         let config = Self {
             nonfirst_rows,
-            proof_key,
+            key,
             old_hash,
             new_hash,
             proof_type,
@@ -213,7 +220,6 @@ impl MptUpdateConfig {
             }
 
             // Assign start row
-            dbg!(proof.claim.old_root);
             self.segment_type.assign(region, offset, SegmentType::Start);
             self.path_type.assign(region, offset, PathType::Start);
             self.old_hash.assign(region, offset, proof.claim.old_root);
@@ -225,16 +231,8 @@ impl MptUpdateConfig {
                 (direction, old_hash, new_hash, sibling, is_padding_open, is_padding_close),
             ) in proof.address_hash_traces.iter().rev().enumerate()
             {
-                dbg!(
-                    depth,
-                    direction,
-                    proof.old.key,
-                    proof.new.key,
-                    old_hash,
-                    sibling
-                );
                 self.depth
-                    .assign(region, offset, u64::try_from(depth).unwrap());
+                    .assign(region, offset, u64::try_from(depth + 1).unwrap());
                 self.segment_type
                     .assign(region, offset, SegmentType::AccountTrie);
                 let path_type = match (*is_padding_open, *is_padding_close) {
@@ -249,8 +247,19 @@ impl MptUpdateConfig {
                 self.old_hash.assign(region, offset, *old_hash);
                 self.new_hash.assign(region, offset, *new_hash);
                 self.direction.assign(region, offset, *direction);
+                self.key
+                    .assign(region, offset, account_key(proof.claim.address));
                 self.old_key.assign(region, offset, proof.old.key);
                 self.new_key.assign(region, offset, proof.new.key);
+
+                dbg!((
+                    sibling,
+                    is_padding_open,
+                    is_padding_close,
+                    path_type,
+                    old_hash,
+                    new_hash
+                ));
 
                 offset += 1;
             }
@@ -324,10 +333,18 @@ fn configure_extension_old<F: FieldExt>(
     //     ],
     //     poseidon.lookup(),
     // );
-    cb.assert_zero(
-        "sibling is zero for extension path",
-        config.sibling.current(),
-    );
+    let is_final_trie_segment = !config
+        .segment_type
+        .next_matches(&[SegmentType::AccountTrie, SegmentType::StorageTrie]);
+    cb.condition(!is_final_trie_segment.clone(), |cb| {
+        cb.assert_zero(
+            "sibling is zero for non-final extension path segments",
+            config.sibling.current(),
+        );
+    });
+    cb.condition(is_final_trie_segment, |cb| {
+        // TODO: assert that the leaf that was being used as the non-empty witness is put here....
+    });
     cb.assert_equal(
         "new_hash unchanged for path_type=Old",
         config.new_hash.current(),
@@ -340,29 +357,33 @@ fn configure_extension_new<F: FieldExt>(
     config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
 ) {
+    let is_final_trie_segment = !config
+        .segment_type
+        .next_matches(&[SegmentType::AccountTrie, SegmentType::StorageTrie]);
+    cb.condition(!is_final_trie_segment.clone(), |cb| {
+        cb.assert_zero(
+            "sibling is zero for non-final extension path segments",
+            config.sibling.current(),
+        );
+    });
+    cb.condition(is_final_trie_segment, |cb| {
+        // TODO: assert that the leaf that was being used as the non-empty witness is put here....
+    });
+
     cb.assert_equal(
         "old_hash unchanged for path_type=new",
         config.old_hash.current(),
         config.old_hash.previous(),
     );
-    cb.assert_zero(
-        "sibling is zero for extension path",
-        config.sibling.current(),
+    cb.add_lookup(
+        "poseidon hash correct for new path",
+        [
+            new_left(config),
+            new_right(config),
+            config.new_hash.previous(),
+        ],
+        poseidon.lookup(),
     );
-    // cb.condition(config.path_type.previous_matches(PathType::Common), |cb| {
-    // });
-    // cb.condition(config.path_type.matches(PathType::ExtensionNew), |cb| {
-    //     config.sibling()
-    // });
-    // cb.add_lookup(
-    //     "poseidon hash correct for new path",
-    //     [
-    //         new_left(config),
-    //         new_right(config),
-    //         config.new_hash.current(),
-    //     ],
-    //     poseidon.lookup(),
-    // );
 }
 
 fn configure_nonce<F: FieldExt>(
@@ -519,7 +540,6 @@ mod test {
                     }
                 }
             }
-            dbg!(hash_traces.clone());
             hash_traces
         }
 
@@ -550,7 +570,6 @@ mod test {
                     }
                 }
             }
-            // dbg!(lookups.clone());
             lookups
         }
 
@@ -670,8 +689,21 @@ mod test {
     }
 
     #[test]
-    fn nonce_existing_account() {
+    fn existing_account_nonce_write() {
         const TRACE: &str = include_str!("../../tests/dual_code_hash/nonce_existing_account.json");
+        let update: SMTTrace = serde_json::from_str(TRACE).unwrap();
+
+        let circuit = TestCircuit {
+            updates: vec![update],
+        };
+        let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
+        assert_eq!(prover.verify(), Ok(()));
+    }
+
+    #[test]
+    fn empty_account_nonce_write() {
+        const TRACE: &str =
+            include_str!("../../tests/dual_code_hash/empty_account_nonce_write.json");
         let update: SMTTrace = serde_json::from_str(TRACE).unwrap();
 
         let circuit = TestCircuit {
