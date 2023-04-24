@@ -135,6 +135,16 @@ impl MptUpdateConfig {
             key_bit.lookup(),
         );
 
+        cb.add_lookup(
+            "direction is correct for segment and proof types",
+            [
+                segment_type.current(),
+                proof_type.current(),
+                direction.current(),
+            ],
+            segment_proof.lookup(),
+        );
+
         let config = Self {
             selector,
             proof_key,
@@ -166,9 +176,9 @@ impl MptUpdateConfig {
             let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
                 SegmentType::Start => configure_start(cb, &config),
                 SegmentType::AccountTrie => configure_account_trie(cb, &config),
-                SegmentType::AccountLeaf0 => configure_account_leaf0(cb, &config, segment_proof),
-                SegmentType::AccountLeaf1 => configure_account_leaf1(cb, &config, segment_proof),
-                SegmentType::AccountLeaf2 => configure_account_leaf2(cb, &config, segment_proof),
+                SegmentType::AccountLeaf0 => configure_account_leaf0(cb, &config),
+                SegmentType::AccountLeaf1 => configure_account_leaf1(cb, &config),
+                SegmentType::AccountLeaf2 => configure_account_leaf2(cb, &config),
                 SegmentType::AccountLeaf3 => configure_account_leaf3(cb, &config, rlc, bytes),
                 SegmentType::AccountLeaf4
                 | SegmentType::StorageTrie
@@ -429,11 +439,7 @@ fn configure_account_trie<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &M
     );
 }
 
-fn configure_account_leaf0<F: FieldExt>(
-    cb: &mut ConstraintBuilder<F>,
-    config: &MptUpdateConfig,
-    segment_proof: &impl SegmentProofLookup,
-) {
+fn configure_account_leaf0<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {
     cb.assert(
         "from Start or AccountTrie",
         config.selector.current(),
@@ -458,15 +464,6 @@ fn configure_account_leaf0<F: FieldExt>(
         "depth is 0",
         config.selector.current(),
         config.depth.current(),
-    );
-    cb.add_lookup(
-        "direction is correct for segment and proof types",
-        [
-            config.segment_type.current(),
-            config.proof_type.current(),
-            config.direction.current(),
-        ],
-        segment_proof.lookup(),
     );
 
     /* TODO: replaced by above SegmentProofLookup.
@@ -493,11 +490,7 @@ fn configure_account_leaf0<F: FieldExt>(
     // add constraints that sibling = old_path_key and new_path_key
 }
 
-fn configure_account_leaf1<F: FieldExt>(
-    cb: &mut ConstraintBuilder<F>,
-    config: &MptUpdateConfig,
-    segment_proof: &impl SegmentProofLookup,
-) {
+fn configure_account_leaf1<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {
     cb.assert(
         "previous is AccountLeaf0",
         config.selector.current(),
@@ -519,15 +512,6 @@ fn configure_account_leaf1<F: FieldExt>(
         "depth is 0",
         config.selector.current(),
         config.depth.current(),
-    );
-    cb.add_lookup(
-        "direction is correct for segment and proof types",
-        [
-            config.segment_type.current(),
-            config.proof_type.current(),
-            config.direction.current(),
-        ],
-        segment_proof.lookup(),
     );
 
     /* TODO: replaced by above SegmentProofLookup.
@@ -559,11 +543,7 @@ fn configure_account_leaf1<F: FieldExt>(
     */
 }
 
-fn configure_account_leaf2<F: FieldExt>(
-    cb: &mut ConstraintBuilder<F>,
-    config: &MptUpdateConfig,
-    segment_proof: &impl SegmentProofLookup,
-) {
+fn configure_account_leaf2<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {
     cb.assert(
         "previous is AccountLeaf1",
         config.selector.current(),
@@ -585,15 +565,6 @@ fn configure_account_leaf2<F: FieldExt>(
         "depth is 0",
         config.selector.current(),
         config.depth.current(),
-    );
-    cb.add_lookup(
-        "direction is correct for segment and proof types",
-        [
-            config.segment_type.current(),
-            config.proof_type.current(),
-            config.direction.current(),
-        ],
-        segment_proof.lookup(),
     );
 
     /* TODO: replaced by above SegmentProofLookup.
