@@ -466,27 +466,6 @@ fn configure_account_leaf0<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &
         config.depth.current(),
     );
 
-    /* TODO: replaced by above SegmentProofLookup.
-
-    for variant in MPTProofType::iter() {
-        let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
-            MPTProofType::AccountDestructed | MPTProofType::AccountDoesNotExist => todo!(),
-            MPTProofType::BalanceChanged
-            | MPTProofType::CodeHashExists
-            | MPTProofType::CodeSizeExists
-            | MPTProofType::NonceChanged
-            | MPTProofType::PoseidonCodeHashExists
-            | MPTProofType::StorageChanged
-            | MPTProofType::StorageDoesNotExist => cb.add_constraint(
-                "direction is 0",
-                config.selector.current(),
-                config.direction.current(),
-            ),
-        };
-        cb.condition(config.proof_type.matches(variant), conditional_constraints);
-    }
-    */
-
     // add constraints that sibling = old_path_key and new_path_key
 }
 
@@ -513,34 +492,6 @@ fn configure_account_leaf1<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &
         config.selector.current(),
         config.depth.current(),
     );
-
-    /* TODO: replaced by above SegmentProofLookup.
-
-    for variant in MPTProofType::iter() {
-        let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
-            MPTProofType::AccountDestructed | MPTProofType::AccountDoesNotExist => todo!(),
-            MPTProofType::BalanceChanged
-            | MPTProofType::CodeHashExists
-            | MPTProofType::CodeSizeExists
-            | MPTProofType::NonceChanged
-            | MPTProofType::StorageChanged
-            | MPTProofType::StorageDoesNotExist => cb.add_constraint(
-                "direction is 0",
-                config.selector.current(),
-                config.direction.current(),
-            ),
-            MPTProofType::PoseidonCodeHashExists => {
-                cb.add_constraint(
-                    "direction is 1",
-                    config.selector.current(),
-                    Query::one() - config.direction.current(),
-                );
-                // TODO: add poseidon lookup
-            }
-        };
-        cb.condition(config.proof_type.matches(variant), conditional_constraints);
-    }
-    */
 }
 
 fn configure_account_leaf2<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {
@@ -566,31 +517,6 @@ fn configure_account_leaf2<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &
         config.selector.current(),
         config.depth.current(),
     );
-
-    /* TODO: replaced by above SegmentProofLookup.
-
-    for variant in MPTProofType::iter() {
-        let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
-            MPTProofType::AccountDestructed | MPTProofType::AccountDoesNotExist => todo!(),
-            MPTProofType::BalanceChanged
-            | MPTProofType::CodeSizeExists
-            | MPTProofType::NonceChanged => cb.add_constraint(
-                "direction is 0",
-                config.selector.current(),
-                config.direction.current(),
-            ),
-            MPTProofType::CodeHashExists
-            | MPTProofType::StorageChanged
-            | MPTProofType::StorageDoesNotExist => cb.add_constraint(
-                "direction is 1",
-                config.selector.current(),
-                Query::one() - config.direction.current(),
-            ),
-            MPTProofType::PoseidonCodeHashExists => {}
-        };
-        cb.condition(config.proof_type.matches(variant), conditional_constraints);
-    }
-    */
 }
 
 fn configure_account_leaf3<F: FieldExt>(
