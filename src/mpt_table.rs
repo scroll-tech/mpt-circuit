@@ -1,4 +1,5 @@
 use crate::operation::{AccountOp, KeyValue};
+use crate::types::{Claim, ClaimKind, Read, Write};
 use halo2_proofs::{
     arithmetic::{Field, FieldExt},
     circuit::{Layouter, Value},
@@ -247,6 +248,29 @@ pub enum MPTProofType {
     StorageChanged,
     /// non exist proof for storage
     StorageDoesNotExist,
+}
+
+impl From<Claim> for MPTProofType {
+    fn from(claim: Claim) -> Self {
+        match claim.kind {
+            ClaimKind::Read(Read::Nonce(_)) => MPTProofType::NonceChanged,
+            ClaimKind::Read(Read::Balance(_)) => MPTProofType::BalanceChanged,
+            ClaimKind::Read(Read::PoseidonCodeHash(_)) => MPTProofType::PoseidonCodeHashExists,
+            ClaimKind::Read(Read::CodeHash(_)) => MPTProofType::CodeHashExists,
+            ClaimKind::Read(Read::CodeSize(_)) => MPTProofType::CodeSizeExists,
+            ClaimKind::Read(Read::Storage { .. }) => MPTProofType::StorageChanged,
+            ClaimKind::Write(Write::Nonce { .. }) => MPTProofType::NonceChanged,
+            ClaimKind::Write(Write::Balance { .. }) => MPTProofType::BalanceChanged,
+            ClaimKind::Write(Write::PoseidonCodeHash { .. }) => {
+                MPTProofType::PoseidonCodeHashExists
+            }
+            ClaimKind::Write(Write::CodeHash { .. }) => MPTProofType::CodeHashExists,
+            ClaimKind::Write(Write::CodeSize { .. }) => MPTProofType::CodeSizeExists,
+            ClaimKind::Write(Write::Storage { .. }) => MPTProofType::StorageChanged,
+            ClaimKind::IsEmpty(None) => MPTProofType::AccountDoesNotExist,
+            ClaimKind::IsEmpty(Some(_)) => MPTProofType::StorageDoesNotExist,
+        }
+    }
 }
 
 /// the Entry for mpt table

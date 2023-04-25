@@ -15,11 +15,11 @@ pub struct Claim {
     pub old_root: Fr,
     pub new_root: Fr,
     pub address: Address,
-    kind: ClaimKind,
+    pub kind: ClaimKind,
 }
 
 #[derive(Clone, Copy, Debug)]
-enum ClaimKind {
+pub enum ClaimKind {
     // TODO: There is no need to distinguish between read and writes
     Read(Read),
     Write(Write),
@@ -55,7 +55,7 @@ impl Claim {
 }
 
 #[derive(Clone, Copy, Debug)]
-enum Read {
+pub enum Read {
     Nonce(u64),
     Balance(U256),
     CodeHash(U256),
@@ -65,7 +65,7 @@ enum Read {
 }
 
 #[derive(Clone, Copy, Debug)]
-enum Write {
+pub enum Write {
     Nonce {
         old: Option<u64>,
         new: Option<u64>,
@@ -78,8 +78,14 @@ enum Write {
         old: Option<U256>,
         new: Option<U256>,
     },
-    // CodeSize...,
-    // PoseidonCodeHash...,
+    CodeSize {
+        old: Option<u64>,
+        new: Option<u64>,
+    },
+    PoseidonCodeHash {
+        old: Option<Fr>,
+        new: Option<Fr>,
+    },
     Storage {
         key: U256,
         old_value: Option<U256>,
@@ -108,8 +114,8 @@ pub struct Proof {
     // TODO: make this optional
     leafs: [LeafNode; 2],
 
-    old_account_hash_traces: [[Fr; 3]; 7],
-    new_account_hash_traces: [[Fr; 3]; 7],
+    pub old_account_hash_traces: [[Fr; 3]; 7],
+    pub new_account_hash_traces: [[Fr; 3]; 7],
 
     storage_hash_traces: Option<Vec<(bool, Fr, Fr, Fr, bool, bool)>>,
     // TODO: make this a struct plz.
@@ -402,7 +408,7 @@ fn get_internal_hash_traces(
     open_hash_traces: &[SMTNode],
     close_hash_traces: &[SMTNode],
 ) -> Vec<(bool, Fr, Fr, Fr, bool, bool)> {
-    let _path_length = std::cmp::max(open_hash_traces.len(), close_hash_traces.len());
+    // need to do something with the leaf hashes here...
 
     let mut address_hash_traces = vec![];
     for (i, e) in open_hash_traces
@@ -445,6 +451,7 @@ fn get_internal_hash_traces(
 }
 
 fn empty_account_hash_traces(leaf: LeafNode) -> [[Fr; 3]; 7] {
+    // TODO: fix this with what they should be!!!!!
     let mut hash_traces = [[Fr::zero(); 3]; 7];
 
     let h5 = hash(Fr::one(), leaf.key);
@@ -517,6 +524,7 @@ impl Proof {
             self.new_account_hash_traces[5][2],
             self.address_hash_traces.get(0).unwrap().2
         );
+        // if this still the case????
 
         dbg!(self.old_account_hash_traces, self.leafs);
 

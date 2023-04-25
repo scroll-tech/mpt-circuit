@@ -12,7 +12,7 @@ use super::{
 use crate::{
     constraint_builder::{AdviceColumn, ConstraintBuilder, Query, SelectorColumn},
     serde::SMTTrace,
-    types::{account_key, Proof},
+    types::{account_key, hash, ClaimKind, Proof, Read, Write},
     util::rlc,
     MPTProofType,
 };
@@ -21,6 +21,7 @@ use ethers_core::types::Address;
 use halo2_proofs::{
     arithmetic::FieldExt, circuit::Region, halo2curves::bn256::Fr, plonk::ConstraintSystem,
 };
+use itertools::izip;
 use strum::IntoEnumIterator;
 
 pub trait MptUpdateLookup {
@@ -208,11 +209,13 @@ impl MptUpdateConfig {
         for update in updates {
             let proof = Proof::from(update.clone());
 
+            let proof_type = MPTProofType::from(proof.claim);
             let address = address_to_fr(proof.claim.address);
             let storage_key = rlc(&u256_to_big_endian(&proof.claim.storage_key()), randomness);
             let old_value = rlc(&u256_to_big_endian(&proof.claim.old_value()), randomness);
             let new_value = rlc(&u256_to_big_endian(&proof.claim.new_value()), randomness);
             for i in 0..proof.n_rows() {
+                self.proof_type.assign(region, offset + i, proof_type);
                 self.address.assign(region, offset + i, address);
                 self.storage_key_rlc.assign(region, offset + i, storage_key);
                 self.new_value_rlc.assign(region, offset + i, new_value);
@@ -226,6 +229,7 @@ impl MptUpdateConfig {
             self.new_hash.assign(region, offset, proof.claim.new_root);
             offset += 1;
 
+            let mut previous_hash = proof.claim.old_root;
             for (
                 depth,
                 (direction, old_hash, new_hash, sibling, is_padding_open, is_padding_close),
@@ -253,6 +257,7 @@ impl MptUpdateConfig {
                 self.new_key.assign(region, offset, proof.new.key);
 
                 dbg!((
+                    offset,
                     sibling,
                     is_padding_open,
                     is_padding_close,
@@ -261,7 +266,154 @@ impl MptUpdateConfig {
                     new_hash
                 ));
 
+                if *direction {
+                    assert_eq!(hash(*sibling, *old_hash), previous_hash);
+                } else {
+                    assert_eq!(hash(*old_hash, *sibling), previous_hash);
+                }
+                previous_hash = *old_hash;
+
                 offset += 1;
+            }
+
+            let segment_types = vec![
+                SegmentType::AccountLeaf0,
+                SegmentType::AccountLeaf1,
+                SegmentType::AccountLeaf2,
+                SegmentType::AccountLeaf3,
+                SegmentType::AccountLeaf4,
+            ];
+            let (_, _, _, _, is_padding_open, is_padding_close) = proof
+                .address_hash_traces
+                .last()
+                .expect("TODO: handle empty!!");
+            let path_type = match (*is_padding_open, *is_padding_close) {
+                (false, false) => PathType::Common,
+                (false, true) => PathType::ExtensionOld,
+                (true, false) => PathType::ExtensionNew,
+                (true, true) => unreachable!(),
+            };
+            // TODO: this doesn't handle the case where both old and new accounts are empty.
+            let directions = match proof_type {
+                MPTProofType::NonceChanged => vec![true, false, false, false],
+                _ => unimplemented!(),
+            };
+
+            let (old_hashes, new_hashes, siblings) = match proof.claim.kind {
+                // ClaimKind::Write(Write::Nonce {
+                //     old: None,
+                //     new: Some(new_nonce),
+                // }) => (
+                //     vec![Fr::zero(); 4],
+                //     vec![
+                //         hash(Fr::one(), address_key(proof.claim.address)),
+                //         Fr::zero(),
+                //         hash(Fr::zero(), hash(Fr::zero, Fr::zero())),
+                //         Fr::zero(),
+                //     ],
+                //     vec![
+                //         Fr::from(nonce), // assuming codesize is 0 in this case?
+                //         hash(Fr::from(nonce, Fr::zero())),
+                //     ],
+                // ),
+
+                // fn account_hash_traces(address: Address, account: AccountData, storage_root: Fr) -> [[Fr; 3]; 7] {
+                //     // h5 is sibling of node?
+                //     let real_account: Account<Fr> = (&account, storage_root).try_into().unwrap();
+
+                //     let (codehash_hi, codehash_lo) = hi_lo(account.code_hash);
+                //     let h1 = hash(codehash_hi, codehash_lo);
+                //     let h2 = hash(storage_root, h1);
+
+                //     let nonce_and_codesize =
+                //         Fr::from(account.nonce) + Fr::from(account.code_size) * Fr::from(1 << 32).square();
+                //     let balance = balance_convert(account.balance);
+                //     let h3 = hash(nonce_and_codesize, balance);
+
+                //     let h4 = hash(h3, h2);
+
+                //     let account_key = account_key(address);
+                //     let h5 = hash(Fr::one(), account_key);
+
+                //     // TODO: rename balance_convert;
+                //     let poseidon_codehash = balance_convert(account.poseidon_code_hash);
+                //     let account_hash = hash(h4, poseidon_codehash);
+
+                //     let mut account_hash_traces = [[Fr::zero(); 3]; 7];
+                //     account_hash_traces[0] = [codehash_hi, codehash_lo, h1];
+                //     account_hash_traces[1] = [h1, storage_root, h2];
+                //     account_hash_traces[2] = [nonce_and_codesize, balance, h3];
+                //     account_hash_traces[3] = [h3, h2, h4]; //
+                //     account_hash_traces[4] = [h4, poseidon_codehash, account_hash];
+                //     account_hash_traces[5] = [Fr::one(), account_key, h5]; // this should be the sibling?
+                //     account_hash_traces[6] = [h5, account_hash, hash(h5, account_hash)];
+
+                //     // h4 is value of node?
+                //     assert_eq!(real_account.account_hash(), account_hash);
+
+                //     account_hash_traces
+                // }
+                ClaimKind::Write(Write::Nonce {
+                    old: Some(old_nonce),
+                    new: Some(new_nonce),
+                }) => {
+                    // TODO: name these instead of using an array.
+                    let old_account_hash_traces = proof.old_account_hash_traces;
+                    let new_account_hash_traces = proof.new_account_hash_traces;
+
+                    let balance = old_account_hash_traces[2][1];
+                    let h2 = old_account_hash_traces[3][1];
+                    let poseidon_codehash = old_account_hash_traces[4][1];
+                    let account_key_hash = old_account_hash_traces[5][2];
+                    assert_eq!(balance, new_account_hash_traces[2][1]);
+                    assert_eq!(h2, new_account_hash_traces[3][1]);
+                    assert_eq!(poseidon_codehash, new_account_hash_traces[4][1]);
+                    assert_eq!(account_key_hash, new_account_hash_traces[5][2]);
+
+                    let old_account_hash = old_account_hash_traces[6][1];
+                    let old_h4 = old_account_hash_traces[4][0];
+                    let old_h3 = old_account_hash_traces[3][0];
+                    let old_nonce_and_codesize = old_account_hash_traces[2][0];
+
+                    let new_account_hash = new_account_hash_traces[6][1];
+                    let new_h4 = new_account_hash_traces[4][0];
+                    let new_h3 = new_account_hash_traces[3][0];
+                    let new_nonce_and_codesize = new_account_hash_traces[2][0];
+
+                    assert_eq!(hash(old_nonce_and_codesize, balance), old_h3);
+                    assert_eq!(hash(new_nonce_and_codesize, balance), new_h3);
+                    (
+                        vec![old_account_hash, old_h4, old_h3, old_nonce_and_codesize],
+                        vec![new_account_hash, new_h4, new_h3, new_nonce_and_codesize],
+                        vec![account_key_hash, poseidon_codehash, h2, balance],
+                    )
+                }
+                _ => unimplemented!(),
+            };
+            // let siblings = match proof_type {
+            //     MPTProofType::NonceChanged => vec![].
+            //     _ => unimplemented!();
+            // };
+            // let new_hashes = vec![Fr::zero(); 10];
+            // let old_hashes = vec![Fr::one(); 10];
+            for (i, (segment_type, sibling, old_hash, new_hash, direction)) in
+                izip!(segment_types, siblings, old_hashes, new_hashes, directions).enumerate()
+            {
+                if direction {
+                    assert_eq!(hash(sibling, old_hash), previous_hash);
+                } else {
+                    assert_eq!(hash(old_hash, sibling), previous_hash);
+                }
+                previous_hash = old_hash;
+
+                dbg!((offset + i, old_hash, new_hash, sibling));
+                self.segment_type.assign(region, offset + i, segment_type);
+                self.path_type.assign(region, offset + i, path_type);
+                self.sibling.assign(region, offset + i, sibling);
+                self.old_hash.assign(region, offset + i, old_hash);
+                self.new_hash.assign(region, offset + i, new_hash);
+                self.direction.assign(region, offset + i, direction);
+                // TODO: would it be possible to assign key here to make the keybit lookup unconditional?
             }
         }
     }
@@ -500,7 +652,7 @@ mod test {
         poseidon::PoseidonConfig,
     };
     use super::*;
-    use crate::types::{account_key, hash};
+    // use crate::types::{account_key, hash};
     use ethers_core::types::{H256, U256};
     use halo2_proofs::{
         circuit::{Layouter, SimpleFloorPlanner},
@@ -518,7 +670,8 @@ mod test {
         fn hash_traces(&self) -> Vec<(Fr, Fr, Fr)> {
             let mut hash_traces = vec![(Fr::zero(), Fr::zero(), Fr::zero())];
             for update in self.updates.iter() {
-                let address_hash_traces = Proof::from(update.clone()).address_hash_traces;
+                let proof = Proof::from(update.clone());
+                let address_hash_traces = proof.address_hash_traces;
                 for (direction, old_hash, new_hash, sibling, is_padding_open, is_padding_close) in
                     address_hash_traces.iter().rev()
                 {
@@ -539,6 +692,20 @@ mod test {
                         hash_traces.push((*left, *right, hash(*left, *right)));
                     }
                 }
+
+                // TODO: some of these hash traces are not used.
+                hash_traces.extend(
+                    proof
+                        .old_account_hash_traces
+                        .iter()
+                        .map(|x| (x[0], x[1], x[2])),
+                );
+                hash_traces.extend(
+                    proof
+                        .new_account_hash_traces
+                        .iter()
+                        .map(|x| (x[0], x[1], x[2])),
+                );
             }
             hash_traces
         }
