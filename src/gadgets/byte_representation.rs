@@ -56,9 +56,9 @@ impl ByteRepresentationConfig {
             index.current() * (index.current() - index.previous() - 1),
         );
         cb.assert_equal(
-            "current value = previous value * 8 * (index == 0) + byte",
+            "current value = previous value * 256 * (index == 0) + byte",
             value.current(),
-            value.previous() * 8 * !index_is_zero.current() + byte.current(),
+            value.previous() * 256 * !index_is_zero.current() + byte.current(),
         );
         cb.assert_equal(
             "current rlc = previous rlc * randomness * (index == 0) + byte",
@@ -103,7 +103,7 @@ impl ByteRepresentationConfig {
             let mut rlc = F::zero();
             for (index, byte) in byte_representation.iter().enumerate() {
                 let byte = F::from(u64::from(*byte));
-                value = value * F::from(8) + byte;
+                value = value * F::from(256) + byte;
                 rlc = rlc * randomness + byte;
 
                 self.randomness.assign(region, offset, randomness);
