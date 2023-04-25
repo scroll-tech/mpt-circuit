@@ -579,7 +579,6 @@ fn configure_nonce<F: FieldExt>(
                 cb.assert_zero("depth is 0", config.depth.current());
                 cb.assert_zero("direction is 0", config.direction.current());
 
-
                 let old_code_size = (config.old_hash.current() - config.old_value.current())
                     * Query::Constant(F::from(1 << 32).invert().unwrap());
                 cb.add_lookup(
@@ -749,7 +748,9 @@ mod test {
             lookups
         }
 
-        fn byte_representations(&self) -> (Vec<u64>, Vec<u128>, Vec<Address>, Vec<H256>, Vec<U256>) {
+        fn byte_representations(
+            &self,
+        ) -> (Vec<u64>, Vec<u128>, Vec<Address>, Vec<H256>, Vec<U256>) {
             let mut u64s = vec![];
             let mut u128s = vec![];
             let mut addresses = vec![];
@@ -861,7 +862,14 @@ mod test {
                     canonical_representation.assign(&mut region, &self.keys());
                     key_bit.assign(&mut region, &self.key_bit_lookups());
                     byte_bit.assign(&mut region);
-                    byte_representation.assign(&mut region, &u64s, &u128s, &addresses, &hashes, &words);
+                    byte_representation.assign(
+                        &mut region,
+                        &u64s,
+                        &u128s,
+                        &addresses,
+                        &hashes,
+                        &words,
+                    );
                     Ok(())
                 },
             )

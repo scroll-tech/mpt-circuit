@@ -13,6 +13,9 @@ pub trait BytesLookup {
     fn lookup<F: FieldExt>(&self) -> [Query<F>; 2];
 }
 
+// Right the byte order is big endian, which means that e.g. proving that 0x01 fits into 3
+// bytes doesn't prove that it fits into 2 or 1 bytes. If we switch to little endian, we
+// could get the intermediate values for free.
 #[derive(Clone)]
 pub struct ByteRepresentationConfig {
     randomness: FixedColumn, // TODO: this should be an instance column.
