@@ -203,6 +203,19 @@ impl MptUpdateConfig {
             );
         }
 
+        for variant in MPTProofType::iter() {
+            let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
+                MPTProofType::AccountDestructed | MPTProofType::AccountDoesNotExist => todo!(),
+                MPTProofType::BalanceChanged => configure_balance(cb, &config, rlc),
+                MPTProofType::CodeSizeExists => configure_code_size(cb, &config),
+                MPTProofType::NonceChanged => configure_nonce(cb, &config, bytes),
+                MPTProofType::CodeHashExists => configure_keccak_code_hash(cb, &config),
+                MPTProofType::StorageChanged | MPTProofType::StorageDoesNotExist => todo!(),
+                MPTProofType::PoseidonCodeHashExists => {}
+            };
+            cb.condition(config.proof_type.matches(variant), conditional_constraints);
+        }
+
         config
     }
 
@@ -359,22 +372,29 @@ fn configure_nonce<F: FieldExt>(
     config: &MptUpdateConfig,
     bytes: &impl BytesLookup,
 ) {
-    let code_size = (config.old_hash.current() - config.old_value_rlc.current())
-        * Query::Constant(F::from(1 << 32).invert().unwrap());
-    cb.add_lookup(
-        "old nonce is 8 bytes",
-        [config.old_value_rlc.current(), Query::from(7)],
-        bytes.lookup(),
-    );
-    cb.add_lookup(
-        "old code size is 8 bytes",
-        [code_size, Query::from(7)],
-        bytes.lookup(),
-    );
-    cb.add_lookup(
-        "hash input is 16 bytes",
-        [config.old_hash.current(), Query::from(15)],
-        bytes.lookup(),
+    let constraints = |cb: &mut ConstraintBuilder<F>| {
+        let code_size = (config.old_hash.current() - config.old_value_rlc.current())
+            * Query::Constant(F::from(1 << 32).invert().unwrap());
+        cb.add_lookup(
+            "old nonce is 8 bytes",
+            [config.old_value_rlc.current(), Query::from(7)],
+            bytes.lookup(),
+        );
+        cb.add_lookup(
+            "old code size is 8 bytes",
+            [code_size, Query::from(7)],
+            bytes.lookup(),
+        );
+        cb.add_lookup(
+            "hash input is 16 bytes",
+            [config.old_hash.current(), Query::from(15)],
+            bytes.lookup(),
+        );
+    };
+
+    cb.condition(
+        config.segment_type.matches(SegmentType::AccountLeaf3),
+        constraints,
     );
 }
 
@@ -490,18 +510,6 @@ fn configure_account_leaf3<F: FieldExt>(
         config.selector.current(),
         config.depth.current(),
     );
-    for variant in MPTProofType::iter() {
-        let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
-            MPTProofType::AccountDestructed | MPTProofType::AccountDoesNotExist => todo!(),
-            MPTProofType::BalanceChanged => configure_balance(cb, &config, rlc),
-            MPTProofType::CodeSizeExists => configure_code_size(cb, &config),
-            MPTProofType::NonceChanged => configure_nonce(cb, &config, bytes),
-            MPTProofType::CodeHashExists => configure_keccak_code_hash(cb, &config),
-            MPTProofType::StorageChanged | MPTProofType::StorageDoesNotExist => todo!(),
-            MPTProofType::PoseidonCodeHashExists => {}
-        };
-        cb.condition(config.proof_type.matches(variant), conditional_constraints);
-    }
 }
 
 fn configure_account_leaf4<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {
