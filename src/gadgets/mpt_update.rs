@@ -3,7 +3,8 @@ use super::{
     key_bit::KeyBitLookup,
     one_hot::OneHot,
     poseidon::PoseidonLookup,
-    segment_proof::SegmentProofLookup,
+    proof_segment_path::ProofSegmentPathLookup,
+    segment_proof_direction::SegmentProofDirectionLookup,
 };
 use crate::{
     constraint_builder::{AdviceColumn, ConstraintBuilder, Query, SelectorColumn},
@@ -109,7 +110,8 @@ impl MptUpdateConfig {
         key_bit: &impl KeyBitLookup,
         rlc: &impl RlcLookup,
         bytes: &impl BytesLookup,
-        segment_proof: &impl SegmentProofLookup,
+        proof_segment_path: &impl ProofSegmentPathLookup,
+        segment_proof_direction: &impl SegmentProofDirectionLookup,
     ) -> Self {
         let ([selector], [], [old_hash, new_hash]) = cb.build_columns(cs);
 
@@ -142,7 +144,17 @@ impl MptUpdateConfig {
                 proof_type.current(),
                 direction.current(),
             ],
-            segment_proof.lookup(),
+            segment_proof_direction.lookup(),
+        );
+
+        cb.add_lookup(
+            "Segment path is correct for specified proof type",
+            [
+                proof_type.current(),
+                segment_type.previous(),
+                segment_type.current(),
+            ],
+            proof_segment_path.lookup(),
         );
 
         let config = Self {
@@ -404,24 +416,6 @@ fn configure_start<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdat
 }
 
 fn configure_account_trie<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {
-    cb.assert(
-        "previous is Start or AccountTrie",
-        config.selector.current(),
-        config
-            .segment_type
-            .previous_matches(SegmentType::Start)
-            .or(config
-                .segment_type
-                .previous_matches(SegmentType::AccountTrie)),
-    );
-    cb.assert(
-        "next is AccountTrie or AccountLeaf0",
-        config.selector.current(),
-        config
-            .segment_type
-            .next_matches(SegmentType::AccountTrie)
-            .or(config.segment_type.matches(SegmentType::AccountLeaf0)),
-    );
     cb.add_constraint(
         "depth increased by 1",
         config.selector.current(),
@@ -441,21 +435,6 @@ fn configure_account_trie<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &M
 
 fn configure_account_leaf0<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {
     cb.assert(
-        "from Start or AccountTrie",
-        config.selector.current(),
-        config
-            .segment_type
-            .previous_matches(SegmentType::Start)
-            .or(config
-                .segment_type
-                .previous_matches(SegmentType::AccountTrie)),
-    );
-    cb.assert(
-        "next is AccountLeaf1",
-        config.selector.current(),
-        config.segment_type.next_matches(SegmentType::AccountLeaf1),
-    );
-    cb.assert(
         "path_type is Common",
         config.selector.current(),
         config.path_type.matches(PathType::Common),
@@ -471,18 +450,6 @@ fn configure_account_leaf0<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &
 
 fn configure_account_leaf1<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {
     cb.assert(
-        "previous is AccountLeaf0",
-        config.selector.current(),
-        config
-            .segment_type
-            .previous_matches(SegmentType::AccountLeaf0),
-    );
-    cb.assert(
-        "next is AccountLeaf2",
-        config.selector.current(),
-        config.segment_type.next_matches(SegmentType::AccountLeaf2),
-    );
-    cb.assert(
         "path_type is Common",
         config.selector.current(),
         config.path_type.matches(PathType::Common),
@@ -495,18 +462,6 @@ fn configure_account_leaf1<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &
 }
 
 fn configure_account_leaf2<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {
-    cb.assert(
-        "previous is AccountLeaf1",
-        config.selector.current(),
-        config
-            .segment_type
-            .previous_matches(SegmentType::AccountLeaf1),
-    );
-    cb.assert(
-        "next is AccountLeaf3",
-        config.selector.current(),
-        config.segment_type.next_matches(SegmentType::AccountLeaf3),
-    );
     cb.assert(
         "path_type is Common",
         config.selector.current(),
@@ -525,18 +480,6 @@ fn configure_account_leaf3<F: FieldExt>(
     rlc: &impl RlcLookup,
     bytes: &impl BytesLookup,
 ) {
-    cb.assert(
-        "previous is AccountLeaf2",
-        config.selector.current(),
-        config
-            .segment_type
-            .previous_matches(SegmentType::AccountLeaf2),
-    );
-    cb.assert(
-        "next is Start",
-        config.selector.current(),
-        config.segment_type.next_matches(SegmentType::Start),
-    );
     cb.assert(
         "path_type is Common",
         config.selector.current(),
@@ -559,6 +502,10 @@ fn configure_account_leaf3<F: FieldExt>(
         };
         cb.condition(config.proof_type.matches(variant), conditional_constraints);
     }
+}
+
+fn configure_account_leaf4<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {
+    todo!()
 }
 
 #[cfg(test)]

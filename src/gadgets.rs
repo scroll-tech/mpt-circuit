@@ -6,4 +6,5 @@ mod key_bit;
 mod mpt_update;
 mod one_hot;
 mod poseidon;
-mod segment_proof;
+mod proof_segment_path;
+mod segment_proof_direction;
