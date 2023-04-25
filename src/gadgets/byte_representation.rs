@@ -74,9 +74,12 @@ impl ByteRepresentationConfig {
         }
     }
 
+    // can this we done with an Iterator<Item: impl ToBigEndianBytes> instead?
     pub fn assign<F: FieldExt>(
         &self,
         region: &mut Region<'_, F>,
+        u64s: &[u64],
+        u128s: &[u128],
         addresses: &[Address],
         hashes: &[H256],
         words: &[U256],
@@ -86,6 +89,8 @@ impl ByteRepresentationConfig {
         let byte_representations = addresses
             .iter()
             .map(address_to_big_endian)
+            .chain(u64s.iter().map(u64_to_big_endian))
+            .chain(u128s.iter().map(u128_to_big_endian))
             .chain(hashes.iter().map(h256_to_big_endian))
             .chain(words.iter().map(u256_to_big_endian));
 
@@ -111,6 +116,14 @@ impl ByteRepresentationConfig {
             }
         }
     }
+}
+
+fn u64_to_big_endian(x: &u64) -> Vec<u8> {
+    x.to_be_bytes().to_vec()
+}
+
+fn u128_to_big_endian(x: &u128) -> Vec<u8> {
+    x.to_be_bytes().to_vec()
 }
 
 fn address_to_big_endian(x: &Address) -> Vec<u8> {
@@ -139,6 +152,8 @@ mod test {
 
     #[derive(Clone, Default, Debug)]
     struct TestCircuit {
+        u64s: Vec<u64>,
+        u128s: Vec<u128>,
         addresses: Vec<Address>,
         hashes: Vec<H256>,
         words: Vec<U256>,
@@ -171,9 +186,14 @@ mod test {
                 || "asdfawefasdf",
                 |mut region| {
                     config.0.assign(&mut region);
-                    config
-                        .1
-                        .assign(&mut region, &self.addresses, &self.hashes, &self.words);
+                    config.1.assign(
+                        &mut region,
+                        &self.u64s,
+                        &self.u128s,
+                        &self.addresses,
+                        &self.hashes,
+                        &self.words,
+                    );
                     Ok(())
                 },
             )
@@ -183,6 +203,8 @@ mod test {
     #[test]
     fn test_byte_representation() {
         let circuit = TestCircuit {
+            u64s: vec![u64::MAX],
+            u128s: vec![0, 1, u128::MAX],
             addresses: vec![Address::repeat_byte(34)],
             hashes: vec![H256::repeat_byte(48)],
             words: vec![U256::zero(), U256::from(123412123)],

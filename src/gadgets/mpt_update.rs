@@ -45,8 +45,8 @@ struct MptUpdateConfig {
     new_key: AdviceColumn,
     direction: AdviceColumn, // this actually must be binary because of a KeyBitLookup
 
-    old_value_rlc: AdviceColumn,
-    new_value_rlc: AdviceColumn,
+    old_value: AdviceColumn, // nonce and codesize are not rlc'ed the others are.
+    new_value: AdviceColumn, //
 
     proof_type: OneHot<MPTProofType>,
 
@@ -68,16 +68,16 @@ impl MptUpdateLookup for MptUpdateConfig {
         //     .map(|(i, column)| column.current() * i)
         //     .sum();
         let proof_type = Query::one();
-        let old_value_rlc = self.new_value_rlc.current() * is_root();
-        let new_value_rlc = self.old_value_rlc.current() * is_root();
+        let old_value = self.new_value.current() * is_root();
+        let new_value = self.old_value.current() * is_root();
         let address = self.address.current();
         let storage_key_rlc = self.storage_key_rlc.current();
 
         [
             old_root,
             new_root,
-            old_value_rlc,
-            new_value_rlc,
+            old_value,
+            new_value,
             proof_type,
             address,
             storage_key_rlc,
@@ -98,7 +98,7 @@ impl MptUpdateConfig {
 
         let proof_type = OneHot::configure(cs, cb);
         let [address, storage_key_rlc] = cb.advice_columns(cs);
-        let [old_value_rlc, new_value_rlc] = cb.advice_columns(cs);
+        let [old_value, new_value] = cb.advice_columns(cs);
         let [depth, key, old_key, new_key, direction, sibling] = cb.advice_columns(cs);
 
         let segment_type = OneHot::configure(cs, cb);
@@ -129,8 +129,8 @@ impl MptUpdateConfig {
             old_hash,
             new_hash,
             proof_type,
-            old_value_rlc,
-            new_value_rlc,
+            old_value,
+            new_value,
             address,
             storage_key_rlc,
             segment_type,
@@ -212,14 +212,14 @@ impl MptUpdateConfig {
             let proof_type = MPTProofType::from(proof.claim);
             let address = address_to_fr(proof.claim.address);
             let storage_key = rlc(&u256_to_big_endian(&proof.claim.storage_key()), randomness);
-            let old_value = rlc(&u256_to_big_endian(&proof.claim.old_value()), randomness);
-            let new_value = rlc(&u256_to_big_endian(&proof.claim.new_value()), randomness);
+            let old_value = proof.claim.old_value_assignment(randomness);
+            let new_value = proof.claim.new_value_assignment(randomness);
             for i in 0..proof.n_rows() {
                 self.proof_type.assign(region, offset + i, proof_type);
                 self.address.assign(region, offset + i, address);
                 self.storage_key_rlc.assign(region, offset + i, storage_key);
-                self.new_value_rlc.assign(region, offset + i, new_value);
-                self.old_value_rlc.assign(region, offset + i, old_value);
+                self.old_value.assign(region, offset + i, old_value);
+                self.new_value.assign(region, offset + i, new_value);
             }
 
             // Assign start row
@@ -552,12 +552,7 @@ fn configure_nonce<F: FieldExt>(
                 cb.assert_equal("depth increased by 1", config.depth.delta(), Query::one());
             }
             SegmentType::AccountLeaf0 => {
-                cb.assert(
-                    "path_type is Common",
-                    config.path_type.current_matches(&[PathType::Common]),
-                );
-                cb.assert_zero("depth is 0", config.depth.current());
-                cb.assert_zero("direction is 0", config.direction.current());
+                cb.assert_equal("direction is 1", config.direction.current(), Query::one());
                 // add constraints that sibling = old_path_key and new_path_key
             }
             SegmentType::AccountLeaf1 => {
@@ -584,23 +579,37 @@ fn configure_nonce<F: FieldExt>(
                 cb.assert_zero("depth is 0", config.depth.current());
                 cb.assert_zero("direction is 0", config.direction.current());
 
-                // let code_size = (config.old_hash.current() - config.old_value_rlc.current())
-                //     * Query::Constant(F::from(1 << 32).invert().unwrap());
-                // cb.add_lookup(
-                //     "old nonce is 8 bytes",
-                //     [config.old_value_rlc.current(), Query::from(7)],
-                //     bytes.lookup(),
-                // );
-                // cb.add_lookup(
-                //     "old code size is 8 bytes",
-                //     [code_size, Query::from(7)],
-                //     bytes.lookup(),
-                // );
-                // cb.add_lookup(
-                //     "hash input is 16 bytes",
-                //     [config.old_hash.current(), Query::from(15)],
-                //     bytes.lookup(),
-                // );
+
+                let old_code_size = (config.old_hash.current() - config.old_value.current())
+                    * Query::Constant(F::from(1 << 32).invert().unwrap());
+                cb.add_lookup(
+                    "old nonce is 8 bytes",
+                    [config.old_value.current(), Query::from(7)],
+                    bytes.lookup(),
+                );
+                cb.add_lookup(
+                    "old code size is 8 bytes",
+                    [old_code_size.clone(), Query::from(7)],
+                    bytes.lookup(),
+                );
+
+                let new_code_size = (config.new_hash.current() - config.new_value.current())
+                    * Query::Constant(F::from(1 << 32).invert().unwrap());
+                cb.add_lookup(
+                    "new nonce is 8 bytes",
+                    [config.old_value.current(), Query::from(7)],
+                    bytes.lookup(),
+                );
+                cb.add_lookup(
+                    "new code size is 8 bytes",
+                    [new_code_size.clone(), Query::from(7)],
+                    bytes.lookup(),
+                );
+                cb.assert_equal(
+                    "code size doesn't change for nonce update",
+                    old_code_size,
+                    new_code_size,
+                );
             }
             SegmentType::AccountLeaf4
             | SegmentType::StorageTrie
@@ -740,11 +749,32 @@ mod test {
             lookups
         }
 
-        fn byte_representations(&self) -> (Vec<Address>, Vec<H256>, Vec<U256>) {
-            let addresses = vec![];
-            let hashes = vec![];
-            let words = vec![];
-            (addresses, hashes, words)
+        fn byte_representations(&self) -> (Vec<u64>, Vec<u128>, Vec<Address>, Vec<H256>, Vec<U256>) {
+            let mut u64s = vec![];
+            let mut u128s = vec![];
+            let mut addresses = vec![];
+            let mut hashes = vec![];
+            let mut words = vec![];
+
+            for update in &self.updates {
+                let proof = Proof::from(update.clone());
+                match MPTProofType::from(proof.claim) {
+                    MPTProofType::NonceChanged => {
+                        if let Some(account) = proof.old_account {
+                            u64s.push(account.nonce);
+                            u64s.push(account.code_size);
+                        };
+                        if let Some(account) = proof.new_account {
+                            u64s.push(account.nonce);
+                            u64s.push(account.code_size);
+                        };
+                    }
+                    _ => {}
+                }
+            }
+            dbg!(u128s.clone());
+
+            (u64s, u128s, addresses, hashes, words)
         }
     }
 
@@ -818,7 +848,7 @@ mod test {
                 byte_representation,
             ) = config;
 
-            let (addresses, hashes, words) = self.byte_representations();
+            let (u64s, u128s, addresses, hashes, words) = self.byte_representations();
 
             layouter.assign_region(
                 || "",
@@ -831,7 +861,7 @@ mod test {
                     canonical_representation.assign(&mut region, &self.keys());
                     key_bit.assign(&mut region, &self.key_bit_lookups());
                     byte_bit.assign(&mut region);
-                    byte_representation.assign(&mut region, &addresses, &hashes, &words);
+                    byte_representation.assign(&mut region, &u64s, &u128s, &addresses, &hashes, &words);
                     Ok(())
                 },
             )

@@ -7,6 +7,7 @@ use num_traits::identities::Zero;
 use crate::{
     operation::{Account, SMTPathParse},
     serde::{AccountData, HexBytes, SMTNode, SMTPath, SMTTrace},
+    util::rlc,
     Hashable,
 };
 
@@ -37,18 +38,19 @@ impl Claim {
         }
     }
 
-    pub fn old_value(&self) -> U256 {
+    pub fn old_value_assignment(&self, randomness: Fr) -> Fr {
         match self.kind {
-            ClaimKind::Read(Read::Nonce(i)) => U256::from(i),
-            ClaimKind::Write(Write::Nonce { old, .. }) => U256::from(old.unwrap_or_default()),
+            ClaimKind::Read(Read::Nonce(i)) => Fr::from(i),
+            ClaimKind::Write(Write::Nonce { old, .. }) => Fr::from(old.unwrap_or_default()),
             _ => unimplemented!("{:?}", self),
+            // rlc here.....
         }
     }
 
-    pub fn new_value(&self) -> U256 {
+    pub fn new_value_assignment(&self, randomness: Fr) -> Fr {
         match self.kind {
-            ClaimKind::Read(Read::Nonce(i)) => U256::from(i),
-            ClaimKind::Write(Write::Nonce { new, .. }) => U256::from(new.unwrap_or_default()),
+            ClaimKind::Read(Read::Nonce(i)) => Fr::from(i),
+            ClaimKind::Write(Write::Nonce { new, .. }) => Fr::from(new.unwrap_or_default()),
             _ => unimplemented!(),
         }
     }
@@ -123,6 +125,31 @@ pub struct Proof {
 
     pub old: Path,
     pub new: Path,
+
+    pub old_account: Option<EthAccount>,
+    pub new_account: Option<EthAccount>,
+}
+
+// TODO: rename to Account
+#[derive(Clone, Copy, Debug)]
+pub struct EthAccount {
+    pub nonce: u64,
+    pub code_size: u64,
+    poseidon_codehash: Fr,
+    balance: Fr,
+    keccak_codehash: U256,
+}
+
+impl From<AccountData> for EthAccount {
+    fn from(account_data: AccountData) -> Self {
+        Self {
+            nonce: account_data.nonce,
+            code_size: account_data.code_size,
+            poseidon_codehash: Fr::zero(),
+            balance: Fr::zero(),
+            keccak_codehash: U256::zero(),
+        }
+    }
 }
 
 impl Proof {
@@ -321,11 +348,11 @@ impl From<SMTTrace> for Proof {
         );
 
         let [old_account, new_account] = trace.account_update;
-        let old_account_hash_traces = match old_account {
+        let old_account_hash_traces = match old_account.clone() {
             None => empty_account_hash_traces(leafs[0]),
             Some(account) => account_hash_traces(claim.address, account, old_storage_root),
         };
-        let new_account_hash_traces = match new_account {
+        let new_account_hash_traces = match new_account.clone() {
             None => empty_account_hash_traces(leafs[1]),
             Some(account) => account_hash_traces(claim.address, account, new_storage_root),
         };
@@ -334,6 +361,8 @@ impl From<SMTTrace> for Proof {
             key: fr(path.leaf.unwrap().sibling),
         });
 
+        let [old_account, new_account] =
+            [old_account, new_account].map(|option| option.map(EthAccount::from));
         Self {
             claim,
             address_hash_traces,
@@ -344,6 +373,8 @@ impl From<SMTTrace> for Proof {
             storage_key_value_hash_traces,
             old,
             new,
+            old_account,
+            new_account,
         }
     }
 }
