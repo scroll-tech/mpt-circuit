@@ -54,7 +54,7 @@ impl<T: IntoEnumIterator + Hash + Eq> OneHot<T> {
             .map(|v| {
                 self.columns
                     .get(v)
-                    .map_or_else(|| self.sum(r), |c| c.rotation(r))
+                    .map_or_else(|| !self.sum(r), |c| c.rotation(r))
             })
             .fold(Query::zero(), |a, b| a + b);
         // This cast is ok (if the values are distinct) because at most one column is set.
