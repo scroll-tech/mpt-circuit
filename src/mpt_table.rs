@@ -253,7 +253,7 @@ pub enum MPTProofType {
 #[derive(Clone, Debug)]
 pub(crate) struct MPTEntry<F: Field> {
     proof_type: MPTProofType,
-    base: [Option<F>; 7],
+    base: [Value<F>; 7],
     storage_key: KeyValue<F>,
     new_value: KeyValue<F>,
     old_value: KeyValue<F>,
@@ -262,7 +262,7 @@ pub(crate) struct MPTEntry<F: Field> {
 impl<F: FieldExt> MPTEntry<F> {
     // detect proof type from op data itself, just mocking,
     // not always correct
-    pub fn mock_from_op(op: &AccountOp<F>, randomness: F) -> Self {
+    pub fn mock_from_op(op: &AccountOp<F>, randomness: Value<F>) -> Self {
         if op.state_trie.is_some() {
             return if op.store_after.is_none() && op.store_before.is_none() {
                 Self::from_op(MPTProofType::StorageDoesNotExist, op, randomness)
@@ -312,13 +312,13 @@ impl<F: FieldExt> MPTEntry<F> {
         Self {
             proof_type,
             base: [
-                Some(op.address),
-                None,
-                Some(F::from(proof_type as u64)),
-                None,
-                None,
-                None,
-                None,
+                Value::known(op.address),
+                Value::unknown(),
+                Value::known(F::from(proof_type as u64)),
+                Value::unknown(),
+                Value::unknown(),
+                Value::unknown(),
+                Value::unknown(),
             ],
             storage_key,
             new_value,
@@ -326,45 +326,53 @@ impl<F: FieldExt> MPTEntry<F> {
         }
     }
 
-    pub fn from_op(proof_type: MPTProofType, op: &AccountOp<F>, randomness: F) -> Self {
+    pub fn from_op(proof_type: MPTProofType, op: &AccountOp<F>, randomness: Value<F>) -> Self {
         let mut ret = Self::from_op_no_base(proof_type, op);
 
-        let (old_value_f, new_value_f) = match proof_type {
+        let (old_value, new_value) = match proof_type {
             MPTProofType::NonceChanged => (
-                op.account_before
-                    .as_ref()
-                    .map(|acc| acc.nonce)
-                    .unwrap_or_default(),
-                op.account_after
-                    .as_ref()
-                    .map(|acc| acc.nonce)
-                    .unwrap_or_default(),
+                Value::known(
+                    op.account_before
+                        .as_ref()
+                        .map(|acc| acc.nonce)
+                        .unwrap_or_default(),
+                ),
+                Value::known(
+                    op.account_after
+                        .as_ref()
+                        .map(|acc| acc.nonce)
+                        .unwrap_or_default(),
+                ),
             ),
             MPTProofType::BalanceChanged => (
-                op.account_before
-                    .as_ref()
-                    .map(|acc| acc.balance)
-                    .unwrap_or_default(),
-                op.account_after
-                    .as_ref()
-                    .map(|acc| acc.balance)
-                    .unwrap_or_default(),
+                Value::known(
+                    op.account_before
+                        .as_ref()
+                        .map(|acc| acc.balance)
+                        .unwrap_or_default(),
+                ),
+                Value::known(
+                    op.account_after
+                        .as_ref()
+                        .map(|acc| acc.balance)
+                        .unwrap_or_default(),
+                ),
             ),
             MPTProofType::StorageChanged | MPTProofType::CodeHashExists => (
                 ret.old_value.u8_rlc(randomness),
                 ret.new_value.u8_rlc(randomness),
             ),
-            _ => (F::zero(), F::zero()),
+            _ => (Value::known(F::zero()), Value::known(F::zero())),
         };
 
         ret.base = [
             ret.base[0],
-            Some(ret.storage_key.u8_rlc(randomness)),
+            ret.storage_key.u8_rlc(randomness),
             ret.base[2],
-            Some(op.account_root()),
-            Some(op.account_root_before()),
-            Some(new_value_f),
-            Some(old_value_f),
+            Value::known(op.account_root()),
+            Value::known(op.account_root_before()),
+            new_value,
+            old_value,
         ];
 
         ret
@@ -382,12 +390,12 @@ impl<F: FieldExt> MPTEntry<F> {
 
         ret.base = [
             ret.base[0],
-            store_key,
+            store_key.map_or(Value::unknown(), Value::known),
             ret.base[1],
-            Some(op.account_root()),
-            Some(op.account_root_before()),
-            Some(new_value_f),
-            Some(old_value_f),
+            Value::known(op.account_root()),
+            Value::known(op.account_root_before()),
+            Value::known(new_value_f),
+            Value::known(old_value_f),
         ];
 
         ret
@@ -535,11 +543,7 @@ impl<F: FieldExt> MPTTable<F> {
                         )?;
                     }
 
-                    let base_entries = entry
-                        .base
-                        .map(|entry| entry.map(Value::known).unwrap_or_else(Value::unknown));
-
-                    for (val, col) in base_entries.into_iter().zip([
+                    for (val, col) in entry.base.into_iter().zip([
                         config.address,
                         config.storage_key,
                         config.proof_type,
@@ -758,16 +762,25 @@ mod test {
             ..Default::default()
         };
 
-        let randomness = Fp::from(0x10000u64);
+        let randomness = Value::known(Fp::from(0x10000u64));
         let entry = MPTEntry::from_op(MPTProofType::StorageChanged, &op, randomness);
-        let base = entry.base.map(|v| v.unwrap());
 
-        assert_eq!(base[0], address);
-        assert_eq!(base[1], store_key.u8_rlc(randomness));
-        assert_eq!(base[3], op.account_root());
-        assert_eq!(base[4], op.account_root_before());
-        assert_eq!(base[5], store_after.u8_rlc(randomness));
-        assert_eq!(base[6], store_before.u8_rlc(randomness));
+        // TODO: check Value::unknown.
+        entry.base[0].assert_if_known(|v| v == &address);
+        entry.base[1]
+            .zip(store_key.u8_rlc(randomness))
+            .assert_if_known(|(v1, v2)| v1 == v2);
+        entry.base[1]
+            .zip(store_key.u8_rlc(randomness))
+            .assert_if_known(|(v1, v2)| v1 == v2);
+        entry.base[3].assert_if_known(|v| v == &op.account_root());
+        entry.base[4].assert_if_known(|v| v == &op.account_root_before());
+        entry.base[5]
+            .zip(store_after.u8_rlc(randomness))
+            .assert_if_known(|(v1, v2)| v1 == v2);
+        entry.base[6]
+            .zip(store_before.u8_rlc(randomness))
+            .assert_if_known(|(v1, v2)| v1 == v2);
     }
 
     #[test]
@@ -791,7 +804,7 @@ mod test {
                 Fp::from(123456789u64),
                 Fp::from(123456790u64),
             ]
-            .map(Some),
+            .map(Value::known),
             storage_key: Default::default(),
             new_value: Default::default(),
             old_value: Default::default(),
@@ -802,15 +815,14 @@ mod test {
         let entry2 = MPTEntry {
             proof_type: MPTProofType::StorageChanged,
             base: [
-                address,
-                storage_key.u8_rlc(randomness),
-                Fp::from(MPTProofType::StorageChanged as u64),
-                rand_fp(),
-                entry1.base[4].unwrap(),
-                Fp::from(10u64) + (Fp::from(3u64) * bit128),
-                Fp::from(1u64) + (Fp::from(3u64) * bit128),
-            ]
-            .map(Some),
+                Value::known(address),
+                storage_key.u8_rlc(Value::known(randomness)),
+                Value::known(Fp::from(MPTProofType::StorageChanged as u64)),
+                Value::known(rand_fp()),
+                entry1.base[4],
+                Value::known(Fp::from(10u64) + (Fp::from(3u64) * bit128)),
+                Value::known(Fp::from(1u64) + (Fp::from(3u64) * bit128)),
+            ],
             storage_key: storage_key.clone(),
             new_value: KeyValue::create_base((Fp::from(3u64), Fp::from(10u64))),
             old_value: KeyValue::create_base((Fp::from(3u64), Fp::from(1u64))),
@@ -819,15 +831,14 @@ mod test {
         let entry3 = MPTEntry {
             proof_type: MPTProofType::AccountDoesNotExist,
             base: [
-                address + Fp::one(),
-                Fp::zero(),
-                Fp::from(MPTProofType::AccountDoesNotExist as u64),
-                entry2.base[4].unwrap(),
-                entry2.base[4].unwrap(),
-                Fp::zero(),
-                Fp::zero(),
-            ]
-            .map(Some),
+                Value::known(address + Fp::one()),
+                Value::known(Fp::zero()),
+                Value::known(Fp::from(MPTProofType::AccountDoesNotExist as u64)),
+                entry2.base[4],
+                entry2.base[4],
+                Value::known(Fp::zero()),
+                Value::known(Fp::zero()),
+            ],
             storage_key: Default::default(),
             new_value: Default::default(),
             old_value: Default::default(),
@@ -836,15 +847,14 @@ mod test {
         let entry4 = MPTEntry {
             proof_type: MPTProofType::PoseidonCodeHashExists,
             base: [
-                address + Fp::one(),
-                Fp::zero(),
-                Fp::from(MPTProofType::PoseidonCodeHashExists as u64),
-                rand_fp(),
-                rand_fp(),
-                Fp::one(),
-                Fp::one(),
-            ]
-            .map(Some),
+                Value::known(address + Fp::one()),
+                Value::known(Fp::zero()),
+                Value::known(Fp::from(MPTProofType::PoseidonCodeHashExists as u64)),
+                Value::known(rand_fp()),
+                Value::known(rand_fp()),
+                Value::known(Fp::one()),
+                Value::known(Fp::one()),
+            ],
             storage_key: Default::default(),
             new_value: Default::default(),
             old_value: Default::default(),

@@ -5,6 +5,7 @@ use super::{
     poseidon::PoseidonLookup,
 };
 use crate::{
+    challenges::Challenges,
     constraint_builder::{AdviceColumn, ConstraintBuilder, Query, SelectorColumn},
     serde::SMTTrace,
     types::Proof,
@@ -13,7 +14,10 @@ use crate::{
 use ethers_core::k256::elliptic_curve::PrimeField;
 use ethers_core::types::Address;
 use halo2_proofs::{
-    arithmetic::FieldExt, circuit::Region, halo2curves::bn256::Fr, plonk::ConstraintSystem,
+    arithmetic::FieldExt,
+    circuit::{Region, Value},
+    halo2curves::bn256::Fr,
+    plonk::{ConstraintSystem, Expression},
 };
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
@@ -104,6 +108,7 @@ impl MptUpdateConfig {
     fn configure<F: FieldExt>(
         cs: &mut ConstraintSystem<F>,
         cb: &mut ConstraintBuilder<F>,
+        challenges: &Challenges<Expression<F>>,
         poseidon: &impl PoseidonLookup,
         key_bit: &impl KeyBitLookup,
         rlc: &impl RlcLookup,
@@ -178,8 +183,13 @@ impl MptUpdateConfig {
         config
     }
 
-    fn assign(&self, region: &mut Region<'_, Fr>, updates: &[SMTTrace]) {
-        let randomness = Fr::from(123123u64); // TODOOOOOOO
+    fn assign(
+        &self,
+        region: &mut Region<'_, Fr>,
+        updates: &[SMTTrace],
+        challenges: &Challenges<Value<Fr>>,
+    ) {
+        let randomness = challenges.mpt_word();
 
         let mut offset = 0;
         for update in updates {
@@ -581,6 +591,7 @@ mod test {
             KeyBitConfig,
             ByteBitGadget,
             ByteRepresentationConfig,
+            Challenges,
         );
         type FloorPlanner = SimpleFloorPlanner;
 
@@ -590,6 +601,7 @@ mod test {
 
         fn configure(cs: &mut ConstraintSystem<Fr>) -> Self::Config {
             let mut cb = ConstraintBuilder::new();
+            let challenges = Challenges::construct(cs);
             let poseidon = PoseidonConfig::configure(cs, &mut cb);
             let byte_bit = ByteBitGadget::configure(cs, &mut cb);
             let byte_representation = ByteRepresentationConfig::configure(cs, &mut cb, &byte_bit);
@@ -606,9 +618,11 @@ mod test {
 
             let byte_representation = ByteRepresentationConfig::configure(cs, &mut cb, &byte_bit);
 
+            let challenges_exprs = challenges.exprs(cs);
             let mpt_update = MptUpdateConfig::configure(
                 cs,
                 &mut cb,
+                &challenges_exprs,
                 &poseidon,
                 &key_bit,
                 &byte_representation,
@@ -623,6 +637,7 @@ mod test {
                 key_bit,
                 byte_bit,
                 byte_representation,
+                challenges,
             )
         }
 
@@ -638,12 +653,14 @@ mod test {
                 key_bit,
                 byte_bit,
                 byte_representation,
+                challenges,
             ) = config;
 
+            let challenges_values = challenges.values(&layouter);
             layouter.assign_region(
                 || "",
                 |mut region| {
-                    mpt_update.assign(&mut region, &self.updates);
+                    mpt_update.assign(&mut region, &self.updates, &challenges_values);
                     poseidon.assign(&mut region, &self.hash_traces());
                     canonical_representation.assign(&mut region, &self.keys());
                     // key_bit.assign(region, &[]); // self.

@@ -2,7 +2,7 @@
 
 use super::{eth, serde, HashType};
 use crate::hash::Hashable;
-use halo2_proofs::arithmetic::FieldExt;
+use halo2_proofs::{arithmetic::FieldExt, circuit::Value};
 use num_bigint::BigUint;
 use std::cmp::Ordering;
 use std::convert::TryFrom;
@@ -507,23 +507,25 @@ impl<Fp: FieldExt> KeyValue<Fp> {
         self.data.2
     }
     /// obtain the linear combination of two field
-    pub fn lc(&self, randomness: Fp) -> Fp {
-        self.data.0 + self.data.1 * randomness
+    pub fn lc(&self, randomness: Value<Fp>) -> Value<Fp> {
+        randomness.map(|rand| self.data.0 + self.data.1 * rand)
     }
     /// obtain the linear combination of the value, in byte represent, which
     /// is common used in zkevm circuit
     /// the u256 is represented by le bytes and combined with randomness 1, o, o^2 ... o^31 on each
     /// and we calculate it from be represent
-    pub fn u8_rlc(&self, randomness: Fp) -> Fp {
+    pub fn u8_rlc(&self, randomness: Value<Fp>) -> Value<Fp> {
         let u128_hi = self.data.0.get_lower_128();
         let u128_lo = self.data.1.get_lower_128();
-        u128_hi
-            .to_be_bytes()
-            .into_iter()
-            .chain(u128_lo.to_be_bytes())
-            .map(|bt| Fp::from(bt as u64))
-            .reduce(|acc, f| acc * randomness + f)
-            .expect("not empty")
+        randomness.map(|rand| {
+            u128_hi
+                .to_be_bytes()
+                .into_iter()
+                .chain(u128_lo.to_be_bytes())
+                .map(|bt| Fp::from(bt as u64))
+                .reduce(|acc, f| acc * rand + f)
+                .expect("not empty")
+        })
     }
     /// obtain the first limb
     pub fn limb_0(&self) -> Fp {

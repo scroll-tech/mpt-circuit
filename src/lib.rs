@@ -9,6 +9,7 @@
 
 pub use crate::serde::{Hash, Row, RowDeError};
 
+mod challenges;
 mod constraint_builder;
 mod eth;
 mod gadgets;
@@ -25,7 +26,9 @@ mod util;
 pub mod operation;
 pub mod serde;
 
+use challenges::Challenges;
 use eth::StorageGadget;
+use halo2_proofs::circuit::Value;
 use hash_circuit::hash::PoseidonHashTable;
 /// re-export required namespace from depened poseidon hash circuit
 pub use hash_circuit::{hash, poseidon};
@@ -155,7 +158,7 @@ impl<Fp: FieldExt> SimpleTrie<Fp> {
 }
 
 impl<Fp: FieldExt> Circuit<Fp> for SimpleTrie<Fp> {
-    type Config = SimpleTrieConfig;
+    type Config = (SimpleTrieConfig, Challenges);
     type FloorPlanner = SimpleFloorPlanner;
 
     fn without_witnesses(&self) -> Self {
@@ -186,20 +189,24 @@ impl<Fp: FieldExt> Circuit<Fp> for SimpleTrie<Fp> {
             layer.get_free_cols(),
             Some(layer.get_root_indexs()),
         );
+        let challenges = Challenges::construct(meta);
 
         let cst = meta.fixed_column();
         meta.enable_constant(cst);
 
-        SimpleTrieConfig {
-            layer,
-            padding,
-            mpt,
-        }
+        (
+            SimpleTrieConfig {
+                layer,
+                padding,
+                mpt,
+            },
+            challenges,
+        )
     }
 
     fn synthesize(
         &self,
-        config: Self::Config,
+        (config, _challenges): Self::Config,
         mut layouter: impl Layouter<Fp>,
     ) -> Result<(), Error> {
         layouter.assign_region(
@@ -414,10 +421,10 @@ impl EthTrieConfig {
         meta: &mut ConstraintSystem<Fp>,
         mpt_tbl: [Column<Advice>; 7],
         hash_tbl: [Column<Advice>; 5],
-        randomness: Expression<Fp>,
+        challenges: Challenges<Expression<Fp>>,
     ) -> Self {
         let mut lite_cfg = Self::configure_base(meta, hash_tbl);
-        let mpt_tbl = MPTTable::configure(meta, mpt_tbl, randomness);
+        let mpt_tbl = MPTTable::configure(meta, mpt_tbl, challenges.mpt_word());
         let layer = &lite_cfg.layer;
         let layer_exported = layer.exported_cols(0);
         let gadget_ind = layer.get_gadget_index();
@@ -444,14 +451,14 @@ impl EthTrieConfig {
     pub fn load_mpt_table<'d, Fp: Hashable>(
         &self,
         layouter: &mut impl Layouter<Fp>,
-        randomness: Option<Fp>,
+        challenge: Option<Value<Fp>>,
         ops: impl IntoIterator<Item = &'d AccountOp<Fp>>,
         tbl_tips: impl IntoIterator<Item = MPTProofType>,
         rows: usize,
     ) -> Result<(), Error> {
         let mpt_entries = tbl_tips.into_iter().zip(ops).map(|(proof_type, op)| {
-            if let Some(rand) = randomness {
-                MPTEntry::from_op(proof_type, op, rand)
+            if let Some(challenge) = challenge {
+                MPTEntry::from_op(proof_type, op, challenge)
             } else {
                 MPTEntry::from_op_no_base(proof_type, op)
             }
@@ -841,7 +848,7 @@ impl CommitmentIndexs {
     /// get commitment for lite circuit (no mpt)
     pub fn new<Fp: Hashable>() -> Self {
         let mut cs: ConstraintSystem<Fp> = Default::default();
-        let config = EthTrieCircuit::<_, true>::configure(&mut cs);
+        let config = EthTrieCircuit::<_, true>::configure(&mut cs).0;
 
         let trie_circuit_indexs = config.hash_tbl.commitment_index();
 
@@ -856,7 +863,7 @@ impl CommitmentIndexs {
     /// get commitment for full circuit
     pub fn new_full_circuit<Fp: Hashable>() -> Self {
         let mut cs: ConstraintSystem<Fp> = Default::default();
-        let config = EthTrieCircuit::<_, false>::configure(&mut cs);
+        let config = EthTrieCircuit::<_, false>::configure(&mut cs).0;
 
         let trie_circuit_indexs = config.hash_tbl.commitment_index();
         let mpt_table_start = config
@@ -877,10 +884,8 @@ impl CommitmentIndexs {
     }
 }
 
-const TEMP_RANDOMNESS: u64 = 1;
-
 impl<Fp: Hashable, const LITE: bool> Circuit<Fp> for EthTrieCircuit<Fp, LITE> {
-    type Config = EthTrieConfig;
+    type Config = (EthTrieConfig, Challenges);
     type FloorPlanner = SimpleFloorPlanner;
 
     fn without_witnesses(&self) -> Self {
@@ -892,19 +897,24 @@ impl<Fp: Hashable, const LITE: bool> Circuit<Fp> for EthTrieCircuit<Fp, LITE> {
     }
 
     fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
-        if LITE {
-            EthTrieConfig::configure_lite(meta)
-        } else {
-            let base = [0; 7].map(|_| meta.advice_column());
-            let hash_tbl = [0; 5].map(|_| meta.advice_column());
-            let randomness = Expression::Constant(Fp::from(get_rand_base()));
-            EthTrieConfig::configure_sub(meta, base, hash_tbl, randomness)
-        }
+        let challenges = Challenges::construct(meta);
+
+        (
+            if LITE {
+                EthTrieConfig::configure_lite(meta)
+            } else {
+                let base = [0; 7].map(|_| meta.advice_column());
+                let hash_tbl = [0; 5].map(|_| meta.advice_column());
+                let challenges = challenges.exprs(meta);
+                EthTrieConfig::configure_sub(meta, base, hash_tbl, challenges)
+            },
+            challenges,
+        )
     }
 
     fn synthesize(
         &self,
-        config: Self::Config,
+        (config, challenges): Self::Config,
         mut layouter: impl Layouter<Fp>,
     ) -> Result<(), Error> {
         config.dev_load_hash_table(
@@ -916,9 +926,10 @@ impl<Fp: Hashable, const LITE: bool> Circuit<Fp> for EthTrieCircuit<Fp, LITE> {
         if LITE {
             Ok(())
         } else {
+            let mpt_word = challenges.values(&layouter).mpt_word();
             config.load_mpt_table(
                 &mut layouter,
-                Some(Fp::from(get_rand_base())),
+                Some(mpt_word),
                 self.ops.as_slice(),
                 self.mpt_table.iter().copied(),
                 self.calcs,
