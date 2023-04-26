@@ -55,7 +55,7 @@ struct MptUpdateConfig {
 
     sibling: AdviceColumn,
 
-    lower_128_bits: AdviceColumn, // lower 128 bits of address or storage key
+    upper_128_bits: AdviceColumn, // most significant 128 bits of address or storage key
 }
 
 impl MptUpdateLookup for MptUpdateConfig {
@@ -101,7 +101,7 @@ impl MptUpdateConfig {
         let proof_type = OneHot::configure(cs, cb);
         let [address, storage_key_rlc] = cb.advice_columns(cs);
         let [old_value, new_value] = cb.advice_columns(cs);
-        let [depth, key, old_key, new_key, direction, sibling, lower_128_bits] =
+        let [depth, key, old_key, new_key, direction, sibling, upper_128_bits] =
             cb.advice_columns(cs);
 
         let segment_type = OneHot::configure(cs, cb);
@@ -128,8 +128,8 @@ impl MptUpdateConfig {
         });
 
         cb.add_lookup(
-            "lower_128_bits is 16 bytes",
-            [lower_128_bits.current(), Query::from(15)],
+            "upper_128_bits is 16 bytes",
+            [upper_128_bits.current(), Query::from(15)],
             bytes.lookup(),
         );
 
@@ -150,7 +150,7 @@ impl MptUpdateConfig {
             depth,
             direction,
             sibling,
-            lower_128_bits,
+            upper_128_bits,
         };
 
         // Transitions for state machines:
@@ -418,10 +418,10 @@ impl MptUpdateConfig {
                 self.direction.assign(region, offset + i, direction);
                 // TODO: would it be possible to assign key here to make the keybit lookup unconditional?
             }
-            self.lower_128_bits.assign(
+            self.upper_128_bits.assign(
                 region,
                 offset,
-                Fr::from_u128(address_low(proof.claim.address)),
+                Fr::from_u128(address_high(proof.claim.address)),
             );
         }
     }
@@ -554,24 +554,20 @@ fn configure_nonce<F: FieldExt>(
 ) {
     for variant in SegmentType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
-            SegmentType::Start => {}
-            SegmentType::AccountTrie => {}
+            SegmentType::Start | SegmentType::AccountTrie => {}
             SegmentType::AccountLeaf0 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
 
-                // let address_high = (config.address.current() - config.lower_128_bits.current())
-                //     * Query::Constant(F::from(1 << 32).invert().unwrap());
-                let address_high: Query<F> = (config.address.current()
-                    - config.lower_128_bits.current() * (1 << 32))
+                let address_low: Query<F> = (config.address.current()
+                    - config.upper_128_bits.current() * (1 << 32))
                     * (1 << 32)
                     * (1 << 32)
                     * (1 << 32);
                 cb.add_lookup(
                     "key = h(address_high, address_low)",
                     [
-                        // todo fix naming....
-                        config.lower_128_bits.current(),
-                        address_high,
+                        config.upper_128_bits.current(),
+                        address_low,
                         config.key.previous(),
                     ],
                     poseidon.lookup(),
@@ -589,24 +585,12 @@ fn configure_nonce<F: FieldExt>(
                 );
             }
             SegmentType::AccountLeaf1 => {
-                cb.assert(
-                    "path_type is Common",
-                    config.path_type.current_matches(&[PathType::Common]),
-                );
                 cb.assert_zero("direction is 0", config.direction.current());
             }
             SegmentType::AccountLeaf2 => {
-                cb.assert(
-                    "path_type is Common",
-                    config.path_type.current_matches(&[PathType::Common]),
-                );
                 cb.assert_zero("direction is 0", config.direction.current());
             }
             SegmentType::AccountLeaf3 => {
-                cb.assert(
-                    "path_type is Common",
-                    config.path_type.current_matches(&[PathType::Common]),
-                );
                 cb.assert_zero("direction is 0", config.direction.current());
 
                 let old_code_size = (config.old_hash.current() - config.old_value.current())
@@ -652,22 +636,6 @@ fn configure_nonce<F: FieldExt>(
             conditional_constraints,
         );
     }
-
-    // cb.condition(
-    //     config.segment_type.matches(SegmentType::AccountTrie),
-    //     |cb| {
-    //         cb.add_constraint(
-    //             "0",
-    //             config
-    //                 .segment_type
-    //                 .previous_matches(SegmentType::Start)
-    //                 .or(config
-    //                     .segment_type
-    //                     .previous_matches(SegmentType::AccountTrie)),
-    //             Query::one(),
-    //         );
-    //     },
-    // );
 }
 
 fn configure_balance<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {}
@@ -682,25 +650,15 @@ fn configure_storage<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpd
 
 fn configure_empty_storage<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {}
 
-fn address_low(a: Address) -> u128 {
-    let low_bytes: [u8; 16] = a.0[..16].try_into().unwrap();
-    u128::from_be_bytes(low_bytes)
-}
-
 fn address_high(a: Address) -> u128 {
-    let high_bytes: [u8; 4] = a.0[16..].try_into().unwrap();
-    u128::from(u32::from_be_bytes(high_bytes)) << 96
+    let high_bytes: [u8; 16] = a.0[..16].try_into().unwrap();
+    u128::from_be_bytes(high_bytes)
 }
 
-// pub fn account_key(address: Address) -> Fr {
-//     // TODO: the names of these are reversed
-//     let high_bytes: [u8; 16] = address.0[..16].try_into().unwrap();
-//     let low_bytes: [u8; 4] = address.0[16..].try_into().unwrap();
-
-//     let address_high = Fr::from_u128(u128::from_be_bytes(high_bytes));
-//     let address_low = Fr::from_u128(u128::from(u32::from_be_bytes(low_bytes)) << 96);
-//     hash(address_high, address_low)
-// }
+fn address_low(a: Address) -> u128 {
+    let low_bytes: [u8; 4] = a.0[16..].try_into().unwrap();
+    u128::from(u32::from_be_bytes(low_bytes)) << 96
+}
 
 #[cfg(test)]
 mod test {
@@ -751,21 +709,11 @@ mod test {
                     }
                 }
 
-                // hash_traces.push();
-
-                assert_eq!(
-                    hash(
-                        Fr::from_u128(address_low(proof.claim.address)),
-                        Fr::from_u128(address_high(proof.claim.address)),
-                    ),
-                    account_key(proof.claim.address)
-                );
                 hash_traces.push((
-                    Fr::from_u128(address_low(proof.claim.address)),
                     Fr::from_u128(address_high(proof.claim.address)),
+                    Fr::from_u128(address_low(proof.claim.address)),
                     account_key(proof.claim.address),
                 ));
-                // hash_traces.push((Fr::from_u128(address_low(proof.claim.address)), Fr::zero(), account_key(proof.claim.address)));
                 hash_traces.push((
                     Fr::one(),
                     account_key(proof.claim.address),
@@ -832,7 +780,7 @@ mod test {
                 let proof = Proof::from(update.clone());
                 match MPTProofType::from(proof.claim) {
                     MPTProofType::NonceChanged => {
-                        u128s.push(address_low(proof.claim.address));
+                        u128s.push(address_high(proof.claim.address));
                         if let Some(account) = proof.old_account {
                             u64s.push(account.nonce);
                             u64s.push(account.code_size);
@@ -986,5 +934,18 @@ mod test {
         };
         let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
+    }
+
+    #[test]
+    fn test_account_key() {
+        for address in vec![Address::zero(), Address::repeat_byte(0x56)] {
+            assert_eq!(
+                hash(
+                    Fr::from_u128(address_high(address)),
+                    Fr::from_u128(address_low(address)),
+                ),
+                account_key(address)
+            );
+        }
     }
 }
