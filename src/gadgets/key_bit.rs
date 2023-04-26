@@ -107,10 +107,7 @@ impl KeyBitConfig {
             self.index_mod_8
                 .assign(region, offset, u64::try_from(index_mod_8).unwrap());
             self.byte.assign(region, offset, u64::from(byte));
-
-            dbg!(offset);
         }
-        // panic!();
     }
 }
 

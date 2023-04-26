@@ -54,6 +54,8 @@ struct MptUpdateConfig {
     storage_key_rlc: AdviceColumn,
 
     sibling: AdviceColumn,
+
+    lower_128_bits: AdviceColumn, // lower 128 bits of address or storage key
 }
 
 impl MptUpdateLookup for MptUpdateConfig {
@@ -99,7 +101,8 @@ impl MptUpdateConfig {
         let proof_type = OneHot::configure(cs, cb);
         let [address, storage_key_rlc] = cb.advice_columns(cs);
         let [old_value, new_value] = cb.advice_columns(cs);
-        let [depth, key, old_key, new_key, direction, sibling] = cb.advice_columns(cs);
+        let [depth, key, old_key, new_key, direction, sibling, lower_128_bits] =
+            cb.advice_columns(cs);
 
         let segment_type = OneHot::configure(cs, cb);
         let path_type = OneHot::configure(cs, cb);
@@ -117,11 +120,18 @@ impl MptUpdateConfig {
                 "depth increases by 1 in trie segments",
                 depth.current(),
                 depth.previous() + 1,
-            )
+            );
         });
         cb.condition(!is_trie, |cb| {
-            cb.assert_zero("depth is 0 in non-trie segments", depth.current())
+            cb.assert_zero("key is 0 in non-trie segments", key.current());
+            cb.assert_zero("depth is 0 in non-trie segments", depth.current());
         });
+
+        cb.add_lookup(
+            "lower_128_bits is 16 bytes",
+            [lower_128_bits.current(), Query::from(15)],
+            bytes.lookup(),
+        );
 
         let config = Self {
             nonfirst_rows,
@@ -140,6 +150,7 @@ impl MptUpdateConfig {
             depth,
             direction,
             sibling,
+            lower_128_bits,
         };
 
         // Transitions for state machines:
@@ -182,7 +193,7 @@ impl MptUpdateConfig {
 
         for variant in MPTProofType::iter() {
             let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
-                MPTProofType::NonceChanged => configure_nonce(cb, &config, bytes),
+                MPTProofType::NonceChanged => configure_nonce(cb, &config, bytes, poseidon),
                 MPTProofType::BalanceChanged => configure_balance(cb, &config),
                 MPTProofType::CodeHashExists => configure_code_hash(cb, &config),
                 MPTProofType::AccountDoesNotExist => configure_empty_account(cb, &config),
@@ -255,16 +266,6 @@ impl MptUpdateConfig {
                     .assign(region, offset, account_key(proof.claim.address));
                 self.old_key.assign(region, offset, proof.old.key);
                 self.new_key.assign(region, offset, proof.new.key);
-
-                dbg!((
-                    offset,
-                    sibling,
-                    is_padding_open,
-                    is_padding_close,
-                    path_type,
-                    old_hash,
-                    new_hash
-                ));
 
                 if *direction {
                     assert_eq!(hash(*sibling, *old_hash), previous_hash);
@@ -382,6 +383,10 @@ impl MptUpdateConfig {
 
                     assert_eq!(hash(old_nonce_and_codesize, balance), old_h3);
                     assert_eq!(hash(new_nonce_and_codesize, balance), new_h3);
+                    assert_eq!(
+                        hash(Fr::one(), account_key(proof.claim.address)),
+                        account_key_hash
+                    );
                     (
                         vec![old_account_hash, old_h4, old_h3, old_nonce_and_codesize],
                         vec![new_account_hash, new_h4, new_h3, new_nonce_and_codesize],
@@ -405,8 +410,6 @@ impl MptUpdateConfig {
                     assert_eq!(hash(old_hash, sibling), previous_hash);
                 }
                 previous_hash = old_hash;
-
-                dbg!((offset + i, old_hash, new_hash, sibling));
                 self.segment_type.assign(region, offset + i, segment_type);
                 self.path_type.assign(region, offset + i, path_type);
                 self.sibling.assign(region, offset + i, sibling);
@@ -415,6 +418,11 @@ impl MptUpdateConfig {
                 self.direction.assign(region, offset + i, direction);
                 // TODO: would it be possible to assign key here to make the keybit lookup unconditional?
             }
+            self.lower_128_bits.assign(
+                region,
+                offset,
+                Fr::from_u128(address_low(proof.claim.address)),
+            );
         }
     }
 }
@@ -542,25 +550,49 @@ fn configure_nonce<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
     bytes: &impl BytesLookup,
+    poseidon: &impl PoseidonLookup,
 ) {
     for variant in SegmentType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
-            SegmentType::Start => {
-                cb.assert_zero("depth is 0", config.depth.current());
-            }
-            SegmentType::AccountTrie => {
-                cb.assert_equal("depth increased by 1", config.depth.delta(), Query::one());
-            }
+            SegmentType::Start => {}
+            SegmentType::AccountTrie => {}
             SegmentType::AccountLeaf0 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
-                // add constraints that sibling = old_path_key and new_path_key
+
+                // let address_high = (config.address.current() - config.lower_128_bits.current())
+                //     * Query::Constant(F::from(1 << 32).invert().unwrap());
+                let address_high: Query<F> = (config.address.current()
+                    - config.lower_128_bits.current() * (1 << 32))
+                    * (1 << 32)
+                    * (1 << 32)
+                    * (1 << 32);
+                cb.add_lookup(
+                    "key = h(address_high, address_low)",
+                    [
+                        // todo fix naming....
+                        config.lower_128_bits.current(),
+                        address_high,
+                        config.key.previous(),
+                    ],
+                    poseidon.lookup(),
+                );
+                cb.add_lookup(
+                    "sibling = h(1, key)",
+                    [
+                        Query::one(),
+                        // this could be Start, which could have key = 0. Do we need to special case that?
+                        // We could also just assign a non-zero key here....
+                        config.key.previous(),
+                        config.sibling.current(),
+                    ],
+                    poseidon.lookup(),
+                );
             }
             SegmentType::AccountLeaf1 => {
                 cb.assert(
                     "path_type is Common",
                     config.path_type.current_matches(&[PathType::Common]),
                 );
-                cb.assert_zero("depth is 0", config.depth.current());
                 cb.assert_zero("direction is 0", config.direction.current());
             }
             SegmentType::AccountLeaf2 => {
@@ -568,7 +600,6 @@ fn configure_nonce<F: FieldExt>(
                     "path_type is Common",
                     config.path_type.current_matches(&[PathType::Common]),
                 );
-                cb.assert_zero("depth is 0", config.depth.current());
                 cb.assert_zero("direction is 0", config.direction.current());
             }
             SegmentType::AccountLeaf3 => {
@@ -576,11 +607,10 @@ fn configure_nonce<F: FieldExt>(
                     "path_type is Common",
                     config.path_type.current_matches(&[PathType::Common]),
                 );
-                cb.assert_zero("depth is 0", config.depth.current());
                 cb.assert_zero("direction is 0", config.direction.current());
 
                 let old_code_size = (config.old_hash.current() - config.old_value.current())
-                    * Query::Constant(F::from(1 << 32).invert().unwrap());
+                    * Query::Constant(F::from(1 << 32).invert().unwrap()); // should this be 64?
                 cb.add_lookup(
                     "old nonce is 8 bytes",
                     [config.old_value.current(), Query::from(7)],
@@ -614,7 +644,7 @@ fn configure_nonce<F: FieldExt>(
             | SegmentType::StorageTrie
             | SegmentType::StorageLeaf0
             | SegmentType::StorageLeaf1 => {
-                cb.assert_unreachable("unreachable state for nonce update")
+                cb.assert_unreachable("unreachable segment type for nonce update")
             }
         };
         cb.condition(
@@ -651,6 +681,26 @@ fn configure_self_destruct<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &
 fn configure_storage<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {}
 
 fn configure_empty_storage<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {}
+
+fn address_low(a: Address) -> u128 {
+    let low_bytes: [u8; 16] = a.0[..16].try_into().unwrap();
+    u128::from_be_bytes(low_bytes)
+}
+
+fn address_high(a: Address) -> u128 {
+    let high_bytes: [u8; 4] = a.0[16..].try_into().unwrap();
+    u128::from(u32::from_be_bytes(high_bytes)) << 96
+}
+
+// pub fn account_key(address: Address) -> Fr {
+//     // TODO: the names of these are reversed
+//     let high_bytes: [u8; 16] = address.0[..16].try_into().unwrap();
+//     let low_bytes: [u8; 4] = address.0[16..].try_into().unwrap();
+
+//     let address_high = Fr::from_u128(u128::from_be_bytes(high_bytes));
+//     let address_low = Fr::from_u128(u128::from(u32::from_be_bytes(low_bytes)) << 96);
+//     hash(address_high, address_low)
+// }
 
 #[cfg(test)]
 mod test {
@@ -700,6 +750,27 @@ mod test {
                         hash_traces.push((*left, *right, hash(*left, *right)));
                     }
                 }
+
+                // hash_traces.push();
+
+                assert_eq!(
+                    hash(
+                        Fr::from_u128(address_low(proof.claim.address)),
+                        Fr::from_u128(address_high(proof.claim.address)),
+                    ),
+                    account_key(proof.claim.address)
+                );
+                hash_traces.push((
+                    Fr::from_u128(address_low(proof.claim.address)),
+                    Fr::from_u128(address_high(proof.claim.address)),
+                    account_key(proof.claim.address),
+                ));
+                // hash_traces.push((Fr::from_u128(address_low(proof.claim.address)), Fr::zero(), account_key(proof.claim.address)));
+                hash_traces.push((
+                    Fr::one(),
+                    account_key(proof.claim.address),
+                    hash(Fr::one(), account_key(proof.claim.address)),
+                ));
 
                 // TODO: some of these hash traces are not used.
                 hash_traces.extend(
@@ -752,7 +823,7 @@ mod test {
             &self,
         ) -> (Vec<u64>, Vec<u128>, Vec<Address>, Vec<H256>, Vec<U256>) {
             let mut u64s = vec![];
-            let mut u128s = vec![];
+            let mut u128s = vec![0];
             let mut addresses = vec![];
             let mut hashes = vec![];
             let mut words = vec![];
@@ -761,6 +832,7 @@ mod test {
                 let proof = Proof::from(update.clone());
                 match MPTProofType::from(proof.claim) {
                     MPTProofType::NonceChanged => {
+                        u128s.push(address_low(proof.claim.address));
                         if let Some(account) = proof.old_account {
                             u64s.push(account.nonce);
                             u64s.push(account.code_size);
@@ -773,8 +845,6 @@ mod test {
                     _ => {}
                 }
             }
-            dbg!(u128s.clone());
-
             (u64s, u128s, addresses, hashes, words)
         }
     }
