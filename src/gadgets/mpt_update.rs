@@ -926,6 +926,14 @@ mod test {
         }
     }
 
+    fn mock_prove(trace: &str) {
+        let circuit = TestCircuit {
+            updates: vec![serde_json::from_str(trace).unwrap()],
+        };
+        let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
+        assert_eq!(prover.verify(), Ok(()));
+    }
+
     #[test]
     fn test_mpt_updates() {
         let circuit = TestCircuit { updates: vec![] };
@@ -934,52 +942,24 @@ mod test {
     }
 
     #[test]
-    fn test_nonce_updates() {
-        const NONCE_TRACES: &str = include_str!("../../tests/nonce.json");
-        let updates: Vec<SMTTrace> = serde_json::from_str(NONCE_TRACES).unwrap();
-
-        let circuit = TestCircuit { updates };
-        let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
-        assert_eq!(prover.verify(), Ok(()));
-    }
-
-    #[test]
     fn nonce_write_existing_account() {
-        const TRACE: &str =
-            include_str!("../../tests/dual_code_hash/nonce_write_existing_account.json");
-        let update: SMTTrace = serde_json::from_str(TRACE).unwrap();
-
-        let circuit = TestCircuit {
-            updates: vec![update],
-        };
-        let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
-        assert_eq!(prover.verify(), Ok(()));
+        mock_prove(include_str!(
+            "../../tests/dual_code_hash/nonce_write_existing_account.json"
+        ));
     }
 
     #[test]
     fn nonce_write_type_1_empty_account() {
-        const TRACE: &str =
-            include_str!("../../tests/dual_code_hash/nonce_write_type_1_empty_account.json");
-        let update: SMTTrace = serde_json::from_str(TRACE).unwrap();
-
-        let circuit = TestCircuit {
-            updates: vec![update],
-        };
-        let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
-        assert_eq!(prover.verify(), Ok(()));
+        mock_prove(include_str!(
+            "../../tests/dual_code_hash/nonce_write_type_1_empty_account.json"
+        ));
     }
 
     #[test]
     fn nonce_write_type_2_empty_account() {
-        const TRACE: &str =
-            include_str!("../../tests/dual_code_hash/nonce_write_type_2_empty_account.json");
-        let update: SMTTrace = serde_json::from_str(TRACE).unwrap();
-
-        let circuit = TestCircuit {
-            updates: vec![update],
-        };
-        let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
-        assert_eq!(prover.verify(), Ok(()));
+        mock_prove(include_str!(
+            "../../tests/dual_code_hash/nonce_write_type_2_empty_account.json"
+        ));
     }
 
     #[test]
