@@ -660,7 +660,7 @@ mod test {
             layouter.assign_region(
                 || "",
                 |mut region| {
-                    mpt_update.assign(&mut region, &self.updates, &challenges_values);
+                    mpt_update.assign(&mut region, &self.updates, &challenge_values);
                     poseidon.assign(&mut region, &self.hash_traces());
                     canonical_representation.assign(&mut region, &self.keys());
                     // key_bit.assign(region, &[]); // self.
