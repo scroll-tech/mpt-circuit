@@ -656,7 +656,7 @@ mod test {
                 challenges,
             ) = config;
 
-            let challenges_values = challenges.values(&layouter);
+            let challenges_value = challenges.values(&layouter);
             layouter.assign_region(
                 || "",
                 |mut region| {
