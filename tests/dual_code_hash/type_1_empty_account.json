@@ -1,0 +1,47 @@
+{
+    "address": "0x0000000000000000000000000000000000000003",
+    "accountKey": "0x0c102f95ca61f758d124b42f5f0cfc4fb56d0869c173e0fefd0fcea0c113ce27",
+    "accountPath": [
+        {
+            "pathPart": "0x0",
+            "root": "0x66d44100da774c7ca0d4f911aca6a341304cb0f05cf8ce503d8aa2fa53e92f0a",
+            "path": [
+                {
+                    "value": "0x39ba81825de52c95e83a28704e621db08c23a93ee082b845eabc1d41ee1b2930",
+                    "sibling": "0x3e60b00a8efbac7e3b2fccaea906db1c1833ac28f6a68bc186116c82bb231e14"
+                }
+            ],
+            "leaf": {
+                "value": "0x42f1a2763b9d0d92764b7762c254c0384fe686cb8cf6972dfe01b0cda688a613",
+                "sibling": "0x1c6a7c2d09d7f187cbe689521ae1ee4aff9e86d93ec86f88e8c90180679aaf0c"
+            }
+        },
+        {
+            "pathPart": "0x0",
+            "root": "0x66d44100da774c7ca0d4f911aca6a341304cb0f05cf8ce503d8aa2fa53e92f0a",
+            "path": [
+                {
+                    "value": "0x39ba81825de52c95e83a28704e621db08c23a93ee082b845eabc1d41ee1b2930",
+                    "sibling": "0x3e60b00a8efbac7e3b2fccaea906db1c1833ac28f6a68bc186116c82bb231e14"
+                }
+            ],
+            "leaf": {
+                "value": "0x42f1a2763b9d0d92764b7762c254c0384fe686cb8cf6972dfe01b0cda688a613",
+                "sibling": "0x1c6a7c2d09d7f187cbe689521ae1ee4aff9e86d93ec86f88e8c90180679aaf0c"
+            }
+        }
+    ],
+    "accountUpdate": [
+        null,
+        null
+    ],
+    "commonStateRoot": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "statePath": [
+        null,
+        null
+    ],
+    "stateUpdate": [
+        null,
+        null
+    ]
+}

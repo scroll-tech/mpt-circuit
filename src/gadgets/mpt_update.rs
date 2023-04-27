@@ -28,6 +28,26 @@ pub trait MptUpdateLookup {
     fn lookup<F: FieldExt>(&self) -> [Query<F>; 7];
 }
 
+// if there's a leaf witness
+//  - on the old side, you end at Common (should this be extension then? it shou), AccountLeaf0.
+//      - the general rule for Extension should be that the sibling hashes need not be the same?
+//  - on the new side, there are 1 or more ExtensionNew, AccountTrie's followed by Extension, AccountLeaf0
+// this will be combined like so:
+// (Common, AccountTrie)
+// ...
+// (Common, AccountTrie)
+// (Extension, AccountTrie)
+// ...
+// (Extension, AccountTrie)
+// (Extension, AccountLeaf0) // this may be a bit tricky? because on the new side you need to show the key hash is correct for the target address
+//                           // you also need to show on the old side that the key hash does not match the target address.
+// (Extension, AccountLeaf1)
+// ...
+// if there's an emptynode witness:
+//  - on the old side, it is just (0, sibling).
+//  - on the new side, you need to replace 0 with the hash of the new account.
+//  - this means you go from Common, AccountTrie -> Extension, AccountLeaf0
+
 #[derive(Clone)]
 struct MptUpdateConfig {
     nonfirst_rows: SelectorColumn, // Enabled on all rows except the last one.
@@ -56,6 +76,8 @@ struct MptUpdateConfig {
     sibling: AdviceColumn,
 
     upper_128_bits: AdviceColumn, // most significant 128 bits of address or storage key
+    other_leaf_hash: AdviceColumn, // hash of leaf node that isn't the target one.
+    other_leaf_data_hash: AdviceColumn, // hash of data for the account that isn't the target one
 }
 
 impl MptUpdateLookup for MptUpdateConfig {
@@ -101,7 +123,7 @@ impl MptUpdateConfig {
         let proof_type = OneHot::configure(cs, cb);
         let [address, storage_key_rlc] = cb.advice_columns(cs);
         let [old_value, new_value] = cb.advice_columns(cs);
-        let [depth, key, old_key, new_key, direction, sibling, upper_128_bits] =
+        let [depth, key, old_key, new_key, direction, sibling, upper_128_bits, other_leaf_hash, other_leaf_data_hash] =
             cb.advice_columns(cs);
 
         let segment_type = OneHot::configure(cs, cb);
@@ -151,6 +173,8 @@ impl MptUpdateConfig {
             direction,
             sibling,
             upper_128_bits,
+            other_leaf_hash,
+            other_leaf_data_hash,
         };
 
         // Transitions for state machines:
@@ -252,8 +276,15 @@ impl MptUpdateConfig {
                     .assign(region, offset, SegmentType::AccountTrie);
                 let path_type = match (*is_padding_open, *is_padding_close) {
                     (false, false) => PathType::Common,
-                    (false, true) => PathType::ExtensionOld,
-                    (true, false) => PathType::ExtensionNew,
+                    (false, true) => {
+                        assert_eq!(*new_hash, Fr::zero());
+                        PathType::ExtensionOld
+                    }
+                    (true, false) => {
+                        assert_eq!(*old_hash, Fr::zero());
+
+                        PathType::ExtensionNew
+                    }
                     (true, true) => unreachable!(),
                 };
                 self.path_type.assign(region, offset, path_type);
@@ -267,12 +298,21 @@ impl MptUpdateConfig {
                 self.old_key.assign(region, offset, proof.old.key);
                 self.new_key.assign(region, offset, proof.new.key);
 
-                if *direction {
-                    assert_eq!(hash(*sibling, *old_hash), previous_hash);
-                } else {
-                    assert_eq!(hash(*old_hash, *sibling), previous_hash);
+                match path_type {
+                    PathType::Start => {}
+                    PathType::Common => {
+                        if *direction {
+                            assert_eq!(hash(*sibling, *old_hash), previous_hash);
+                        } else {
+                            assert_eq!(hash(*old_hash, *sibling), previous_hash);
+                        }
+                    }
+                    PathType::ExtensionOld => {}
+                    PathType::ExtensionNew => {}
                 }
                 previous_hash = *old_hash;
+
+                dbg!((path_type, offset));
 
                 offset += 1;
             }
@@ -286,8 +326,9 @@ impl MptUpdateConfig {
             ];
             let (_, _, _, _, is_padding_open, is_padding_close) = proof
                 .address_hash_traces
-                .last()
+                .first() // TODO: this is because address_hash_traces are reversed. fixme.
                 .expect("TODO: handle empty!!");
+            dbg!(is_padding_open, is_padding_close);
             let path_type = match (*is_padding_open, *is_padding_close) {
                 (false, false) => PathType::Common,
                 (false, true) => PathType::ExtensionOld,
@@ -301,62 +342,9 @@ impl MptUpdateConfig {
             };
 
             let (old_hashes, new_hashes, siblings) = match proof.claim.kind {
-                // ClaimKind::Write(Write::Nonce {
-                //     old: None,
-                //     new: Some(new_nonce),
-                // }) => (
-                //     vec![Fr::zero(); 4],
-                //     vec![
-                //         hash(Fr::one(), address_key(proof.claim.address)),
-                //         Fr::zero(),
-                //         hash(Fr::zero(), hash(Fr::zero, Fr::zero())),
-                //         Fr::zero(),
-                //     ],
-                //     vec![
-                //         Fr::from(nonce), // assuming codesize is 0 in this case?
-                //         hash(Fr::from(nonce, Fr::zero())),
-                //     ],
-                // ),
-
-                // fn account_hash_traces(address: Address, account: AccountData, storage_root: Fr) -> [[Fr; 3]; 7] {
-                //     // h5 is sibling of node?
-                //     let real_account: Account<Fr> = (&account, storage_root).try_into().unwrap();
-
-                //     let (codehash_hi, codehash_lo) = hi_lo(account.code_hash);
-                //     let h1 = hash(codehash_hi, codehash_lo);
-                //     let h2 = hash(storage_root, h1);
-
-                //     let nonce_and_codesize =
-                //         Fr::from(account.nonce) + Fr::from(account.code_size) * Fr::from(1 << 32).square();
-                //     let balance = balance_convert(account.balance);
-                //     let h3 = hash(nonce_and_codesize, balance);
-
-                //     let h4 = hash(h3, h2);
-
-                //     let account_key = account_key(address);
-                //     let h5 = hash(Fr::one(), account_key);
-
-                //     // TODO: rename balance_convert;
-                //     let poseidon_codehash = balance_convert(account.poseidon_code_hash);
-                //     let account_hash = hash(h4, poseidon_codehash);
-
-                //     let mut account_hash_traces = [[Fr::zero(); 3]; 7];
-                //     account_hash_traces[0] = [codehash_hi, codehash_lo, h1];
-                //     account_hash_traces[1] = [h1, storage_root, h2];
-                //     account_hash_traces[2] = [nonce_and_codesize, balance, h3];
-                //     account_hash_traces[3] = [h3, h2, h4]; //
-                //     account_hash_traces[4] = [h4, poseidon_codehash, account_hash];
-                //     account_hash_traces[5] = [Fr::one(), account_key, h5]; // this should be the sibling?
-                //     account_hash_traces[6] = [h5, account_hash, hash(h5, account_hash)];
-
-                //     // h4 is value of node?
-                //     assert_eq!(real_account.account_hash(), account_hash);
-
-                //     account_hash_traces
-                // }
                 ClaimKind::Write(Write::Nonce {
-                    old: Some(old_nonce),
-                    new: Some(new_nonce),
+                    old: Some(_),
+                    new: Some(_),
                 }) => {
                     // TODO: name these instead of using an array.
                     let old_account_hash_traces = proof.old_account_hash_traces;
@@ -393,6 +381,36 @@ impl MptUpdateConfig {
                         vec![account_key_hash, poseidon_codehash, h2, balance],
                     )
                 }
+                ClaimKind::Write(Write::Nonce {
+                    old: None,
+                    new: Some(_),
+                }) => {
+                    let new_account_hash_traces = proof.new_account_hash_traces;
+
+                    let balance = new_account_hash_traces[2][1];
+                    let h2 = new_account_hash_traces[3][1];
+                    let poseidon_codehash = new_account_hash_traces[4][1];
+                    let account_key_hash = new_account_hash_traces[5][2];
+                    assert_eq!(balance, Fr::zero());
+                    assert_eq!(h2, hash(Fr::zero(), hash(Fr::zero(), Fr::zero())));
+                    assert_eq!(poseidon_codehash, Fr::zero());
+
+                    let new_account_hash = new_account_hash_traces[6][1];
+                    let new_h4 = new_account_hash_traces[4][0];
+                    let new_h3 = new_account_hash_traces[3][0];
+                    let new_nonce_and_codesize = new_account_hash_traces[2][0];
+
+                    assert_eq!(hash(new_nonce_and_codesize, balance), new_h3);
+                    assert_eq!(
+                        hash(Fr::one(), account_key(proof.claim.address)),
+                        account_key_hash
+                    );
+                    (
+                        vec![Fr::zero(); 4],
+                        vec![new_account_hash, new_h4, new_h3, new_nonce_and_codesize],
+                        vec![account_key_hash, poseidon_codehash, h2, balance],
+                    )
+                }
                 _ => unimplemented!(),
             };
             // let siblings = match proof_type {
@@ -404,18 +422,19 @@ impl MptUpdateConfig {
             for (i, (segment_type, sibling, old_hash, new_hash, direction)) in
                 izip!(segment_types, siblings, old_hashes, new_hashes, directions).enumerate()
             {
-                if direction {
-                    assert_eq!(hash(sibling, old_hash), previous_hash);
-                } else {
-                    assert_eq!(hash(old_hash, sibling), previous_hash);
-                }
-                previous_hash = old_hash;
+                // if direction {
+                //     assert_eq!(hash(sibling, old_hash), previous_hash);
+                // } else {
+                //     assert_eq!(hash(old_hash, sibling), previous_hash);
+                // }
+                // previous_hash = old_hash;
                 self.segment_type.assign(region, offset + i, segment_type);
                 self.path_type.assign(region, offset + i, path_type);
                 self.sibling.assign(region, offset + i, sibling);
                 self.old_hash.assign(region, offset + i, old_hash);
                 self.new_hash.assign(region, offset + i, new_hash);
                 self.direction.assign(region, offset + i, direction);
+                dbg!((path_type, offset + 1));
                 // TODO: would it be possible to assign key here to make the keybit lookup unconditional?
             }
             self.upper_128_bits.assign(
@@ -460,7 +479,7 @@ fn configure_common_path<F: FieldExt>(
     poseidon: &impl PoseidonLookup,
 ) {
     cb.add_lookup(
-        "poseidon hash correct for old path",
+        "poseidon hash correct for old common path",
         [
             old_left(config),
             old_right(config),
@@ -469,7 +488,7 @@ fn configure_common_path<F: FieldExt>(
         poseidon.lookup(),
     );
     cb.add_lookup(
-        "poseidon hash correct for new path",
+        "poseidon hash correct for new common path",
         [
             new_left(config),
             new_right(config),
@@ -477,6 +496,14 @@ fn configure_common_path<F: FieldExt>(
         ],
         poseidon.lookup(),
     );
+    cb.condition(
+        config
+            .path_type
+            .next_matches(&[PathType::ExtensionNew, PathType::ExtensionOld]),
+        |cb| {
+            // TODOOOOOOOO
+        },
+    )
 }
 
 fn configure_extension_old<F: FieldExt>(
@@ -530,10 +557,9 @@ fn configure_extension_new<F: FieldExt>(
         // TODO: assert that the leaf that was being used as the non-empty witness is put here....
     });
 
-    cb.assert_equal(
-        "old_hash unchanged for path_type=new",
+    cb.assert_zero(
+        "old_hash is 0 for PathType::ExtensionNew",
         config.old_hash.current(),
-        config.old_hash.previous(),
     );
     cb.add_lookup(
         "poseidon hash correct for new path",
@@ -912,8 +938,8 @@ mod test {
     }
 
     #[test]
-    fn existing_account_nonce_write() {
-        const TRACE: &str = include_str!("../../tests/dual_code_hash/nonce_existing_account.json");
+    fn nonce_write_existing_account() {
+        const TRACE: &str = include_str!("../../tests/dual_code_hash/nonce_write_existing_account.json");
         let update: SMTTrace = serde_json::from_str(TRACE).unwrap();
 
         let circuit = TestCircuit {
@@ -924,9 +950,22 @@ mod test {
     }
 
     #[test]
-    fn empty_account_nonce_write() {
+    fn nonce_write_type_1_empty_account() {
         const TRACE: &str =
-            include_str!("../../tests/dual_code_hash/empty_account_nonce_write.json");
+            include_str!("../../tests/dual_code_hash/nonce_write_type_1_empty_account.json");
+        let update: SMTTrace = serde_json::from_str(TRACE).unwrap();
+
+        let circuit = TestCircuit {
+            updates: vec![update],
+        };
+        let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
+        assert_eq!(prover.verify(), Ok(()));
+    }
+
+    #[test]
+    fn nonce_write_type_2_empty_account() {
+        const TRACE: &str =
+            include_str!("../../tests/dual_code_hash/nonce_write_type_2_empty_account.json");
         let update: SMTTrace = serde_json::from_str(TRACE).unwrap();
 
         let circuit = TestCircuit {

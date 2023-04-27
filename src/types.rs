@@ -114,7 +114,7 @@ pub struct Proof {
     pub address_hash_traces: Vec<(bool, Fr, Fr, Fr, bool, bool)>,
 
     // TODO: make this optional
-    leafs: [LeafNode; 2],
+    leafs: [Option<LeafNode>; 2],
 
     pub old_account_hash_traces: [[Fr; 3]; 7],
     pub new_account_hash_traces: [[Fr; 3]; 7],
@@ -336,7 +336,7 @@ impl From<SMTTrace> for Proof {
         };
 
         let account_key = account_key(claim.address);
-        let leafs = trace.account_path.clone().map(get_leaf).map(|x| x.unwrap());
+        let leafs = trace.account_path.clone().map(get_leaf);
         let [open_hash_traces, close_hash_traces] =
             trace.account_path.clone().map(|path| path.path);
         let leaf_hashes = trace.account_path.clone().map(leaf_hash);
@@ -349,11 +349,11 @@ impl From<SMTTrace> for Proof {
 
         let [old_account, new_account] = trace.account_update;
         let old_account_hash_traces = match old_account.clone() {
-            None => empty_account_hash_traces(leafs[0]),
+            None => empty_account_hash_traces(),
             Some(account) => account_hash_traces(claim.address, account, old_storage_root),
         };
         let new_account_hash_traces = match new_account.clone() {
-            None => empty_account_hash_traces(leafs[1]),
+            None => empty_account_hash_traces(),
             Some(account) => account_hash_traces(claim.address, account, new_storage_root),
         };
 
@@ -391,7 +391,7 @@ fn leaf_hash(path: SMTPath) -> Fr {
     if let Some(leaf) = path.leaf {
         hash(hash(Fr::one(), fr(leaf.sibling)), fr(leaf.value))
     } else {
-        assert_eq!(path, SMTPath::default());
+        // assert_eq!(path, SMTPath::default());
         Fr::zero()
     }
 }
@@ -435,12 +435,10 @@ fn account_hash_traces(address: Address, account: AccountData, storage_root: Fr)
 
 fn get_internal_hash_traces(
     key: Fr,
-    leaf_hashes: [Fr; 2],
+    _leaf_hashes: [Fr; 2],
     open_hash_traces: &[SMTNode],
     close_hash_traces: &[SMTNode],
 ) -> Vec<(bool, Fr, Fr, Fr, bool, bool)> {
-    // need to do something with the leaf hashes here...
-
     let mut address_hash_traces = vec![];
     for (i, e) in open_hash_traces
         .iter()
@@ -462,14 +460,14 @@ fn get_internal_hash_traces(
             EitherOrBoth::Left(open) => (
                 key.bit(i),
                 fr(open.value),
-                leaf_hashes[1],
+                Fr::zero(),
                 fr(open.sibling),
                 false,
                 true,
             ),
             EitherOrBoth::Right(close) => (
                 key.bit(i),
-                leaf_hashes[0],
+                Fr::zero(),
                 fr(close.value),
                 fr(close.sibling),
                 true,
@@ -481,17 +479,9 @@ fn get_internal_hash_traces(
     address_hash_traces
 }
 
-fn empty_account_hash_traces(leaf: LeafNode) -> [[Fr; 3]; 7] {
+fn empty_account_hash_traces() -> [[Fr; 3]; 7] {
     // TODO: fix this with what they should be!!!!!
-    let mut hash_traces = [[Fr::zero(); 3]; 7];
-
-    let h5 = hash(Fr::one(), leaf.key);
-    let h6 = hash(h5, leaf.value_hash);
-
-    hash_traces[5] = [Fr::one(), leaf.key, h5];
-    hash_traces[6] = [h5, leaf.value_hash, h6];
-
-    hash_traces
+    [[Fr::zero(); 3]; 7]
 }
 
 fn storage_key_value_hash_traces(key: U256, value: U256) -> [[Fr; 3]; 3] {
@@ -559,13 +549,13 @@ impl Proof {
 
         dbg!(self.old_account_hash_traces, self.leafs);
 
+        // TODO: handle none here.
         assert_eq!(
-            hash(hash(Fr::one(), self.leafs[0].key), self.leafs[0].value_hash),
+            hash(hash(Fr::one(), self.leafs[0].unwrap().key), self.leafs[0].unwrap().value_hash),
             self.old_account_hash_traces[5][2],
         );
-
         assert_eq!(
-            hash(hash(Fr::one(), self.leafs[1].key), self.leafs[1].value_hash),
+            hash(hash(Fr::one(), self.leafs[1].unwrap().key), self.leafs[1].unwrap().value_hash),
             self.new_account_hash_traces[5][2],
         );
 

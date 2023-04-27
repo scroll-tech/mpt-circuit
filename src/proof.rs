@@ -149,7 +149,7 @@ impl From<SMTTrace> for Proof {
 
 fn get_internal_hash_traces(
     key: Fr,
-    leaf_hashes: [Fr; 2],
+    _leaf_hashes: [Fr; 2],
     open_hash_traces: &[SMTNode],
     close_hash_traces: &[SMTNode],
 ) -> Vec<(bool, Fr, Fr, Fr, bool, bool)> {
@@ -176,14 +176,14 @@ fn get_internal_hash_traces(
             EitherOrBoth::Left(open) => (
                 key.bit(i),
                 fr(open.value),
-                leaf_hashes[1],
+                Fr::zero(),
                 fr(open.sibling),
                 false,
                 true,
             ),
             EitherOrBoth::Right(close) => (
                 key.bit(i),
-                leaf_hashes[0],
+                Fr::zero(),
                 fr(close.value),
                 fr(close.sibling),
                 true,
