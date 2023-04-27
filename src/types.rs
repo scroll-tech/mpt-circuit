@@ -335,17 +335,13 @@ impl From<SMTTrace> for Proof {
             }
         };
 
-        let account_key = account_key(claim.address);
+        let key = account_key(claim.address);
         let leafs = trace.account_path.clone().map(get_leaf);
         let [open_hash_traces, close_hash_traces] =
             trace.account_path.clone().map(|path| path.path);
         let leaf_hashes = trace.account_path.clone().map(leaf_hash);
-        let address_hash_traces = get_internal_hash_traces(
-            account_key,
-            leaf_hashes,
-            &open_hash_traces,
-            &close_hash_traces,
-        );
+        let address_hash_traces =
+            get_internal_hash_traces(key, leaf_hashes, &open_hash_traces, &close_hash_traces);
 
         let [old_account, new_account] = trace.account_update;
         let old_account_hash_traces = match old_account.clone() {
@@ -358,7 +354,13 @@ impl From<SMTTrace> for Proof {
         };
 
         let [old, new] = trace.account_path.map(|path| Path {
-            key: fr(path.leaf.unwrap().sibling),
+            // The account_key(address) if the account exists
+            // else: path.leaf.sibling if it's a type 1 non-existence proof
+            // otherwise account_key(address) if it's a type 2 non-existence proof
+            // the first and last
+            key: path
+                .leaf
+                .map_or_else(|| account_key(claim.address), |leaf| fr(leaf.sibling)),
         });
 
         let [old_account, new_account] =
@@ -551,11 +553,17 @@ impl Proof {
 
         // TODO: handle none here.
         assert_eq!(
-            hash(hash(Fr::one(), self.leafs[0].unwrap().key), self.leafs[0].unwrap().value_hash),
+            hash(
+                hash(Fr::one(), self.leafs[0].unwrap().key),
+                self.leafs[0].unwrap().value_hash
+            ),
             self.old_account_hash_traces[5][2],
         );
         assert_eq!(
-            hash(hash(Fr::one(), self.leafs[1].unwrap().key), self.leafs[1].unwrap().value_hash),
+            hash(
+                hash(Fr::one(), self.leafs[1].unwrap().key),
+                self.leafs[1].unwrap().value_hash
+            ),
             self.new_account_hash_traces[5][2],
         );
 

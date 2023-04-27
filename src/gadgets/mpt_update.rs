@@ -19,7 +19,10 @@ use crate::{
 use ethers_core::k256::elliptic_curve::PrimeField;
 use ethers_core::types::Address;
 use halo2_proofs::{
-    arithmetic::FieldExt, circuit::Region, halo2curves::bn256::Fr, plonk::ConstraintSystem,
+    arithmetic::{Field, FieldExt},
+    circuit::Region,
+    halo2curves::bn256::Fr,
+    plonk::ConstraintSystem,
 };
 use itertools::izip;
 use strum::IntoEnumIterator;
@@ -324,16 +327,19 @@ impl MptUpdateConfig {
                 SegmentType::AccountLeaf3,
                 SegmentType::AccountLeaf4,
             ];
-            let (_, _, _, _, is_padding_open, is_padding_close) = proof
+            // Need to figure out the path type for the account leaf rows
+            let (_, final_old_hash, final_new_hash, _, _, _) = proof
                 .address_hash_traces
                 .first() // TODO: this is because address_hash_traces are reversed. fixme.
-                .expect("TODO: handle empty!!");
-            dbg!(is_padding_open, is_padding_close);
-            let path_type = match (*is_padding_open, *is_padding_close) {
-                (false, false) => PathType::Common,
-                (false, true) => PathType::ExtensionOld,
+                .unwrap_or(continue); // entire mpt is empty, so no leaf rows to assign.
+            let path_type = match (
+                final_old_hash.is_zero_vartime(),
+                final_new_hash.is_zero_vartime(),
+            ) {
+                (true, true) => continue, // type 2 account non-existence proof. we don't need to assign any leaf rows.
                 (true, false) => PathType::ExtensionNew,
-                (true, true) => unreachable!(),
+                (false, true) => PathType::ExtensionOld,
+                (false, false) => PathType::Common,
             };
             // TODO: this doesn't handle the case where both old and new accounts are empty.
             let directions = match proof_type {
@@ -939,7 +945,8 @@ mod test {
 
     #[test]
     fn nonce_write_existing_account() {
-        const TRACE: &str = include_str!("../../tests/dual_code_hash/nonce_write_existing_account.json");
+        const TRACE: &str =
+            include_str!("../../tests/dual_code_hash/nonce_write_existing_account.json");
         let update: SMTTrace = serde_json::from_str(TRACE).unwrap();
 
         let circuit = TestCircuit {
