@@ -79,7 +79,6 @@ struct MptUpdateConfig {
     sibling: AdviceColumn,
 
     upper_128_bits: AdviceColumn, // most significant 128 bits of address or storage key
-    other_leaf_hash: AdviceColumn, // hash of leaf node that isn't the target one.
     other_leaf_data_hash: AdviceColumn, // hash of data for the account that isn't the target one
 }
 
@@ -126,7 +125,7 @@ impl MptUpdateConfig {
         let proof_type = OneHot::configure(cs, cb);
         let [address, storage_key_rlc] = cb.advice_columns(cs);
         let [old_value, new_value] = cb.advice_columns(cs);
-        let [depth, key, old_key, new_key, direction, sibling, upper_128_bits, other_leaf_hash, other_leaf_data_hash] =
+        let [depth, key, old_key, new_key, direction, sibling, upper_128_bits, other_leaf_data_hash] =
             cb.advice_columns(cs);
 
         let segment_type = OneHot::configure(cs, cb);
@@ -176,7 +175,6 @@ impl MptUpdateConfig {
             direction,
             sibling,
             upper_128_bits,
-            other_leaf_hash,
             other_leaf_data_hash,
         };
 
@@ -260,14 +258,17 @@ impl MptUpdateConfig {
                 self.new_value.assign(region, offset + i, new_value);
             }
 
+            let mut path_type = PathType::Start; // should get rid of this variant and just start from Common.
+
             // Assign start row
             self.segment_type.assign(region, offset, SegmentType::Start);
-            self.path_type.assign(region, offset, PathType::Start);
+            self.path_type.assign(region, offset, path_type);
             self.old_hash.assign(region, offset, proof.claim.old_root);
             self.new_hash.assign(region, offset, proof.claim.new_root);
             offset += 1;
 
-            let mut previous_hash = proof.claim.old_root;
+            let mut previous_old_hash = proof.claim.old_root;
+            let mut previous_new_hash = proof.claim.new_root;
             for (
                 depth,
                 (direction, old_hash, new_hash, sibling, is_padding_open, is_padding_close),
@@ -277,15 +278,14 @@ impl MptUpdateConfig {
                     .assign(region, offset, u64::try_from(depth + 1).unwrap());
                 self.segment_type
                     .assign(region, offset, SegmentType::AccountTrie);
-                let path_type = match (*is_padding_open, *is_padding_close) {
+                path_type = match (*is_padding_open, *is_padding_close) {
                     (false, false) => PathType::Common,
                     (false, true) => {
-                        assert_eq!(*new_hash, Fr::zero());
+                        assert_eq!(*new_hash, previous_new_hash);
                         PathType::ExtensionOld
                     }
                     (true, false) => {
-                        assert_eq!(*old_hash, Fr::zero());
-
+                        assert_eq!(*old_hash, previous_old_hash);
                         PathType::ExtensionNew
                     }
                     (true, true) => unreachable!(),
@@ -305,18 +305,42 @@ impl MptUpdateConfig {
                     PathType::Start => {}
                     PathType::Common => {
                         if *direction {
-                            assert_eq!(hash(*sibling, *old_hash), previous_hash);
+                            assert_eq!(hash(*sibling, *old_hash), previous_old_hash);
+                            assert_eq!(hash(*sibling, *new_hash), previous_new_hash);
                         } else {
-                            assert_eq!(hash(*old_hash, *sibling), previous_hash);
+                            assert_eq!(hash(*old_hash, *sibling), previous_old_hash);
+                            assert_eq!(hash(*new_hash, *sibling), previous_new_hash);
                         }
+                        previous_old_hash = *old_hash;
+                        previous_new_hash = *new_hash;
                     }
-                    PathType::ExtensionOld => {}
-                    PathType::ExtensionNew => {}
+                    PathType::ExtensionOld => {
+                        assert_eq!(*new_hash, previous_new_hash);
+                        if *direction {
+                            assert_eq!(hash(*sibling, *old_hash), previous_old_hash);
+                        } else {
+                            assert_eq!(hash(*old_hash, *sibling), previous_old_hash);
+                        }
+                        previous_old_hash = *old_hash;
+                    }
+                    PathType::ExtensionNew => {
+                        assert_eq!(*old_hash, previous_old_hash);
+                        if *direction {
+                            assert_eq!(hash(*sibling, *new_hash), previous_new_hash);
+                        } else {
+                            assert_eq!(hash(*new_hash, *sibling), previous_new_hash);
+                        }
+                        previous_new_hash = *new_hash;
+                    }
                 }
-                previous_hash = *old_hash;
-
-                dbg!((path_type, offset));
-
+                dbg!((
+                    offset,
+                    SegmentType::AccountTrie,
+                    path_type,
+                    old_hash,
+                    new_hash,
+                    sibling
+                ));
                 offset += 1;
             }
 
@@ -328,19 +352,31 @@ impl MptUpdateConfig {
                 SegmentType::AccountLeaf4,
             ];
             // Need to figure out the path type for the account leaf rows
-            let (_, final_old_hash, final_new_hash, _, _, _) = proof
-                .address_hash_traces
-                .first() // TODO: this is because address_hash_traces are reversed. fixme.
-                .unwrap_or(continue); // entire mpt is empty, so no leaf rows to assign.
-            let path_type = match (
-                final_old_hash.is_zero_vartime(),
-                final_new_hash.is_zero_vartime(),
-            ) {
-                (true, true) => continue, // type 2 account non-existence proof. we don't need to assign any leaf rows.
-                (true, false) => PathType::ExtensionNew,
-                (false, true) => PathType::ExtensionOld,
-                (false, false) => PathType::Common,
+            // this is either a leaf hash or 0 (hash of empty node).
+            let (final_old_hash, final_new_hash) = match proof.address_hash_traces.first() {
+                None => continue, // entire mpt is empty, so no leaf rows to assign.
+                Some((_, final_old_hash, final_new_hash, _, _, _)) => {
+                    (final_old_hash, final_new_hash)
+                }
             };
+            path_type = match path_type {
+                PathType::Common => {
+                    // need to check for type 2 non-existence proof
+                    match (
+                        final_old_hash.is_zero_vartime(),
+                        final_new_hash.is_zero_vartime(),
+                    ) {
+                        (true, true) => {
+                            continue;
+                        } // type 2 account non-existence proof. we don't need to assign any leaf rows.
+                        (true, false) => PathType::ExtensionNew,
+                        (false, true) => PathType::ExtensionOld,
+                        (false, false) => PathType::Common,
+                    }
+                }
+                _ => path_type,
+            };
+
             // TODO: this doesn't handle the case where both old and new accounts are empty.
             let directions = match proof_type {
                 MPTProofType::NonceChanged => vec![true, false, false, false],
@@ -412,7 +448,7 @@ impl MptUpdateConfig {
                         account_key_hash
                     );
                     (
-                        vec![Fr::zero(); 4],
+                        vec![*final_old_hash; 4], // this is wrong....
                         vec![new_account_hash, new_h4, new_h3, new_nonce_and_codesize],
                         vec![account_key_hash, poseidon_codehash, h2, balance],
                     )
@@ -440,7 +476,7 @@ impl MptUpdateConfig {
                 self.old_hash.assign(region, offset + i, old_hash);
                 self.new_hash.assign(region, offset + i, new_hash);
                 self.direction.assign(region, offset + i, direction);
-                dbg!((path_type, offset + 1));
+                dbg!((offset + i, segment_type, path_type, old_hash, new_hash));
                 // TODO: would it be possible to assign key here to make the keybit lookup unconditional?
             }
             self.upper_128_bits.assign(
@@ -502,14 +538,6 @@ fn configure_common_path<F: FieldExt>(
         ],
         poseidon.lookup(),
     );
-    cb.condition(
-        config
-            .path_type
-            .next_matches(&[PathType::ExtensionNew, PathType::ExtensionOld]),
-        |cb| {
-            // TODOOOOOOOO
-        },
-    )
 }
 
 fn configure_extension_old<F: FieldExt>(
@@ -526,12 +554,18 @@ fn configure_extension_old<F: FieldExt>(
     //     ],
     //     poseidon.lookup(),
     // );
-    let is_final_trie_segment = !config
+    // need to check that
+    let is_final_trie_segment = config
         .segment_type
-        .next_matches(&[SegmentType::AccountTrie, SegmentType::StorageTrie]);
+        .current_matches(&[SegmentType::AccountTrie, SegmentType::StorageTrie])
+        .and(
+            !config
+                .segment_type
+                .next_matches(&[SegmentType::AccountTrie, SegmentType::StorageTrie]),
+        );
     cb.condition(!is_final_trie_segment.clone(), |cb| {
         cb.assert_zero(
-            "sibling is zero for non-final extension path segments",
+            "sibling is zero for non-final old extension path segments",
             config.sibling.current(),
         );
     });
@@ -550,22 +584,32 @@ fn configure_extension_new<F: FieldExt>(
     config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
 ) {
-    let is_final_trie_segment = !config
+    let is_trie_segment = config
         .segment_type
-        .next_matches(&[SegmentType::AccountTrie, SegmentType::StorageTrie]);
-    cb.condition(!is_final_trie_segment.clone(), |cb| {
-        cb.assert_zero(
-            "sibling is zero for non-final extension path segments",
-            config.sibling.current(),
-        );
-    });
-    cb.condition(is_final_trie_segment, |cb| {
-        // TODO: assert that the leaf that was being used as the non-empty witness is put here....
+        .current_matches(&[SegmentType::AccountTrie, SegmentType::StorageTrie]);
+    cb.condition(is_trie_segment, |cb| {
+        let is_final_trie_segment = !config
+            .segment_type
+            .next_matches(&[SegmentType::AccountTrie, SegmentType::StorageTrie]);
+        cb.condition(!is_final_trie_segment.clone(), |cb| {
+            cb.assert_zero(
+                "sibling is zero for non-final new extension path segments",
+                config.sibling.current(),
+            )
+        });
+        cb.condition(is_final_trie_segment, |cb| {
+            cb.assert_equal(
+                "sibling is old leaf hash for final new extension path segments",
+                config.sibling.current(),
+                config.old_hash.current(),
+            )
+        });
     });
 
-    cb.assert_zero(
-        "old_hash is 0 for PathType::ExtensionNew",
+    cb.assert_equal(
+        "old_hash unchanged for path_type=New",
         config.old_hash.current(),
+        config.old_hash.previous(),
     );
     cb.add_lookup(
         "poseidon hash correct for new path",
@@ -627,33 +671,60 @@ fn configure_nonce<F: FieldExt>(
 
                 let old_code_size = (config.old_hash.current() - config.old_value.current())
                     * Query::Constant(F::from(1 << 32).invert().unwrap()); // should this be 64?
-                cb.add_lookup(
-                    "old nonce is 8 bytes",
-                    [config.old_value.current(), Query::from(7)],
-                    bytes.lookup(),
-                );
-                cb.add_lookup(
-                    "old code size is 8 bytes",
-                    [old_code_size.clone(), Query::from(7)],
-                    bytes.lookup(),
-                );
-
                 let new_code_size = (config.new_hash.current() - config.new_value.current())
                     * Query::Constant(F::from(1 << 32).invert().unwrap());
-                cb.add_lookup(
-                    "new nonce is 8 bytes",
-                    [config.old_value.current(), Query::from(7)],
-                    bytes.lookup(),
+                cb.condition(
+                    config.path_type.current_matches(&[PathType::Common]),
+                    |cb| {
+                        cb.add_lookup(
+                            "old nonce is 8 bytes",
+                            [config.old_value.current(), Query::from(7)],
+                            bytes.lookup(),
+                        );
+                        cb.add_lookup(
+                            "new nonce is 8 bytes",
+                            [config.old_value.current(), Query::from(7)],
+                            bytes.lookup(),
+                        );
+                        cb.assert_equal(
+                            "old_code_size = new_code_size for nonce update",
+                            old_code_size.clone(),
+                            new_code_size.clone(),
+                        );
+                        cb.add_lookup(
+                            "existing code size is 8 bytes",
+                            [old_code_size.clone(), Query::from(7)],
+                            bytes.lookup(),
+                        );
+                    },
                 );
-                cb.add_lookup(
-                    "new code size is 8 bytes",
-                    [new_code_size.clone(), Query::from(7)],
-                    bytes.lookup(),
+                cb.condition(
+                    config.path_type.current_matches(&[PathType::ExtensionNew]),
+                    |cb| {
+                        cb.add_lookup(
+                            "new nonce is 8 bytes",
+                            [config.old_value.current(), Query::from(7)],
+                            bytes.lookup(),
+                        );
+                        cb.assert_zero(
+                            "code size is 0 for ExtensionNew nonce update",
+                            new_code_size,
+                        );
+                    },
                 );
-                cb.assert_equal(
-                    "code size doesn't change for nonce update",
-                    old_code_size,
-                    new_code_size,
+                cb.condition(
+                    config.path_type.current_matches(&[PathType::ExtensionOld]),
+                    |cb| {
+                        cb.add_lookup(
+                            "old nonce is 8 bytes",
+                            [config.old_value.current(), Query::from(7)],
+                            bytes.lookup(),
+                        );
+                        cb.assert_zero(
+                            "code size is 0 for ExtensionOld nonce update",
+                            old_code_size,
+                        );
+                    },
                 );
             }
             SegmentType::AccountLeaf4

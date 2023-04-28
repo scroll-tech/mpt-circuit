@@ -437,7 +437,7 @@ fn account_hash_traces(address: Address, account: AccountData, storage_root: Fr)
 
 fn get_internal_hash_traces(
     key: Fr,
-    _leaf_hashes: [Fr; 2],
+    leaf_hashes: [Fr; 2],
     open_hash_traces: &[SMTNode],
     close_hash_traces: &[SMTNode],
 ) -> Vec<(bool, Fr, Fr, Fr, bool, bool)> {
@@ -462,14 +462,14 @@ fn get_internal_hash_traces(
             EitherOrBoth::Left(open) => (
                 key.bit(i),
                 fr(open.value),
-                Fr::zero(),
+                leaf_hashes[1],
                 fr(open.sibling),
                 false,
                 true,
             ),
             EitherOrBoth::Right(close) => (
                 key.bit(i),
-                Fr::zero(),
+                leaf_hashes[0],
                 fr(close.value),
                 fr(close.sibling),
                 true,

@@ -149,11 +149,13 @@ impl From<SMTTrace> for Proof {
 
 fn get_internal_hash_traces(
     key: Fr,
-    _leaf_hashes: [Fr; 2],
+    leaf_hashes: [Fr; 2],
     open_hash_traces: &[SMTNode],
     close_hash_traces: &[SMTNode],
 ) -> Vec<(bool, Fr, Fr, Fr, bool, bool)> {
     let _path_length = std::cmp::max(open_hash_traces.len(), close_hash_traces.len());
+
+    dbg!(leaf_hashes);
 
     let mut address_hash_traces = vec![];
     for (i, e) in open_hash_traces
@@ -176,14 +178,14 @@ fn get_internal_hash_traces(
             EitherOrBoth::Left(open) => (
                 key.bit(i),
                 fr(open.value),
-                Fr::zero(),
+                leaf_hashes[0],
                 fr(open.sibling),
                 false,
                 true,
             ),
             EitherOrBoth::Right(close) => (
                 key.bit(i),
-                Fr::zero(),
+                leaf_hashes[1],
                 fr(close.value),
                 fr(close.sibling),
                 true,
