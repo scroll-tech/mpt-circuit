@@ -21,53 +21,7 @@ pub struct Claim {
 
 #[derive(Clone, Copy, Debug)]
 pub enum ClaimKind {
-    // TODO: There is no need to distinguish between read and writes
-    Read(Read),
-    Write(Write),
-    // None means we're proving an entire account is empty Some(key) means
-    // we're proving the storage key is empty.
-    IsEmpty(Option<U256>),
-}
-
-impl Claim {
-    pub fn storage_key(&self) -> U256 {
-        match self.kind {
-            ClaimKind::Read(Read::Storage { key, .. }) => key,
-            ClaimKind::Write(Write::Storage { key, .. }) => key,
-            _ => U256::zero(),
-        }
-    }
-
-    pub fn old_value_assignment(&self, randomness: Fr) -> Fr {
-        match self.kind {
-            ClaimKind::Read(Read::Nonce(i)) => Fr::from(i),
-            ClaimKind::Write(Write::Nonce { old, .. }) => Fr::from(old.unwrap_or_default()),
-            _ => unimplemented!("{:?}", self),
-            // rlc here.....
-        }
-    }
-
-    pub fn new_value_assignment(&self, randomness: Fr) -> Fr {
-        match self.kind {
-            ClaimKind::Read(Read::Nonce(i)) => Fr::from(i),
-            ClaimKind::Write(Write::Nonce { new, .. }) => Fr::from(new.unwrap_or_default()),
-            _ => unimplemented!(),
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub enum Read {
-    Nonce(u64),
-    Balance(U256),
-    CodeHash(U256),
-    CodeSize(u64),
-    PoseidonCodeHash(Fr),
-    Storage { key: U256, value: U256 },
-}
-
-#[derive(Clone, Copy, Debug)]
-pub enum Write {
+    // TODO: remove Option's and represent type of old and new account elsewhere?
     Nonce {
         old: Option<u64>,
         new: Option<u64>,
@@ -93,6 +47,31 @@ pub enum Write {
         old_value: Option<U256>,
         new_value: Option<U256>,
     },
+    IsEmpty(Option<U256>),
+}
+
+impl Claim {
+    pub fn storage_key(&self) -> U256 {
+        match self.kind {
+            ClaimKind::Storage { key, .. } => key,
+            _ => U256::zero(),
+        }
+    }
+
+    pub fn old_value_assignment(&self, randomness: Fr) -> Fr {
+        match self.kind {
+            ClaimKind::Nonce { old, .. } => Fr::from(old.unwrap_or_default()),
+            _ => unimplemented!("{:?}", self),
+            // rlc here.....
+        }
+    }
+
+    pub fn new_value_assignment(&self, randomness: Fr) -> Fr {
+        match self.kind {
+            ClaimKind::Nonce { new, .. } => Fr::from(new.unwrap_or_default()),
+            _ => unimplemented!(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -153,10 +132,11 @@ impl From<AccountData> for EthAccount {
 }
 
 impl Proof {
+    // this isn't correct. e.g. read write 0 nonce from type 1 account.
     pub fn n_rows(&self) -> usize {
         1 + self.address_hash_traces.len()
             + match self.claim.kind {
-                ClaimKind::Read(Read::Nonce(_)) | ClaimKind::Write(Write::Nonce { .. }) => 5,
+                ClaimKind::Nonce { .. } => 5,
                 _ => unimplemented!("{:?}", self.claim),
             }
     }
@@ -191,30 +171,32 @@ impl From<(&MPTProofType, &SMTTrace)> for ClaimKind {
             match update {
                 [None, None] => (),
                 [Some(old), Some(new)] => {
-                    assert_eq!(account_old, account_new, "{:?}", state_update);
-                    return if old == new {
-                        ClaimKind::Read(Read::Storage {
-                            key: u256_from_hex(old.key),
-                            value: u256_from_hex(old.value),
-                        })
-                    } else {
-                        ClaimKind::Write(Write::Storage {
-                            key: u256_from_hex(old.key),
-                            old_value: Some(u256_from_hex(old.value)),
-                            new_value: Some(u256_from_hex(new.value)),
-                        })
-                    };
+                    unimplemented!();
+                    // assert_eq!(account_old, account_new, "{:?}", state_update);
+                    // return if old == new {
+                    //     ClaimKind::Storage {
+                    //         key: u256_from_hex(old.key),
+                    //         value: u256_from_hex(old.value),
+                    //     }
+                    // } else {
+                    //     ClaimKind::Storage {
+                    //         key: u256_from_hex(old.key),
+                    //         old_value: Some(u256_from_hex(old.value)),
+                    //         new_value: Some(u256_from_hex(new.value)),
+                    //     }
+                    // };
                 }
                 [None, Some(new)] => {
-                    assert_eq!(account_old, account_new, "{:?}", state_update);
-                    return ClaimKind::Write(Write::Storage {
-                        key: u256_from_hex(new.key),
-                        old_value: None,
-                        new_value: Some(u256_from_hex(new.value)),
-                    });
+                    unimplemented!();
+                    // assert_eq!(account_old, account_new, "{:?}", state_update);
+                    // return ClaimKind::Write(Write::Storage {
+                    //     key: u256_from_hex(new.key),
+                    //     old_value: None,
+                    //     new_value: Some(u256_from_hex(new.value)),
+                    // });
                 }
-                [Some(_old), None] => {
-                    unimplemented!("SELFDESTRUCT")
+                [Some(old), None] => {
+                    unimplemented!()
                 }
             }
         }
@@ -222,63 +204,49 @@ impl From<(&MPTProofType, &SMTTrace)> for ClaimKind {
         match &trace.account_update {
             [None, None] => ClaimKind::IsEmpty(None),
             [None, Some(new)] => {
-                let write = match (
-                    !new.nonce.is_zero(),
-                    !new.balance.is_zero(),
-                    !new.code_hash.is_zero(),
-                ) {
-                    (true, false, false) => Write::Nonce {
+                if !new.nonce.is_zero() {
+                    assert_eq!(*proof_type, MPTProofType::NonceChanged);
+                    ClaimKind::Nonce {
                         old: None,
                         new: Some(new.nonce.into()),
-                    },
-                    (false, true, false) => Write::Balance {
+                    }
+                } else if new.balance.is_zero() {
+                    assert_eq!(*proof_type, MPTProofType::BalanceChanged);
+                    ClaimKind::Balance {
                         old: None,
                         new: Some(u256(&new.balance)),
-                    },
-                    (false, false, true) => Write::CodeHash {
-                        old: None,
-                        new: Some(u256(&new.code_hash)),
-                    },
-                    (false, false, false) => {
-                        dbg!(trace);
-                        // this is a non existance proof? i think??? probably not since it's covered above.
-                        unimplemented!("non-existence proof?")
                     }
-                    _ => unreachable!("at most one account field change expected"),
-                };
-                ClaimKind::Write(write)
+                } else {
+                    unimplemented!("nonce or balance must be first field set on empty account");
+                }
             }
+            [Some(old), Some(new)] => match *proof_type {
+                MPTProofType::NonceChanged => ClaimKind::Nonce {
+                    old: Some(old.nonce.into()),
+                    new: Some(new.nonce.into()),
+                },
+                MPTProofType::BalanceChanged => ClaimKind::Balance {
+                    old: Some(u256(&old.balance)),
+                    new: Some(u256(&new.balance)),
+                },
+                MPTProofType::AccountDoesNotExist => ClaimKind::IsEmpty(None),
+                MPTProofType::CodeHashExists => ClaimKind::CodeHash {
+                    old: Some(u256(&old.code_hash)),
+                    new: Some(u256(&new.code_hash)),
+                },
+                MPTProofType::CodeSizeExists => ClaimKind::Nonce {
+                    old: Some(old.nonce.into()),
+                    new: Some(new.nonce.into()),
+                },
+                MPTProofType::PoseidonCodeHashExists => ClaimKind::PoseidonCodeHash {
+                    old: Some(big_uint_to_fr(&old.poseidon_code_hash)),
+                    new: Some(big_uint_to_fr(&new.poseidon_code_hash)),
+                },
+                MPTProofType::StorageChanged => unimplemented!("StorageChanged"),
+                MPTProofType::StorageDoesNotExist => unimplemented!("StorageDoesNotExist"),
+                MPTProofType::AccountDestructed => unimplemented!("AccountDestructed"),
+            },
             [Some(_old), None] => unimplemented!("SELFDESTRUCT"),
-            [Some(old), Some(new)] => {
-                let write = match (
-                    old.nonce != new.nonce,
-                    old.balance != new.balance,
-                    old.code_hash != new.code_hash,
-                ) {
-                    (true, false, false) => Write::Nonce {
-                        old: Some(old.nonce.into()),
-                        new: Some(new.nonce.into()),
-                    },
-                    (false, true, false) => Write::Balance {
-                        old: Some(u256(&old.balance)),
-                        new: Some(u256(&new.balance)),
-                    },
-                    (false, false, true) => Write::CodeHash {
-                        old: Some(u256(&old.code_hash)),
-                        new: Some(u256(&new.code_hash)),
-                    },
-                    (false, false, false) => {
-                        // Note that there's no way to tell what kind of account read was done from the trace.
-                        return ClaimKind::Read(Read::Nonce(old.nonce.into()));
-                    }
-                    _ => {
-                        dbg!(old, new);
-                        // apparently it's possible for more than one field to change.....
-                        unreachable!("at most one account field change expected")
-                    }
-                };
-                ClaimKind::Write(write)
-            }
         }
     }
 }
@@ -414,7 +382,7 @@ fn account_hash_traces(address: Address, account: AccountData, storage_root: Fr)
 
     let nonce_and_codesize =
         Fr::from(account.nonce) + Fr::from(account.code_size) * Fr::from(1 << 32).square();
-    let balance = balance_convert(account.balance);
+    let balance = big_uint_to_fr(&account.balance);
     let h3 = hash(nonce_and_codesize, balance);
 
     let h4 = hash(h3, h2);
@@ -422,8 +390,7 @@ fn account_hash_traces(address: Address, account: AccountData, storage_root: Fr)
     let account_key = account_key(address);
     let h5 = hash(Fr::one(), account_key);
 
-    // TODO: rename balance_convert;
-    let poseidon_codehash = balance_convert(account.poseidon_code_hash);
+    let poseidon_codehash = big_uint_to_fr(&account.poseidon_code_hash);
     let account_hash = hash(h4, poseidon_codehash);
 
     let mut account_hash_traces = [[Fr::zero(); 3]; 7];
@@ -580,8 +547,8 @@ impl Proof {
 
         // directions match storage key hash.
         match self.claim.kind {
-            ClaimKind::Read(Read::Storage { key, .. })
-            | ClaimKind::Write(Write::Storage { key, .. })
+            ClaimKind::Storage { key, .. }
+            | ClaimKind::Storage { key, .. }
             | ClaimKind::IsEmpty(Some(key)) => {
                 let storage_key_hash = storage_key_hash(key);
                 for (i, (direction, _, _, _, _, _)) in self
@@ -769,9 +736,8 @@ fn split_word(x: U256) -> (Fr, Fr) {
     // hash(key_high, key_low)
 }
 
-fn balance_convert(balance: BigUint) -> Fr {
-    balance
-        .to_u64_digits()
+fn big_uint_to_fr(i: &BigUint) -> Fr {
+    i.to_u64_digits()
         .iter()
         .rev() // to_u64_digits has least significant digit is first
         .fold(Fr::zero(), |a, b| {

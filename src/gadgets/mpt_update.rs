@@ -13,7 +13,7 @@ use super::{
 use crate::{
     constraint_builder::{AdviceColumn, ConstraintBuilder, Query, SelectorColumn},
     serde::SMTTrace,
-    types::{account_key, hash, ClaimKind, Proof, Read, Write},
+    types::{account_key, hash, ClaimKind, Proof},
     util::rlc,
     MPTProofType,
 };
@@ -430,10 +430,10 @@ impl MptUpdateConfig {
             };
 
             let (old_hashes, new_hashes, siblings) = match proof.claim.kind {
-                ClaimKind::Write(Write::Nonce {
+                ClaimKind::Nonce {
                     old: Some(_),
                     new: Some(_),
-                }) => {
+                } => {
                     // TODO: name these instead of using an array.
                     let old_account_hash_traces = proof.old_account_hash_traces;
                     let new_account_hash_traces = proof.new_account_hash_traces;
@@ -469,10 +469,10 @@ impl MptUpdateConfig {
                         vec![account_key_hash, poseidon_codehash, h2, balance],
                     )
                 }
-                ClaimKind::Write(Write::Nonce {
+                ClaimKind::Nonce {
                     old: None,
                     new: Some(_),
-                }) => {
+                } => {
                     let new_account_hash_traces = proof.new_account_hash_traces;
 
                     let balance = new_account_hash_traces[2][1];
