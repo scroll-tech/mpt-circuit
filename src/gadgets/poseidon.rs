@@ -1,7 +1,10 @@
 use crate::constraint_builder::{AdviceColumn, ConstraintBuilder, Query};
 use crate::util::hash as poseidon_hash;
 use halo2_proofs::{
-    arithmetic::FieldExt, circuit::Region, halo2curves::bn256::Fr, plonk::ConstraintSystem,
+    arithmetic::{Field, FieldExt},
+    circuit::Region,
+    halo2curves::bn256::Fr,
+    plonk::ConstraintSystem,
 };
 
 pub trait PoseidonLookup {
@@ -26,8 +29,14 @@ impl PoseidonConfig {
 
     pub fn assign(&self, region: &mut Region<'_, Fr>, hash_traces: &[(Fr, Fr, Fr)]) {
         for (offset, hash_trace) in hash_traces.iter().enumerate() {
-            // TODO: probably has to do with 0, 0?
-            // assert_eq!(poseidon_hash(hash_trace.0, hash_trace.1), hash_trace.2);
+            assert!(
+                hash_trace.0.is_zero_vartime()
+                    && hash_trace.1.is_zero_vartime()
+                    && hash_trace.2.is_zero_vartime()
+                    || poseidon_hash(hash_trace.0, hash_trace.1) == hash_trace.2,
+                "{:?}",
+                (hash_trace.0, hash_trace.1, hash_trace.2)
+            );
             for (column, value) in [
                 (self.left, hash_trace.0),
                 (self.right, hash_trace.1),
