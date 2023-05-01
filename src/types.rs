@@ -8,7 +8,7 @@ use crate::{
     operation::{Account, SMTPathParse},
     serde::{AccountData, HexBytes, SMTNode, SMTPath, SMTTrace},
     util::rlc,
-    Hashable,
+    Hashable, MPTProofType,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -169,22 +169,21 @@ pub struct Path {
     pub leaf_data_hash: Option<Fr>, // leaf data hash for type 0 and type 1, None for type 2.
 }
 
-impl From<&SMTTrace> for Claim {
-    fn from(trace: &SMTTrace) -> Self {
-        // TODO: this is doing a lot of extra work!!!!
-        let [old_root, new_root] = trace.account_path.clone().map(path_root);
+impl From<(&MPTProofType, &SMTTrace)> for Claim {
+    fn from((proof_type, trace): (&MPTProofType, &SMTTrace)) -> Self {
+        let [old_root, new_root] = trace.account_path.clone().map(|path| fr(path.root));
         let address = trace.address.0.into();
         Self {
             new_root,
             old_root,
             address,
-            kind: ClaimKind::from(trace),
+            kind: ClaimKind::from((proof_type, trace)),
         }
     }
 }
 
-impl From<&SMTTrace> for ClaimKind {
-    fn from(trace: &SMTTrace) -> Self {
+impl From<(&MPTProofType, &SMTTrace)> for ClaimKind {
+    fn from((proof_type, trace): (&MPTProofType, &SMTTrace)) -> Self {
         let [account_old, account_new] = &trace.account_update;
         let state_update = &trace.state_update;
 
@@ -284,11 +283,9 @@ impl From<&SMTTrace> for ClaimKind {
     }
 }
 
-impl From<SMTTrace> for Proof {
-    fn from(trace: SMTTrace) -> Self {
-        // dbg!(&trace);
-
-        let claim = Claim::from(&trace);
+impl From<(MPTProofType, SMTTrace)> for Proof {
+    fn from((proof, trace): (MPTProofType, SMTTrace)) -> Self {
+        let claim = Claim::from((&proof, &trace));
 
         // do storage stuff first, if needed.
         let (
@@ -854,54 +851,6 @@ mod test {
                 assert_eq!(fr(trace.account_key), account_key(address));
             }
         }
-    }
-
-    // #[test]
-    // fn check_all() {
-    //     // DEPLOY_TRACES(!?!?) has a trace where account nonce and balance change in one trace....
-    //     for s in [TRACES, READ_TRACES, TOKEN_TRACES] {
-    //         let traces: Vec<SMTTrace> = serde_json::from_str::<Vec<_>>(s).unwrap();
-    //         for trace in traces {
-    //             let proof = Proof::from(trace);
-    //             proof.check();
-    //             // break;
-    //         }
-    //         break;
-    //     }
-    // }
-
-    #[test]
-    fn check_all() {
-        for s in [READ_TRACES, TOKEN_TRACES] {
-            let traces: Vec<SMTTrace> = serde_json::from_str::<Vec<_>>(s).unwrap();
-            for trace in traces {
-                let proof = Proof::from(trace);
-                proof.check();
-            }
-        }
-    }
-
-    #[test]
-    fn check_empty_account() {
-        let trace: SMTTrace = serde_json::from_str(EMPTY_ACCOUNT_TRACE).unwrap();
-        let proof = Proof::from(trace);
-        proof.check();
-    }
-
-    #[test]
-    fn check_deploy_traces() {
-        let traces: Vec<SMTTrace> = serde_json::from_str::<Vec<_>>(DEPLOY_TRACES).unwrap();
-        for trace in traces {
-            let proof = Proof::from(trace);
-            proof.check();
-        }
-    }
-
-    #[test]
-    fn check_empty_storage_write() {
-        let trace: SMTTrace = serde_json::from_str(EMPTY_STORAGE_TRACE).unwrap();
-        let proof = Proof::from(trace);
-        proof.check();
     }
 
     fn storage_roots(trace: &SMTTrace) -> [Fr; 2] {

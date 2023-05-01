@@ -256,13 +256,11 @@ impl MptUpdateConfig {
         config
     }
 
-    fn assign(&self, region: &mut Region<'_, Fr>, updates: &[SMTTrace]) {
+    fn assign(&self, region: &mut Region<'_, Fr>, proofs: &[Proof]) {
         let randomness = Fr::from(123123u64); // TODOOOOOOO
 
         let mut offset = 0;
-        for update in updates {
-            let proof = Proof::from(update.clone());
-
+        for proof in proofs {
             let proof_type = MPTProofType::from(proof.claim);
             let address = address_to_fr(proof.claim.address);
             let storage_key = rlc(&u256_to_big_endian(&proof.claim.storage_key()), randomness);
@@ -923,15 +921,20 @@ mod test {
 
     #[derive(Clone, Debug)]
     struct TestCircuit {
-        updates: Vec<SMTTrace>,
+        proofs: Vec<Proof>,
     }
 
     impl TestCircuit {
+        fn new(traces: Vec<(MPTProofType, SMTTrace)>) -> Self {
+            Self {
+                proofs: traces.into_iter().map(Proof::from).collect(),
+            }
+        }
+
         fn hash_traces(&self) -> Vec<(Fr, Fr, Fr)> {
             let mut hash_traces = vec![(Fr::zero(), Fr::zero(), Fr::zero())];
-            for update in self.updates.iter() {
-                let proof = Proof::from(update.clone());
-                let address_hash_traces = proof.address_hash_traces;
+            for proof in self.proofs.iter() {
+                let address_hash_traces = &proof.address_hash_traces;
                 for (direction, old_hash, new_hash, sibling, is_padding_open, is_padding_close) in
                     address_hash_traces.iter().rev()
                 {
@@ -996,18 +999,16 @@ mod test {
 
         fn keys(&self) -> Vec<Fr> {
             let mut keys = vec![Fr::zero(), Fr::one()];
-            for update in self.updates.iter() {
-                let proof = Proof::from(update.clone());
+            for proof in self.proofs.iter() {
                 keys.push(proof.old.key);
-                keys.push(proof.new.key)
+                keys.push(proof.new.key);
             }
             keys
         }
 
         fn key_bit_lookups(&self) -> Vec<(Fr, usize, bool)> {
             let mut lookups = vec![(Fr::zero(), 0, false), (Fr::one(), 0, true)];
-            for update in self.updates.iter() {
-                let proof = Proof::from(update.clone());
+            for proof in self.proofs.iter() {
                 for (i, (direction, _, _, _, is_padding_open, is_padding_close)) in
                     proof.address_hash_traces.iter().rev().enumerate()
                 //
@@ -1033,8 +1034,7 @@ mod test {
             let mut hashes = vec![];
             let mut words = vec![];
 
-            for update in &self.updates {
-                let proof = Proof::from(update.clone());
+            for proof in &self.proofs {
                 match MPTProofType::from(proof.claim) {
                     MPTProofType::NonceChanged => {
                         u128s.push(address_high(proof.claim.address));
@@ -1067,7 +1067,7 @@ mod test {
         type FloorPlanner = SimpleFloorPlanner;
 
         fn without_witnesses(&self) -> Self {
-            Self { updates: vec![] }
+            Self { proofs: vec![] }
         }
 
         fn configure(cs: &mut ConstraintSystem<Fr>) -> Self::Config {
@@ -1132,7 +1132,7 @@ mod test {
                     for offset in 0..1024 {
                         selector.enable(&mut region, offset);
                     }
-                    mpt_update.assign(&mut region, &self.updates);
+                    mpt_update.assign(&mut region, &self.proofs);
                     poseidon.assign(&mut region, &self.hash_traces());
                     canonical_representation.assign(&mut region, &self.keys());
                     key_bit.assign(&mut region, &self.key_bit_lookups());
@@ -1151,40 +1151,41 @@ mod test {
         }
     }
 
-    fn mock_prove(trace: &str) {
-        let circuit = TestCircuit {
-            updates: vec![serde_json::from_str(trace).unwrap()],
-        };
+    fn mock_prove(proof_type: MPTProofType, trace: &str) {
+        let circuit = TestCircuit::new(vec![(proof_type, serde_json::from_str(trace).unwrap())]);
         let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
     }
 
     #[test]
     fn test_mpt_updates() {
-        let circuit = TestCircuit { updates: vec![] };
+        let circuit = TestCircuit { proofs: vec![] };
         let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
     }
 
     #[test]
     fn nonce_write_existing_account() {
-        mock_prove(include_str!(
-            "../../tests/dual_code_hash/nonce_write_existing_account.json"
-        ));
+        mock_prove(
+            MPTProofType::NonceChanged,
+            include_str!("../../tests/dual_code_hash/nonce_write_existing_account.json"),
+        );
     }
 
     #[test]
     fn nonce_write_type_1_empty_account() {
-        mock_prove(include_str!(
-            "../../tests/dual_code_hash/nonce_write_type_1_empty_account.json"
-        ));
+        mock_prove(
+            MPTProofType::NonceChanged,
+            include_str!("../../tests/dual_code_hash/nonce_write_type_1_empty_account.json"),
+        );
     }
 
     #[test]
     fn nonce_write_type_2_empty_account() {
-        mock_prove(include_str!(
-            "../../tests/dual_code_hash/nonce_write_type_2_empty_account.json"
-        ));
+        mock_prove(
+            MPTProofType::NonceChanged,
+            include_str!("../../tests/dual_code_hash/nonce_write_type_2_empty_account.json"),
+        );
     }
 
     #[test]
