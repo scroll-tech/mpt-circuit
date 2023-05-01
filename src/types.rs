@@ -165,6 +165,8 @@ impl Proof {
 #[derive(Clone, Debug)]
 pub struct Path {
     pub key: Fr,
+    pub key_hash: Fr, // Hash(1, key) for type 0 and type 1, 0 for type 2.
+    pub leaf_data_hash: Option<Fr>, // leaf data hash for type 0 and type 1, None for type 2.
 }
 
 impl From<&SMTTrace> for Claim {
@@ -353,14 +355,21 @@ impl From<SMTTrace> for Proof {
             Some(account) => account_hash_traces(claim.address, account, new_storage_root),
         };
 
-        let [old, new] = trace.account_path.map(|path| Path {
+        let [old, new] = trace.account_path.map(|path| {
             // The account_key(address) if the account exists
             // else: path.leaf.sibling if it's a type 1 non-existence proof
             // otherwise account_key(address) if it's a type 2 non-existence proof
-            // the first and last
-            key: path
+            let key = path
                 .leaf
-                .map_or_else(|| account_key(claim.address), |leaf| fr(leaf.sibling)),
+                .map_or_else(|| account_key(claim.address), |leaf| fr(leaf.sibling)); // this is wrong....
+                                                                                      // data hash is 0 for type 2 and leaf value for types 0 and 1.
+            let leaf_data_hash = path.leaf.map(|leaf| fr(leaf.value));
+            // dbg!()
+            Path {
+                key,
+                key_hash: hash(Fr::one(), key),
+                leaf_data_hash,
+            }
         });
 
         let [old_account, new_account] =

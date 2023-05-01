@@ -5,6 +5,7 @@ use segment::SegmentType;
 
 use super::{
     byte_representation::{u256_to_big_endian, BytesLookup, RlcLookup},
+    is_zero::IsZeroGadget,
     key_bit::KeyBitLookup,
     one_hot::OneHot,
     poseidon::PoseidonLookup,
@@ -53,33 +54,41 @@ pub trait MptUpdateLookup {
 
 #[derive(Clone)]
 struct MptUpdateConfig {
-    nonfirst_rows: SelectorColumn, // Enabled on all rows except the last one.
-
+    // Lookup columns
     old_hash: AdviceColumn,
     new_hash: AdviceColumn,
+    old_value: AdviceColumn, // nonce and codesize are not rlc'ed the others are.
+    new_value: AdviceColumn, //
+    proof_type: OneHot<MPTProofType>,
+    address: AdviceColumn,
+    storage_key_rlc: AdviceColumn,
 
     segment_type: OneHot<SegmentType>,
     path_type: OneHot<PathType>,
     depth: AdviceColumn,
 
-    // You have three key columns here, which seems like 2 too many?
     key: AdviceColumn,
-    old_key: AdviceColumn,
-    new_key: AdviceColumn,
+
+    // These three columns are used to verify a type 1 non-existence proof.
+    other_key: AdviceColumn,
+    other_key_hash: AdviceColumn,
+    other_leaf_data_hash: AdviceColumn,
+
+    // These two are used to verify a type 2 non-existence proof.
+    old_hash_is_zero: IsZeroGadget,
+    new_hash_is_zero: IsZeroGadget,
+
+    // key_equals_other_key: IsZeroGadget,
     direction: AdviceColumn, // this actually must be binary because of a KeyBitLookup
-
-    old_value: AdviceColumn, // nonce and codesize are not rlc'ed the others are.
-    new_value: AdviceColumn, //
-
-    proof_type: OneHot<MPTProofType>,
-
-    address: AdviceColumn,
-    storage_key_rlc: AdviceColumn,
 
     sibling: AdviceColumn,
 
     upper_128_bits: AdviceColumn, // most significant 128 bits of address or storage key
-    other_leaf_data_hash: AdviceColumn, // hash of data for the account that isn't the target one
+
+                                  // not_equal_witness, // inverse used to prove to expressions are not equal.
+
+                                  // TODO
+                                  // nonfirst_rows: SelectorColumn, // Enabled on all rows except the last one.
 }
 
 impl MptUpdateLookup for MptUpdateConfig {
@@ -120,12 +129,14 @@ impl MptUpdateConfig {
         rlc: &impl RlcLookup,
         bytes: &impl BytesLookup,
     ) -> Self {
-        let ([nonfirst_rows], [], [old_hash, new_hash]) = cb.build_columns(cs);
+        let ([], [], [old_hash, new_hash]) = cb.build_columns(cs);
 
         let proof_type = OneHot::configure(cs, cb);
         let [address, storage_key_rlc] = cb.advice_columns(cs);
         let [old_value, new_value] = cb.advice_columns(cs);
-        let [depth, key, old_key, new_key, direction, sibling, upper_128_bits, other_leaf_data_hash] =
+        let [depth, key, direction, sibling, upper_128_bits] = cb.advice_columns(cs);
+
+        let [other_key, other_key_hash, other_leaf_data_hash, other_leaf_hash] =
             cb.advice_columns(cs);
 
         let segment_type = OneHot::configure(cs, cb);
@@ -157,8 +168,12 @@ impl MptUpdateConfig {
             bytes.lookup(),
         );
 
+        let old_hash_is_zero = IsZeroGadget::configure(cs, cb, old_hash);
+        let new_hash_is_zero = IsZeroGadget::configure(cs, cb, new_hash);
+
+        // let key_equals_other_key = IsZeroGadget::configure(cs, cb, key.current() - other_key.current());
+
         let config = Self {
-            nonfirst_rows,
             key,
             old_hash,
             new_hash,
@@ -169,13 +184,16 @@ impl MptUpdateConfig {
             storage_key_rlc,
             segment_type,
             path_type,
-            old_key,
-            new_key,
+            other_key,
+            other_leaf_data_hash,
+            other_key_hash,
             depth,
             direction,
             sibling,
             upper_128_bits,
-            other_leaf_data_hash,
+            // key_equals_other_key,
+            old_hash_is_zero,
+            new_hash_is_zero,
         };
 
         // Transitions for state machines:
@@ -250,12 +268,36 @@ impl MptUpdateConfig {
             let storage_key = rlc(&u256_to_big_endian(&proof.claim.storage_key()), randomness);
             let old_value = proof.claim.old_value_assignment(randomness);
             let new_value = proof.claim.new_value_assignment(randomness);
+
+            let key = account_key(proof.claim.address);
+            let (other_key, other_key_hash, other_leaf_data_hash) =
+                // checking if type 1 or type 2
+                if proof.old.key != key {
+                    assert!(proof.new.key == key || proof.new.key == proof.old.key);
+                    (proof.old.key, proof.old.key_hash, proof.old.leaf_data_hash.unwrap())
+                } else if proof.new.key != key {
+                    assert!(proof.old.key == key);
+                    (proof.new.key, proof.new.key_hash, proof.new.leaf_data_hash.unwrap())
+                } else {
+                    // neither is a type 1 path
+                    // handle type 0 and type 2 paths here:
+                    (proof.old.key, proof.old.key_hash, proof.new.leaf_data_hash.unwrap_or_default())
+                };
+
+            dbg!(other_key, other_key_hash, other_leaf_data_hash);
+
             for i in 0..proof.n_rows() {
                 self.proof_type.assign(region, offset + i, proof_type);
                 self.address.assign(region, offset + i, address);
                 self.storage_key_rlc.assign(region, offset + i, storage_key);
                 self.old_value.assign(region, offset + i, old_value);
                 self.new_value.assign(region, offset + i, new_value);
+
+                self.other_key.assign(region, offset + i, other_key);
+                self.other_key_hash
+                    .assign(region, offset + i, other_key_hash);
+                self.other_leaf_data_hash
+                    .assign(region, offset + i, other_leaf_data_hash);
             }
 
             let mut path_type = PathType::Start; // should get rid of this variant and just start from Common.
@@ -264,7 +306,12 @@ impl MptUpdateConfig {
             self.segment_type.assign(region, offset, SegmentType::Start);
             self.path_type.assign(region, offset, path_type);
             self.old_hash.assign(region, offset, proof.claim.old_root);
+            self.old_hash_is_zero
+                .assign(region, offset, proof.claim.old_root);
             self.new_hash.assign(region, offset, proof.claim.new_root);
+            self.new_hash_is_zero
+                .assign(region, offset, proof.claim.new_root);
+
             offset += 1;
 
             let mut previous_old_hash = proof.claim.old_root;
@@ -294,12 +341,13 @@ impl MptUpdateConfig {
 
                 self.sibling.assign(region, offset, *sibling);
                 self.old_hash.assign(region, offset, *old_hash);
+                self.old_hash_is_zero.assign(region, offset, *old_hash);
                 self.new_hash.assign(region, offset, *new_hash);
+                self.new_hash_is_zero.assign(region, offset, *new_hash);
                 self.direction.assign(region, offset, *direction);
-                self.key
-                    .assign(region, offset, account_key(proof.claim.address));
-                self.old_key.assign(region, offset, proof.old.key);
-                self.new_key.assign(region, offset, proof.new.key);
+
+                let key = account_key(proof.claim.address);
+                self.key.assign(region, offset, key);
 
                 match path_type {
                     PathType::Start => {}
@@ -474,7 +522,9 @@ impl MptUpdateConfig {
                 self.path_type.assign(region, offset + i, path_type);
                 self.sibling.assign(region, offset + i, sibling);
                 self.old_hash.assign(region, offset + i, old_hash);
+                self.old_hash_is_zero.assign(region, offset + i, old_hash);
                 self.new_hash.assign(region, offset + i, new_hash);
+                self.new_hash_is_zero.assign(region, offset + i, new_hash);
                 self.direction.assign(region, offset + i, direction);
                 dbg!((offset + i, segment_type, path_type, old_hash, new_hash));
                 // TODO: would it be possible to assign key here to make the keybit lookup unconditional?
@@ -538,6 +588,52 @@ fn configure_common_path<F: FieldExt>(
         ],
         poseidon.lookup(),
     );
+
+    // These apply for AccountTrie rows....
+    // If this is the final row of this update, then the proof type must be
+    // cb.condition(config.path_type.next_matches(PathType::Start), |cb| {
+    //     cb.assert("type 2 non-existence proof if no account leaf rows", config.proof.current_matches(MPTProofType::AccountDoesNotExist));
+    //     cb.assert_zero(
+    //         "old value is 0 for type 2 non-existence proof",
+    //         config.old_value.current(),
+    //     );
+    //     cb.assert_zero(
+    //         "new value is 0 for type 2 non-existence proof",
+    //         config.new_value.current(),
+    //     );
+    // });
+    cb.condition(
+        config
+            .path_type
+            .next_matches(&[PathType::ExtensionNew])
+            .and(
+                config
+                    .segment_type
+                    .next_matches(&[SegmentType::AccountLeaf0]),
+            ),
+        |cb| {
+            cb.assert_zero(
+                "old hash is zero for type 2 empty account",
+                config.old_hash.current(),
+            )
+        },
+    );
+    cb.condition(
+        config
+            .path_type
+            .next_matches(&[PathType::ExtensionOld])
+            .and(
+                config
+                    .segment_type
+                    .next_matches(&[SegmentType::AccountLeaf0]),
+            ),
+        |cb| {
+            cb.assert_zero(
+                "new hash is zero for type 2 empty account",
+                config.new_hash.current(),
+            )
+        },
+    );
 }
 
 fn configure_extension_old<F: FieldExt>(
@@ -545,6 +641,7 @@ fn configure_extension_old<F: FieldExt>(
     config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
 ) {
+    // TODO: add these once you create the test json.
     // cb.add_lookup(
     //     "poseidon hash correct for old path",
     //     [
@@ -584,6 +681,11 @@ fn configure_extension_new<F: FieldExt>(
     config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
 ) {
+    cb.assert_zero(
+        "old value is 0 if old account is empty",
+        config.old_value.current(),
+    );
+
     let is_trie_segment = config
         .segment_type
         .current_matches(&[SegmentType::AccountTrie, SegmentType::StorageTrie]);
@@ -620,6 +722,37 @@ fn configure_extension_new<F: FieldExt>(
         ],
         poseidon.lookup(),
     );
+
+    // Show that other key is
+    cb.condition(
+        config
+            .segment_type
+            .current_matches(&[SegmentType::AccountLeaf0]),
+        |cb| {
+            cb.add_lookup(
+                "other_key_hash = h(1, other_key)",
+                [
+                    Query::one(),
+                    config.other_key.current(),
+                    config.other_key_hash.current(),
+                ],
+                poseidon.lookup(),
+            );
+
+            cb.condition(!config.old_hash_is_zero.current(), |cb| {
+                cb.add_lookup(
+                    "previous old_hash = h(data_hash, key_hash)",
+                    [
+                        config.other_key_hash.current(),
+                        config.other_leaf_data_hash.current(),
+                        config.old_hash.previous(),
+                    ],
+                    poseidon.lookup(),
+                );
+            });
+        },
+    );
+    // Need to check that other key !=  key for type 1 and other_key = key for type 2
 }
 
 fn configure_nonce<F: FieldExt>(
@@ -634,6 +767,7 @@ fn configure_nonce<F: FieldExt>(
             SegmentType::AccountLeaf0 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
 
+                // this should hold for all MPTProofType's
                 let address_low: Query<F> = (config.address.current()
                     - config.upper_128_bits.current() * (1 << 32))
                     * (1 << 32)
@@ -763,6 +897,13 @@ fn address_low(a: Address) -> u128 {
     u128::from(u32::from_be_bytes(low_bytes)) << 96
 }
 
+fn hash_address(a: Address) -> Fr {
+    hash(
+        Fr::from_u128(address_high(a)),
+        Fr::from_u128(address_low(a)),
+    )
+}
+
 #[cfg(test)]
 mod test {
     use super::super::{
@@ -817,11 +958,24 @@ mod test {
                     Fr::from_u128(address_low(proof.claim.address)),
                     account_key(proof.claim.address),
                 ));
-                hash_traces.push((
-                    Fr::one(),
-                    account_key(proof.claim.address),
-                    hash(Fr::one(), account_key(proof.claim.address)),
-                ));
+
+                hash_traces.push((Fr::one(), proof.old.key, proof.old.key_hash));
+                hash_traces.push((Fr::one(), proof.new.key, proof.new.key_hash));
+
+                if let Some(data_hash) = proof.old.leaf_data_hash {
+                    hash_traces.push((
+                        proof.old.key_hash,
+                        data_hash,
+                        hash(proof.old.key_hash, data_hash),
+                    ));
+                }
+                if let Some(data_hash) = proof.new.leaf_data_hash {
+                    hash_traces.push((
+                        proof.new.key_hash,
+                        data_hash,
+                        hash(proof.new.key_hash, data_hash),
+                    ));
+                }
 
                 // TODO: some of these hash traces are not used.
                 hash_traces.extend(
