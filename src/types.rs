@@ -481,6 +481,57 @@ fn storage_key_value_hash_traces(key: U256, value: U256) -> [[Fr; 3]; 3] {
 }
 
 impl Proof {
+    pub fn old_account_leaf_hashes(&self) -> Option<Vec<Fr>> {
+        // TODO: make old_account_hash_traces optional
+        match self.claim.kind {
+            ClaimKind::Nonce { old, .. } => old.map(|_| {
+                let old_account_hash_traces = self.old_account_hash_traces;
+                let old_account_hash = old_account_hash_traces[6][1];
+                let old_h4 = old_account_hash_traces[4][0];
+                let old_h3 = old_account_hash_traces[3][0];
+                let old_nonce_and_codesize = old_account_hash_traces[2][0];
+                vec![old_account_hash, old_h4, old_h3, old_nonce_and_codesize]
+            }),
+            _ => unimplemented!(),
+        }
+    }
+
+    pub fn new_account_leaf_hashes(&self) -> Option<Vec<Fr>> {
+        match self.claim.kind {
+            ClaimKind::Nonce { new, .. } => new.map(|_| {
+                let new_account_hash_traces = self.new_account_hash_traces;
+                let new_account_hash = new_account_hash_traces[6][1];
+                let new_h4 = new_account_hash_traces[4][0];
+                let new_h3 = new_account_hash_traces[3][0];
+                let new_nonce_and_codesize = new_account_hash_traces[2][0];
+                vec![new_account_hash, new_h4, new_h3, new_nonce_and_codesize]
+            }),
+            _ => unimplemented!(),
+        }
+    }
+
+    pub fn account_leaf_siblings(&self) -> Vec<Fr> {
+        match self.claim.kind {
+            ClaimKind::Nonce { old, new } => {
+                let account_hash_traces = match (old, new) {
+                    (Some(_), _) => self.old_account_hash_traces,
+                    (None, Some(_)) => self.new_account_hash_traces,
+                    (None, None) => unimplemented!("reading 0 value from emtpy account"),
+                };
+
+                let balance = account_hash_traces[2][1];
+                let h2 = account_hash_traces[3][1];
+                let poseidon_codehash = account_hash_traces[4][1];
+                let account_key_hash = account_hash_traces[5][2];
+
+                vec![account_key_hash, poseidon_codehash, h2, balance]
+            }
+            _ => unimplemented!(),
+        }
+    }
+
+    // fn new_account_leaf_hashes(&self) -> Vec<Fr> {}
+    // fn account_leaf_siblings(&self) -> Vec<Fr> {}
     fn check(&self) {
         // poseidon hashes are correct
         check_hash_traces_new(&self.address_hash_traces);

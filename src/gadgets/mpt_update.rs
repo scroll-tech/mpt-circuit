@@ -429,93 +429,17 @@ impl MptUpdateConfig {
                 _ => unimplemented!(),
             };
 
-            let (old_hashes, new_hashes, siblings) = match proof.claim.kind {
-                ClaimKind::Nonce {
-                    old: Some(_),
-                    new: Some(_),
-                } => {
-                    // TODO: name these instead of using an array.
-                    let old_account_hash_traces = proof.old_account_hash_traces;
-                    let new_account_hash_traces = proof.new_account_hash_traces;
+            let old_hashes = proof
+                .old_account_leaf_hashes()
+                .unwrap_or_else(|| vec![*final_old_hash; 4]);
+            let new_hashes = proof
+                .new_account_leaf_hashes()
+                .unwrap_or_else(|| vec![*final_new_hash; 4]);
+            let siblings = proof.account_leaf_siblings();
 
-                    let balance = old_account_hash_traces[2][1];
-                    let h2 = old_account_hash_traces[3][1];
-                    let poseidon_codehash = old_account_hash_traces[4][1];
-                    let account_key_hash = old_account_hash_traces[5][2];
-                    assert_eq!(balance, new_account_hash_traces[2][1]);
-                    assert_eq!(h2, new_account_hash_traces[3][1]);
-                    assert_eq!(poseidon_codehash, new_account_hash_traces[4][1]);
-                    assert_eq!(account_key_hash, new_account_hash_traces[5][2]);
-
-                    let old_account_hash = old_account_hash_traces[6][1];
-                    let old_h4 = old_account_hash_traces[4][0];
-                    let old_h3 = old_account_hash_traces[3][0];
-                    let old_nonce_and_codesize = old_account_hash_traces[2][0];
-
-                    let new_account_hash = new_account_hash_traces[6][1];
-                    let new_h4 = new_account_hash_traces[4][0];
-                    let new_h3 = new_account_hash_traces[3][0];
-                    let new_nonce_and_codesize = new_account_hash_traces[2][0];
-
-                    assert_eq!(hash(old_nonce_and_codesize, balance), old_h3);
-                    assert_eq!(hash(new_nonce_and_codesize, balance), new_h3);
-                    assert_eq!(
-                        hash(Fr::one(), account_key(proof.claim.address)),
-                        account_key_hash
-                    );
-                    (
-                        vec![old_account_hash, old_h4, old_h3, old_nonce_and_codesize],
-                        vec![new_account_hash, new_h4, new_h3, new_nonce_and_codesize],
-                        vec![account_key_hash, poseidon_codehash, h2, balance],
-                    )
-                }
-                ClaimKind::Nonce {
-                    old: None,
-                    new: Some(_),
-                } => {
-                    let new_account_hash_traces = proof.new_account_hash_traces;
-
-                    let balance = new_account_hash_traces[2][1];
-                    let h2 = new_account_hash_traces[3][1];
-                    let poseidon_codehash = new_account_hash_traces[4][1];
-                    let account_key_hash = new_account_hash_traces[5][2];
-                    assert_eq!(balance, Fr::zero());
-                    assert_eq!(h2, hash(Fr::zero(), hash(Fr::zero(), Fr::zero())));
-                    assert_eq!(poseidon_codehash, Fr::zero());
-
-                    let new_account_hash = new_account_hash_traces[6][1];
-                    let new_h4 = new_account_hash_traces[4][0];
-                    let new_h3 = new_account_hash_traces[3][0];
-                    let new_nonce_and_codesize = new_account_hash_traces[2][0];
-
-                    assert_eq!(hash(new_nonce_and_codesize, balance), new_h3);
-                    assert_eq!(
-                        hash(Fr::one(), account_key(proof.claim.address)),
-                        account_key_hash
-                    );
-                    (
-                        vec![*final_old_hash; 4], // this is wrong....
-                        vec![new_account_hash, new_h4, new_h3, new_nonce_and_codesize],
-                        vec![account_key_hash, poseidon_codehash, h2, balance],
-                    )
-                }
-                _ => unimplemented!(),
-            };
-            // let siblings = match proof_type {
-            //     MPTProofType::NonceChanged => vec![].
-            //     _ => unimplemented!();
-            // };
-            // let new_hashes = vec![Fr::zero(); 10];
-            // let old_hashes = vec![Fr::one(); 10];
             for (i, (segment_type, sibling, old_hash, new_hash, direction)) in
                 izip!(segment_types, siblings, old_hashes, new_hashes, directions).enumerate()
             {
-                // if direction {
-                //     assert_eq!(hash(sibling, old_hash), previous_hash);
-                // } else {
-                //     assert_eq!(hash(old_hash, sibling), previous_hash);
-                // }
-                // previous_hash = old_hash;
                 self.segment_type.assign(region, offset + i, segment_type);
                 self.path_type.assign(region, offset + i, path_type);
                 self.sibling.assign(region, offset + i, sibling);
@@ -524,7 +448,6 @@ impl MptUpdateConfig {
                 self.new_hash.assign(region, offset + i, new_hash);
                 self.new_hash_is_zero.assign(region, offset + i, new_hash);
                 self.direction.assign(region, offset + i, direction);
-                dbg!((offset + i, segment_type, path_type, old_hash, new_hash));
                 // TODO: would it be possible to assign key here to make the keybit lookup unconditional?
             }
             self.upper_128_bits.assign(
