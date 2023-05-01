@@ -431,7 +431,7 @@ fn account_hash_traces(address: Address, account: AccountData, storage_root: Fr)
 
     let mut account_hash_traces = [[Fr::zero(); 3]; 7];
     account_hash_traces[0] = [codehash_hi, codehash_lo, h1];
-    account_hash_traces[1] = [h1, storage_root, h2];
+    account_hash_traces[1] = [storage_root, h1, h2];
     account_hash_traces[2] = [nonce_and_codesize, balance, h3];
     account_hash_traces[3] = [h3, h2, h4]; //
     account_hash_traces[4] = [h4, poseidon_codehash, account_hash];
