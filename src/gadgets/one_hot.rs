@@ -61,23 +61,13 @@ impl<T: IntoEnumIterator + Hash + Eq> OneHot<T> {
         BinaryQuery(query)
     }
 
-    // pub fn current<F: FieldExt>(&self) -> Query<F> {
-    //     T::iter()
-    //         .enumerate()
-    //         .zip(&self.columns)
-    //         .fold(Query::zero(), |acc, ((i, _), column)| {
-    //             acc.clone() + Query::from(u64::try_from(i).unwrap()) * column.current()
-    //         })
-    // }
-
-    // pub fn previous<F: FieldExt>(&self) -> Query<F> {
-    //     T::iter()
-    //         .enumerate()
-    //         .zip(&self.columns)
-    //         .fold(Query::zero(), |acc, ((i, _), column)| {
-    //             acc.clone() + Query::from(u64::try_from(i).unwrap()) * column.previous()
-    //         })
-    // }
+    pub fn current<F: FieldExt>(&self) -> Query<F> {
+        T::iter()
+            .enumerate()
+            .fold(Query::zero(), |acc, (i, t)| {
+                acc.clone() + Query::from(u64::try_from(i).unwrap()) * self.columns.get(&t).unwrap().current()
+            })
+    }
 
     fn sum<F: FieldExt>(&self, r: i32) -> BinaryQuery<F> {
         BinaryQuery(

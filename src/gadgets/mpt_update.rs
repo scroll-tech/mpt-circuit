@@ -94,27 +94,21 @@ struct MptUpdateConfig<F: FieldExt> {
 
 impl<F: FieldExt> MptUpdateLookup<F> for MptUpdateConfig<F> {
     fn lookup(&self) -> [Query<F>; 7] {
-        let is_root = || self.segment_type.current_matches(&[SegmentType::Start]);
-        let old_root = self.old_hash.current() * is_root();
-        let new_root = self.new_hash.current() * is_root();
-        // let proof_type = self
-        //     .proof_type
-        //     .iter()
-        //     .enumerate()
-        //     .map(|(i, column)| column.current() * i)
-        //     .sum();
-        let proof_type = Query::one();
-        let old_value = self.new_value.current() * is_root();
-        let new_value = self.old_value.current() * is_root();
-        let address = self.address.current();
-        let storage_key_rlc = self.storage_key_rlc.current();
+        let is_start = || self.segment_type.current_matches(&[SegmentType::Start]);
+        let old_root = self.old_hash.current() * is_start();
+        let new_root = self.new_hash.current() * is_start();
+        let proof_type = self.proof_type.current();
+        let old_value = self.old_value.current() * is_start();
+        let new_value = self.new_value.current() * is_start();
+        let address = self.address.current() * is_start();
+        let storage_key_rlc = self.storage_key_rlc.current() * is_start();
 
         [
+            proof_type,
             old_root,
             new_root,
             old_value,
             new_value,
-            proof_type,
             address,
             storage_key_rlc,
         ]
@@ -742,9 +736,9 @@ fn configure_nonce<F: FieldExt>(
                 cb.assert_zero("direction is 0", config.direction.current());
 
                 let old_code_size = (config.old_hash.current() - config.old_value.current())
-                    * Query::Constant(F::from(1 << 32).invert().unwrap()); // should this be 64?
+                    * Query::Constant(F::from(1 << 32).square().invert().unwrap()); // should this be 64?
                 let new_code_size = (config.new_hash.current() - config.new_value.current())
-                    * Query::Constant(F::from(1 << 32).invert().unwrap());
+                    * Query::Constant(F::from(1 << 32).square().invert().unwrap());
                 cb.condition(
                     config.path_type.current_matches(&[PathType::Common]),
                     |cb| {
