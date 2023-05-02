@@ -17,21 +17,21 @@ impl<F: FieldExt> IsEqualGadget<F> {
         )
     }
 
-    pub fn assign<T: std::ops::Sub + Copy + TryInto<F>>(
+    pub fn assign<G: FieldExt, T: Copy + TryInto<G>>(
         &self,
-        region: &mut Region<'_, F>,
+        region: &mut Region<'_, G>,
         offset: usize,
         left: T,
         right: T,
     ) where
-        <T as TryInto<F>>::Error: Debug,
+        <T as TryInto<G>>::Error: Debug,
     {
         self.inverse_or_zero.assign(
             region,
             offset,
-            (TryInto::<F>::try_into(left).unwrap() - TryInto::<F>::try_into(right).unwrap())
+            (TryInto::<G>::try_into(left).unwrap() - TryInto::<G>::try_into(right).unwrap())
                 .invert()
-                .unwrap_or(F::zero()),
+                .unwrap_or(G::zero()),
         );
     }
 
@@ -44,7 +44,7 @@ impl<F: FieldExt> IsEqualGadget<F> {
         let difference = left.clone() - right.clone();
         let inverse_or_zero = AdviceColumn(cs.advice_column());
         cb.assert_zero(
-            "value is 0 or inverse_or_zero is inverse of value",
+            "difference is 0 or inverse_or_zero is inverse of difference",
             difference.clone() * (Query::one() - difference * inverse_or_zero.current()),
         );
         Self {

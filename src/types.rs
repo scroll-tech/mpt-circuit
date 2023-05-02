@@ -136,7 +136,7 @@ impl Proof {
     pub fn n_rows(&self) -> usize {
         1 + self.address_hash_traces.len()
             + match self.claim.kind {
-                ClaimKind::Nonce { .. } => 5,
+                ClaimKind::Nonce { .. } => 4,
                 _ => unimplemented!("{:?}", self.claim),
             }
     }
