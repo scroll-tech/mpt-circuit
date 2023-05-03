@@ -1193,6 +1193,14 @@ mod test {
     }
 
     #[test]
+    fn nonce_update_existing() {
+        mock_prove(
+            MPTProofType::NonceChanged,
+            include_str!("../../tests/generated/nonce_update_existing.json"),
+        );
+    }
+
+    #[test]
     fn nonce_update_type_1() {
         mock_prove(
             MPTProofType::NonceChanged,
