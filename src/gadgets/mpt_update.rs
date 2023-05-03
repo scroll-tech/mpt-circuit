@@ -1201,6 +1201,14 @@ mod test {
     }
 
     #[test]
+    fn nonce_update_type_2() {
+        mock_prove(
+            MPTProofType::NonceChanged,
+            include_str!("../../tests/generated/nonce_update_type_2.json"),
+        );
+    }
+
+    #[test]
     fn test_account_key() {
         for address in vec![Address::zero(), Address::repeat_byte(0x56)] {
             assert_eq!(
