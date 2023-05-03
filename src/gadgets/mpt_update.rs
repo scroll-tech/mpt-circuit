@@ -27,7 +27,16 @@ use halo2_proofs::{
     plonk::ConstraintSystem,
 };
 use itertools::izip;
+use lazy_static::lazy_static;
 use strum::IntoEnumIterator;
+
+// TODO: we also need to check that the account hasn
+// is hash(0, 0)
+// Speaking strictly, this is not needed, since non-empty accounts cannot become empty.
+// We DO need something similar for the storage trie though.
+lazy_static! {
+    static ref ZERO_ACCOUNT_HASH: Fr = Fr::zero();
+}
 
 pub trait MptUpdateLookup<F: FieldExt> {
     fn lookup(&self) -> [Query<F>; 7];
@@ -78,6 +87,10 @@ struct MptUpdateConfig<F: FieldExt> {
     // These two are used to verify a type 2 non-existence proof.
     old_hash_is_zero: IsZeroGadget,
     new_hash_is_zero: IsZeroGadget,
+
+    // These two are needed to prove that a zero account is not in from the MPT.
+    old_hash_is_zero_account_hash: IsEqualGadget<F>,
+    new_hash_is_zero_account_hash: IsEqualGadget<F>,
 
     key_equals_other_key: IsEqualGadget<F>,
     direction: AdviceColumn, // this actually must be binary because of a KeyBitLookup
@@ -178,6 +191,11 @@ impl<F: FieldExt> MptUpdateConfig<F> {
         let old_hash_is_zero = IsZeroGadget::configure(cs, cb, old_hash);
         let new_hash_is_zero = IsZeroGadget::configure(cs, cb, new_hash);
 
+        let old_hash_is_zero_account_hash =
+            IsEqualGadget::configure(cs, cb, old_hash.current(), Query::zero()); // problem is here because you need to construct a query over Fr.
+        let new_hash_is_zero_account_hash =
+            IsEqualGadget::configure(cs, cb, new_hash.current(), Query::zero());
+
         let key_equals_other_key =
             IsEqualGadget::configure(cs, cb, key.current(), other_key.current());
 
@@ -202,6 +220,8 @@ impl<F: FieldExt> MptUpdateConfig<F> {
             key_equals_other_key,
             old_hash_is_zero,
             new_hash_is_zero,
+            old_hash_is_zero_account_hash,
+            new_hash_is_zero_account_hash,
         };
 
         // Transitions for state machines:
@@ -312,9 +332,21 @@ impl<F: FieldExt> MptUpdateConfig<F> {
             self.old_hash.assign(region, offset, proof.claim.old_root);
             self.old_hash_is_zero
                 .assign(region, offset, proof.claim.old_root);
+            self.old_hash_is_zero_account_hash.assign(
+                region,
+                offset,
+                proof.claim.old_root,
+                *ZERO_ACCOUNT_HASH,
+            );
             self.new_hash.assign(region, offset, proof.claim.new_root);
             self.new_hash_is_zero
                 .assign(region, offset, proof.claim.new_root);
+            self.new_hash_is_zero_account_hash.assign(
+                region,
+                offset,
+                proof.claim.new_root,
+                *ZERO_ACCOUNT_HASH,
+            );
             self.key_equals_other_key
                 .assign(region, offset, Fr::zero(), other_key);
 
@@ -348,8 +380,20 @@ impl<F: FieldExt> MptUpdateConfig<F> {
                 self.sibling.assign(region, offset, *sibling);
                 self.old_hash.assign(region, offset, *old_hash);
                 self.old_hash_is_zero.assign(region, offset, *old_hash);
+                self.old_hash_is_zero_account_hash.assign(
+                    region,
+                    offset,
+                    *old_hash,
+                    *ZERO_ACCOUNT_HASH,
+                );
                 self.new_hash.assign(region, offset, *new_hash);
                 self.new_hash_is_zero.assign(region, offset, *new_hash);
+                self.new_hash_is_zero_account_hash.assign(
+                    region,
+                    offset,
+                    *new_hash,
+                    *ZERO_ACCOUNT_HASH,
+                );
                 self.direction.assign(region, offset, *direction);
 
                 let key = account_key(proof.claim.address);
@@ -447,8 +491,22 @@ impl<F: FieldExt> MptUpdateConfig<F> {
                 self.sibling.assign(region, offset + i, sibling);
                 self.old_hash.assign(region, offset + i, old_hash);
                 self.old_hash_is_zero.assign(region, offset + i, old_hash);
+                self.old_hash_is_zero_account_hash.assign(
+                    region,
+                    offset + i,
+                    old_hash,
+                    *ZERO_ACCOUNT_HASH,
+                );
+
                 self.new_hash.assign(region, offset + i, new_hash);
                 self.new_hash_is_zero.assign(region, offset + i, new_hash);
+                self.new_hash_is_zero_account_hash.assign(
+                    region,
+                    offset + i,
+                    new_hash,
+                    *ZERO_ACCOUNT_HASH,
+                );
+
                 self.direction.assign(region, offset + i, direction);
                 // TODO: would it be possible to assign key here to make the keybit lookup unconditional?
                 self.key_equals_other_key
@@ -857,7 +915,7 @@ mod test {
     };
     use super::*;
     // use crate::types::{account_key, hash};
-    use ethers_core::types::{H256, U256};
+    use ethers_core::types::{H160, H256, U256};
     use halo2_proofs::{
         circuit::{Layouter, SimpleFloorPlanner},
         dev::MockProver,
@@ -1135,6 +1193,14 @@ mod test {
     }
 
     #[test]
+    fn nonce_update_type_1() {
+        mock_prove(
+            MPTProofType::NonceChanged,
+            include_str!("../../tests/generated/nonce_update_type_1.json"),
+        );
+    }
+
+    #[test]
     fn test_account_key() {
         for address in vec![Address::zero(), Address::repeat_byte(0x56)] {
             assert_eq!(
@@ -1144,6 +1210,27 @@ mod test {
                 ),
                 account_key(address)
             );
+        }
+    }
+
+    #[test]
+    fn poseidon_zero_hash() {
+        assert_eq!(hash(Fr::zero(), Fr::zero()), Fr::zero())
+    }
+
+    #[test]
+    fn find_matching_keys() {
+        let zero_key = account_key(H160::zero()).to_bytes()[0];
+        for i in 0..255u8 {
+            let mut address_bytes = [0; 20];
+            address_bytes[0] = i;
+            for j in 1..255u8 {
+                address_bytes[1] = j;
+                let key_byte = account_key(H160(address_bytes)).to_bytes()[0];
+                if zero_key == key_byte {
+                    panic!("{:?}", (i, j));
+                }
+            }
         }
     }
 }

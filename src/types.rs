@@ -266,7 +266,8 @@ impl From<(MPTProofType, SMTTrace)> for Proof {
             &trace.state_path,
             trace.state_update,
         ) {
-            (Some(storage_root), None, [None, None], Some([None, None])) => {
+            (Some(storage_root), None, [None, None], Some([None, None]))
+            | (Some(storage_root), None, [None, None], None) => {
                 ([storage_root; 2].map(fr), None, None)
             }
             (None, Some(key), [Some(open), Some(close)], Some(_storage_updates)) => {
@@ -298,6 +299,7 @@ impl From<(MPTProofType, SMTTrace)> for Proof {
                 )
             }
             _ => {
+                dbg!(trace);
                 unreachable!();
             }
         };
