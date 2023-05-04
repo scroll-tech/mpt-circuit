@@ -60,7 +60,9 @@ impl Claim {
 
     pub fn old_value_assignment(&self, randomness: Fr) -> Fr {
         match self.kind {
-            ClaimKind::Nonce { old, .. } => Fr::from(old.unwrap_or_default()),
+            ClaimKind::Nonce { old, .. } | ClaimKind::CodeSize { old, .. } => {
+                Fr::from(old.unwrap_or_default())
+            }
             ClaimKind::Balance { old, .. } => u256_to_fr(old.unwrap_or_default()),
             _ => unimplemented!("{:?}", self),
             // rlc here.....
@@ -69,7 +71,9 @@ impl Claim {
 
     pub fn new_value_assignment(&self, randomness: Fr) -> Fr {
         match self.kind {
-            ClaimKind::Nonce { new, .. } => Fr::from(new.unwrap_or_default()),
+            ClaimKind::Nonce { new, .. } | ClaimKind::CodeSize { new, .. } => {
+                Fr::from(new.unwrap_or_default())
+            }
             ClaimKind::Balance { new, .. } => u256_to_fr(new.unwrap_or_default()),
             _ => unimplemented!(),
         }
@@ -139,6 +143,7 @@ impl Proof {
         1 + self.address_hash_traces.len()
             + match self.claim.kind {
                 ClaimKind::Nonce { .. } => 4,
+                ClaimKind::CodeSize { .. } => 4,
                 ClaimKind::Balance { .. } => 4,
                 _ => unimplemented!("{:?}", self.claim),
             }
@@ -237,9 +242,9 @@ impl From<(&MPTProofType, &SMTTrace)> for ClaimKind {
                     old: Some(u256(&old.code_hash)),
                     new: Some(u256(&new.code_hash)),
                 },
-                MPTProofType::CodeSizeExists => ClaimKind::Nonce {
-                    old: Some(old.nonce.into()),
-                    new: Some(new.nonce.into()),
+                MPTProofType::CodeSizeExists => ClaimKind::CodeSize {
+                    old: Some(old.code_size.into()),
+                    new: Some(new.code_size.into()),
                 },
                 MPTProofType::PoseidonCodeHashExists => ClaimKind::PoseidonCodeHash {
                     old: Some(big_uint_to_fr(&old.poseidon_code_hash)),
@@ -489,7 +494,7 @@ impl Proof {
     pub fn old_account_leaf_hashes(&self) -> Option<Vec<Fr>> {
         // TODO: make old_account_hash_traces optional
         match self.claim.kind {
-            ClaimKind::Nonce { old, .. } => old.map(|_| {
+            ClaimKind::Nonce { old, .. } | ClaimKind::CodeSize { old, .. } => old.map(|_| {
                 let old_account_hash_traces = self.old_account_hash_traces;
                 let old_account_hash = old_account_hash_traces[6][1];
                 let old_h4 = old_account_hash_traces[4][0];
@@ -511,7 +516,7 @@ impl Proof {
 
     pub fn new_account_leaf_hashes(&self) -> Option<Vec<Fr>> {
         match self.claim.kind {
-            ClaimKind::Nonce { new, .. } => new.map(|_| {
+            ClaimKind::Nonce { new, .. } | ClaimKind::CodeSize { new, .. }=> new.map(|_| {
                 let new_account_hash_traces = self.new_account_hash_traces;
                 let new_account_hash = new_account_hash_traces[6][1];
                 let new_h4 = new_account_hash_traces[4][0];
@@ -533,7 +538,7 @@ impl Proof {
 
     pub fn account_leaf_siblings(&self) -> Vec<Fr> {
         match self.claim.kind {
-            ClaimKind::Nonce { old, new } => {
+            ClaimKind::Nonce { old, new } | ClaimKind::CodeSize { old, new } => {
                 let account_hash_traces = match (old, new) {
                     (Some(_), _) => self.old_account_hash_traces,
                     (None, Some(_)) => self.new_account_hash_traces,

@@ -270,6 +270,7 @@ impl<F: FieldExt> MptUpdateConfig<F> {
                 MPTProofType::AccountDoesNotExist => configure_empty_account(cb, &config),
                 MPTProofType::AccountDestructed => configure_self_destruct(cb, &config),
                 MPTProofType::StorageChanged => configure_storage(cb, &config),
+                MPTProofType::CodeSizeExists => configure_code_size(cb, &config, bytes, poseidon),
                 _ => configure_empty_storage(cb, &config),
                 //                 MPTProofType::StorageDoesNotExist => configure_empty_storage(cb, &config),
                 // MPTProofType::PoseidonCodeHashExists => todo!(),
@@ -471,7 +472,7 @@ impl<F: FieldExt> MptUpdateConfig<F> {
 
             // TODO: this doesn't handle the case where both old and new accounts are empty.
             let directions = match proof_type {
-                MPTProofType::NonceChanged => vec![true, false, false, false],
+                MPTProofType::NonceChanged | MPTProofType::CodeSizeExists => vec![true, false, false, false],
                 MPTProofType::BalanceChanged => vec![true, false, false, true],
                 _ => unimplemented!(),
             };
@@ -866,6 +867,126 @@ fn configure_nonce<F: FieldExt>(
     }
 }
 
+fn configure_code_size<F: FieldExt>(
+    cb: &mut ConstraintBuilder<F>,
+    config: &MptUpdateConfig<F>,
+    bytes: &impl BytesLookup,
+    poseidon: &impl PoseidonLookup,
+) {
+    for variant in SegmentType::iter() {
+        let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
+            SegmentType::Start | SegmentType::AccountTrie => {}
+            SegmentType::AccountLeaf0 => {
+                cb.assert_equal("direction is 1", config.direction.current(), Query::one());
+
+                // this should hold for all MPTProofType's
+                let address_low: Query<F> = (config.address.current()
+                    - config.upper_128_bits.current() * (1 << 32))
+                    * (1 << 32)
+                    * (1 << 32)
+                    * (1 << 32);
+                cb.add_lookup(
+                    "key = h(address_high, address_low)",
+                    [
+                        config.upper_128_bits.current(),
+                        address_low,
+                        config.key.previous(),
+                    ],
+                    poseidon.lookup(),
+                );
+                cb.add_lookup(
+                    "sibling = h(1, key)",
+                    [
+                        Query::one(),
+                        // this could be Start, which could have key = 0. Do we need to special case that?
+                        // We could also just assign a non-zero key here....
+                        config.key.previous(),
+                        config.sibling.current(),
+                    ],
+                    poseidon.lookup(),
+                );
+            }
+            SegmentType::AccountLeaf1 => {
+                cb.assert_zero("direction is 0", config.direction.current());
+            }
+            SegmentType::AccountLeaf2 => {
+                cb.assert_zero("direction is 0", config.direction.current());
+            }
+            SegmentType::AccountLeaf3 => {
+                cb.assert_zero("direction is 0", config.direction.current());
+
+                let old_nonce = config.old_hash.current() - config.old_value.current()
+                    * Query::Constant(F::from(1 << 32).square());
+                let new_nonce = config.new_hash.current() - config.new_value.current()
+                    * Query::Constant(F::from(1 << 32).square());
+                cb.condition(
+                    config.path_type.current_matches(&[PathType::Common]),
+                    |cb| {
+                        cb.add_lookup(
+                            "old code size is 8 bytes",
+                            [config.old_value.current(), Query::from(7)],
+                            bytes.lookup(),
+                        );
+                        cb.add_lookup(
+                            "new code size is 8 bytes",
+                            [config.new_value.current(), Query::from(7)],
+                            bytes.lookup(),
+                        );
+                        cb.assert_equal(
+                            "old nonce = new nonce for code size update",
+                            old_nonce.clone(),
+                            new_nonce.clone(),
+                        );
+                        cb.add_lookup(
+                            "nonce is 8 bytes",
+                            [old_nonce.clone(), Query::from(7)],
+                            bytes.lookup(),
+                        );
+                    },
+                );
+                cb.condition(
+                    config.path_type.current_matches(&[PathType::ExtensionNew]),
+                    |cb| {
+                        cb.add_lookup(
+                            "new nonce is 8 bytes",
+                            [config.old_value.current(), Query::from(7)],
+                            bytes.lookup(),
+                        );
+                        cb.assert_zero(
+                            "new nonce is 0 for ExtensionNew code size update",
+                            new_nonce,
+                        );
+                    },
+                );
+                cb.condition(
+                    config.path_type.current_matches(&[PathType::ExtensionOld]),
+                    |cb| {
+                        cb.add_lookup(
+                            "old code size is 8 bytes",
+                            [config.old_value.current(), Query::from(7)],
+                            bytes.lookup(),
+                        );
+                        cb.assert_zero(
+                            "old nonce is 0 for ExtensionOld code size update",
+                            old_nonce,
+                        );
+                    },
+                );
+            }
+            SegmentType::AccountLeaf4
+            | SegmentType::StorageTrie
+            | SegmentType::StorageLeaf0
+            | SegmentType::StorageLeaf1 => {
+                cb.assert_unreachable("unreachable segment type for nonce update")
+            }
+        };
+        cb.condition(
+            config.segment_type.current_matches(&[variant]),
+            conditional_constraints,
+        );
+    }
+}
+
 fn configure_balance<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig<F>,
@@ -1125,7 +1246,7 @@ mod test {
 
             for proof in &self.proofs {
                 match MPTProofType::from(proof.claim) {
-                    MPTProofType::NonceChanged => {
+                    MPTProofType::NonceChanged | MPTProofType::CodeSizeExists => {
                         u128s.push(address_high(proof.claim.address));
                         if let Some(account) = proof.old_account {
                             u64s.push(account.nonce);
@@ -1325,6 +1446,30 @@ mod test {
         mock_prove(
             MPTProofType::BalanceChanged,
             include_str!("../../tests/generated/balance_update_type_2.json"),
+        );
+    }
+
+    #[test]
+    fn code_size_update_existing() {
+        mock_prove(
+            MPTProofType::CodeSizeExists,
+            include_str!("../../tests/generated/code_size_update_existing.json"),
+        );
+    }
+
+    #[test]
+    fn code_hash_update_existing() {
+        mock_prove(
+            MPTProofType::PoseidonCodeHashExists,
+            include_str!("../../tests/generated/code_hash_update_existing.json"),
+        );
+    }
+
+    #[test]
+    fn keccak_code_hash_update_existing() {
+        mock_prove(
+            MPTProofType::CodeHashExists, // yes, the naming is very confusing :/
+            include_str!("../../tests/generated/keccak_code_hash_update_existing.json"),
         );
     }
 

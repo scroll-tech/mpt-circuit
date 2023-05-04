@@ -158,8 +158,8 @@ mod test {
         u64s: Vec<u64>,
         u128s: Vec<u128>,
         addresses: Vec<Address>,
-        hashes: Vec<H256>,
-        words: Vec<U256>,
+        hashes: Vec<H256>, // this should never be used
+        words: Vec<U256>,  // this should never be used
     }
 
     impl Circuit<Fr> for TestCircuit {
