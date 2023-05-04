@@ -63,7 +63,9 @@ impl Claim {
             ClaimKind::Nonce { old, .. } | ClaimKind::CodeSize { old, .. } => {
                 Fr::from(old.unwrap_or_default())
             }
+            // need to handle rlc here...
             ClaimKind::Balance { old, .. } => u256_to_fr(old.unwrap_or_default()),
+            ClaimKind::PoseidonCodeHash { old, .. } => old.unwrap_or_default(),
             _ => unimplemented!("{:?}", self),
             // rlc here.....
         }
@@ -75,6 +77,7 @@ impl Claim {
                 Fr::from(new.unwrap_or_default())
             }
             ClaimKind::Balance { new, .. } => u256_to_fr(new.unwrap_or_default()),
+            ClaimKind::PoseidonCodeHash { new, .. } => new.unwrap_or_default(),
             _ => unimplemented!(),
         }
     }
@@ -145,6 +148,7 @@ impl Proof {
                 ClaimKind::Nonce { .. } => 4,
                 ClaimKind::CodeSize { .. } => 4,
                 ClaimKind::Balance { .. } => 4,
+                ClaimKind::PoseidonCodeHash { .. } => 2,
                 _ => unimplemented!("{:?}", self.claim),
             }
     }
@@ -510,14 +514,20 @@ impl Proof {
                 let old_balance = old_account_hash_traces[2][1];
                 vec![old_account_hash, old_h4, old_h3, old_balance]
             }),
+            ClaimKind::PoseidonCodeHash { old, .. } => old.map(|_| {
+                let old_account_hash_traces = self.old_account_hash_traces;
+                let old_account_hash = old_account_hash_traces[6][1];
+                let old_poseidon_code_hash = old_account_hash_traces[4][1];
+                vec![old_account_hash, old_poseidon_code_hash]
+            }),
             _ => unimplemented!(),
         }
     }
 
     pub fn new_account_leaf_hashes(&self) -> Option<Vec<Fr>> {
+        let new_account_hash_traces = self.new_account_hash_traces;
         match self.claim.kind {
-            ClaimKind::Nonce { new, .. } | ClaimKind::CodeSize { new, .. }=> new.map(|_| {
-                let new_account_hash_traces = self.new_account_hash_traces;
+            ClaimKind::Nonce { new, .. } | ClaimKind::CodeSize { new, .. } => new.map(|_| {
                 let new_account_hash = new_account_hash_traces[6][1];
                 let new_h4 = new_account_hash_traces[4][0];
                 let new_h3 = new_account_hash_traces[3][0];
@@ -525,12 +535,16 @@ impl Proof {
                 vec![new_account_hash, new_h4, new_h3, new_nonce_and_codesize]
             }),
             ClaimKind::Balance { new, .. } => new.map(|_| {
-                let new_account_hash_traces = self.new_account_hash_traces;
                 let new_account_hash = new_account_hash_traces[6][1];
                 let new_h4 = new_account_hash_traces[4][0];
                 let new_h3 = new_account_hash_traces[3][0];
                 let new_balance = new_account_hash_traces[2][1];
                 vec![new_account_hash, new_h4, new_h3, new_balance]
+            }),
+            ClaimKind::PoseidonCodeHash { old, .. } => old.map(|_| {
+                let new_account_hash = new_account_hash_traces[6][1];
+                let new_poseidon_code_hash = new_account_hash_traces[4][1];
+                vec![new_account_hash, new_poseidon_code_hash]
             }),
             _ => unimplemented!(),
         }
@@ -544,7 +558,6 @@ impl Proof {
                     (None, Some(_)) => self.new_account_hash_traces,
                     (None, None) => unimplemented!("reading 0 value from empty account"),
                 };
-
                 let balance = account_hash_traces[2][1];
                 let h2 = account_hash_traces[3][1];
                 let poseidon_codehash = account_hash_traces[4][1];
@@ -558,13 +571,23 @@ impl Proof {
                     (None, Some(_)) => self.new_account_hash_traces,
                     (None, None) => unimplemented!("reading 0 value from empty account"),
                 };
-
                 let nonce_and_codesize = account_hash_traces[2][0];
                 let h2 = account_hash_traces[3][1];
                 let poseidon_codehash = account_hash_traces[4][1];
                 let account_key_hash = account_hash_traces[5][2];
 
                 vec![account_key_hash, poseidon_codehash, h2, nonce_and_codesize]
+            }
+            ClaimKind::PoseidonCodeHash { old, new } => {
+                let account_hash_traces = match (old, new) {
+                    (Some(_), _) => self.old_account_hash_traces,
+                    (None, Some(_)) => self.new_account_hash_traces,
+                    (None, None) => unimplemented!("reading 0 value from empty account"),
+                };
+                let h4 = account_hash_traces[4][0];
+                let account_key_hash = account_hash_traces[5][2];
+
+                vec![account_key_hash, h4]
             }
             _ => unimplemented!(),
         }

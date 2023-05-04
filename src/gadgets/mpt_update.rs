@@ -266,15 +266,11 @@ impl<F: FieldExt> MptUpdateConfig<F> {
             let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
                 MPTProofType::NonceChanged => configure_nonce(cb, &config, bytes, poseidon),
                 MPTProofType::BalanceChanged => configure_balance(cb, &config, poseidon),
-                MPTProofType::CodeHashExists => configure_code_hash(cb, &config),
-                MPTProofType::AccountDoesNotExist => configure_empty_account(cb, &config),
-                MPTProofType::AccountDestructed => configure_self_destruct(cb, &config),
-                MPTProofType::StorageChanged => configure_storage(cb, &config),
                 MPTProofType::CodeSizeExists => configure_code_size(cb, &config, bytes, poseidon),
-                _ => configure_empty_storage(cb, &config),
-                //                 MPTProofType::StorageDoesNotExist => configure_empty_storage(cb, &config),
-                // MPTProofType::PoseidonCodeHashExists => todo!(),
-                // MPTProofType::CodeSizeExists => todo!(),
+                MPTProofType::PoseidonCodeHashExists => {
+                    configure_poseidon_code_hash(cb, &config, poseidon)
+                }
+                _ => cb.assert_unreachable("unimplemented!"),
             };
             cb.condition(
                 config.proof_type.current_matches(&[variant]),
@@ -472,8 +468,11 @@ impl<F: FieldExt> MptUpdateConfig<F> {
 
             // TODO: this doesn't handle the case where both old and new accounts are empty.
             let directions = match proof_type {
-                MPTProofType::NonceChanged | MPTProofType::CodeSizeExists => vec![true, false, false, false],
+                MPTProofType::NonceChanged | MPTProofType::CodeSizeExists => {
+                    vec![true, false, false, false]
+                }
                 MPTProofType::BalanceChanged => vec![true, false, false, true],
+                MPTProofType::PoseidonCodeHashExists => vec![true, true],
                 _ => unimplemented!(),
             };
 
@@ -915,10 +914,10 @@ fn configure_code_size<F: FieldExt>(
             SegmentType::AccountLeaf3 => {
                 cb.assert_zero("direction is 0", config.direction.current());
 
-                let old_nonce = config.old_hash.current() - config.old_value.current()
-                    * Query::Constant(F::from(1 << 32).square());
-                let new_nonce = config.new_hash.current() - config.new_value.current()
-                    * Query::Constant(F::from(1 << 32).square());
+                let old_nonce = config.old_hash.current()
+                    - config.old_value.current() * Query::Constant(F::from(1 << 32).square());
+                let new_nonce = config.new_hash.current()
+                    - config.new_value.current() * Query::Constant(F::from(1 << 32).square());
                 cb.condition(
                     config.path_type.current_matches(&[PathType::Common]),
                     |cb| {
@@ -1073,7 +1072,86 @@ fn configure_balance<F: FieldExt>(
     }
 }
 
-fn configure_code_hash<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig<F>) {}
+fn configure_poseidon_code_hash<F: FieldExt>(
+    cb: &mut ConstraintBuilder<F>,
+    config: &MptUpdateConfig<F>,
+    poseidon: &impl PoseidonLookup,
+) {
+    for variant in SegmentType::iter() {
+        let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
+            SegmentType::Start | SegmentType::AccountTrie => {}
+            SegmentType::AccountLeaf0 => {
+                cb.assert_equal("direction is 1", config.direction.current(), Query::one());
+
+                // this should hold for all MPTProofType's
+                let address_low: Query<F> = (config.address.current()
+                    - config.upper_128_bits.current() * (1 << 32))
+                    * (1 << 32)
+                    * (1 << 32)
+                    * (1 << 32);
+                cb.add_lookup(
+                    "key = h(address_high, address_low)",
+                    [
+                        config.upper_128_bits.current(),
+                        address_low,
+                        config.key.previous(),
+                    ],
+                    poseidon.lookup(),
+                );
+                cb.add_lookup(
+                    "sibling = h(1, key)",
+                    [
+                        Query::one(),
+                        // this could be Start, which could have key = 0. Do we need to special case that?
+                        // We could also just assign a non-zero key here....
+                        config.key.previous(),
+                        config.sibling.current(),
+                    ],
+                    poseidon.lookup(),
+                );
+            }
+            SegmentType::AccountLeaf1 => {
+                cb.assert_equal("direction is 1", config.direction.current(), Query::one());
+                cb.condition(
+                    config
+                        .path_type
+                        .current_matches(&[PathType::Common, PathType::ExtensionOld]),
+                    |cb| {
+                        cb.assert_equal(
+                            "old_hash is old poseidon code hash",
+                            config.old_value.current(),
+                            config.old_hash.current(),
+                        );
+                    },
+                );
+                cb.condition(
+                    config
+                        .path_type
+                        .current_matches(&[PathType::Common, PathType::ExtensionNew]),
+                    |cb| {
+                        cb.assert_equal(
+                            "new_hash is new poseidon code hash",
+                            config.new_value.current(),
+                            config.new_hash.current(),
+                        );
+                    },
+                );
+            }
+            SegmentType::AccountLeaf2
+            | SegmentType::AccountLeaf3
+            | SegmentType::AccountLeaf4
+            | SegmentType::StorageTrie
+            | SegmentType::StorageLeaf0
+            | SegmentType::StorageLeaf1 => {
+                cb.assert_unreachable("unreachable segment type for poseidon code hash update")
+            }
+        };
+        cb.condition(
+            config.segment_type.current_matches(&[variant]),
+            conditional_constraints,
+        );
+    }
+}
 
 fn configure_empty_account<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
@@ -1258,6 +1336,9 @@ mod test {
                         };
                     }
                     MPTProofType::BalanceChanged => {
+                        u128s.push(address_high(proof.claim.address));
+                    }
+                    MPTProofType::PoseidonCodeHashExists => {
                         u128s.push(address_high(proof.claim.address));
                     }
                     _ => {}
