@@ -7,7 +7,7 @@ use num_traits::identities::Zero;
 use crate::{
     operation::{Account, SMTPathParse},
     serde::{AccountData, HexBytes, SMTNode, SMTPath, SMTTrace},
-    util::rlc,
+    util::{rlc, u256_to_fr},
     Hashable, MPTProofType,
 };
 
@@ -61,6 +61,7 @@ impl Claim {
     pub fn old_value_assignment(&self, randomness: Fr) -> Fr {
         match self.kind {
             ClaimKind::Nonce { old, .. } => Fr::from(old.unwrap_or_default()),
+            ClaimKind::Balance { old, .. } => u256_to_fr(old.unwrap_or_default()),
             _ => unimplemented!("{:?}", self),
             // rlc here.....
         }
@@ -69,6 +70,7 @@ impl Claim {
     pub fn new_value_assignment(&self, randomness: Fr) -> Fr {
         match self.kind {
             ClaimKind::Nonce { new, .. } => Fr::from(new.unwrap_or_default()),
+            ClaimKind::Balance { new, .. } => u256_to_fr(new.unwrap_or_default()),
             _ => unimplemented!(),
         }
     }
@@ -137,6 +139,7 @@ impl Proof {
         1 + self.address_hash_traces.len()
             + match self.claim.kind {
                 ClaimKind::Nonce { .. } => 4,
+                ClaimKind::Balance { .. } => 4,
                 _ => unimplemented!("{:?}", self.claim),
             }
     }
@@ -210,7 +213,7 @@ impl From<(&MPTProofType, &SMTTrace)> for ClaimKind {
                         old: None,
                         new: Some(new.nonce.into()),
                     }
-                } else if new.balance.is_zero() {
+                } else if !new.balance.is_zero() {
                     assert_eq!(*proof_type, MPTProofType::BalanceChanged);
                     ClaimKind::Balance {
                         old: None,
@@ -494,6 +497,14 @@ impl Proof {
                 let old_nonce_and_codesize = old_account_hash_traces[2][0];
                 vec![old_account_hash, old_h4, old_h3, old_nonce_and_codesize]
             }),
+            ClaimKind::Balance { old, .. } => old.map(|_| {
+                let old_account_hash_traces = self.old_account_hash_traces;
+                let old_account_hash = old_account_hash_traces[6][1];
+                let old_h4 = old_account_hash_traces[4][0];
+                let old_h3 = old_account_hash_traces[3][0];
+                let old_balance = old_account_hash_traces[2][1];
+                vec![old_account_hash, old_h4, old_h3, old_balance]
+            }),
             _ => unimplemented!(),
         }
     }
@@ -508,6 +519,14 @@ impl Proof {
                 let new_nonce_and_codesize = new_account_hash_traces[2][0];
                 vec![new_account_hash, new_h4, new_h3, new_nonce_and_codesize]
             }),
+            ClaimKind::Balance { new, .. } => new.map(|_| {
+                let new_account_hash_traces = self.new_account_hash_traces;
+                let new_account_hash = new_account_hash_traces[6][1];
+                let new_h4 = new_account_hash_traces[4][0];
+                let new_h3 = new_account_hash_traces[3][0];
+                let new_balance = new_account_hash_traces[2][1];
+                vec![new_account_hash, new_h4, new_h3, new_balance]
+            }),
             _ => unimplemented!(),
         }
     }
@@ -518,7 +537,7 @@ impl Proof {
                 let account_hash_traces = match (old, new) {
                     (Some(_), _) => self.old_account_hash_traces,
                     (None, Some(_)) => self.new_account_hash_traces,
-                    (None, None) => unimplemented!("reading 0 value from emtpy account"),
+                    (None, None) => unimplemented!("reading 0 value from empty account"),
                 };
 
                 let balance = account_hash_traces[2][1];
@@ -527,6 +546,20 @@ impl Proof {
                 let account_key_hash = account_hash_traces[5][2];
 
                 vec![account_key_hash, poseidon_codehash, h2, balance]
+            }
+            ClaimKind::Balance { old, new } => {
+                let account_hash_traces = match (old, new) {
+                    (Some(_), _) => self.old_account_hash_traces,
+                    (None, Some(_)) => self.new_account_hash_traces,
+                    (None, None) => unimplemented!("reading 0 value from empty account"),
+                };
+
+                let nonce_and_codesize = account_hash_traces[2][0];
+                let h2 = account_hash_traces[3][1];
+                let poseidon_codehash = account_hash_traces[4][1];
+                let account_key_hash = account_hash_traces[5][2];
+
+                vec![account_key_hash, poseidon_codehash, h2, nonce_and_codesize]
             }
             _ => unimplemented!(),
         }

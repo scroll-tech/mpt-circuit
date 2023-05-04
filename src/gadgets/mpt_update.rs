@@ -265,7 +265,7 @@ impl<F: FieldExt> MptUpdateConfig<F> {
         for variant in MPTProofType::iter() {
             let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
                 MPTProofType::NonceChanged => configure_nonce(cb, &config, bytes, poseidon),
-                MPTProofType::BalanceChanged => configure_balance(cb, &config),
+                MPTProofType::BalanceChanged => configure_balance(cb, &config, poseidon),
                 MPTProofType::CodeHashExists => configure_code_hash(cb, &config),
                 MPTProofType::AccountDoesNotExist => configure_empty_account(cb, &config),
                 MPTProofType::AccountDestructed => configure_self_destruct(cb, &config),
@@ -472,6 +472,7 @@ impl<F: FieldExt> MptUpdateConfig<F> {
             // TODO: this doesn't handle the case where both old and new accounts are empty.
             let directions = match proof_type {
                 MPTProofType::NonceChanged => vec![true, false, false, false],
+                MPTProofType::BalanceChanged => vec![true, false, false, true],
                 _ => unimplemented!(),
             };
 
@@ -865,7 +866,91 @@ fn configure_nonce<F: FieldExt>(
     }
 }
 
-fn configure_balance<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig<F>) {}
+fn configure_balance<F: FieldExt>(
+    cb: &mut ConstraintBuilder<F>,
+    config: &MptUpdateConfig<F>,
+    poseidon: &impl PoseidonLookup,
+) {
+    for variant in SegmentType::iter() {
+        let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
+            SegmentType::Start | SegmentType::AccountTrie => {}
+            SegmentType::AccountLeaf0 => {
+                cb.assert_equal("direction is 1", config.direction.current(), Query::one());
+
+                // this should hold for all MPTProofType's
+                let address_low: Query<F> = (config.address.current()
+                    - config.upper_128_bits.current() * (1 << 32))
+                    * (1 << 32)
+                    * (1 << 32)
+                    * (1 << 32);
+                cb.add_lookup(
+                    "key = h(address_high, address_low)",
+                    [
+                        config.upper_128_bits.current(),
+                        address_low,
+                        config.key.previous(),
+                    ],
+                    poseidon.lookup(),
+                );
+                cb.add_lookup(
+                    "sibling = h(1, key)",
+                    [
+                        Query::one(),
+                        // this could be Start, which could have key = 0. Do we need to special case that?
+                        // We could also just assign a non-zero key here....
+                        config.key.previous(),
+                        config.sibling.current(),
+                    ],
+                    poseidon.lookup(),
+                );
+            }
+            SegmentType::AccountLeaf1 => {
+                cb.assert_zero("direction is 0", config.direction.current());
+            }
+            SegmentType::AccountLeaf2 => {
+                cb.assert_zero("direction is 0", config.direction.current());
+            }
+            SegmentType::AccountLeaf3 => {
+                cb.assert_equal("direction is 1", config.direction.current(), Query::one());
+
+                cb.condition(
+                    config
+                        .path_type
+                        .current_matches(&[PathType::Common, PathType::ExtensionOld]),
+                    |cb| {
+                        cb.assert_equal(
+                            "old_hash is old balance",
+                            config.old_value.current(),
+                            config.old_hash.current(),
+                        );
+                    },
+                );
+                cb.condition(
+                    config
+                        .path_type
+                        .current_matches(&[PathType::Common, PathType::ExtensionNew]),
+                    |cb| {
+                        cb.assert_equal(
+                            "new_hash is new balance",
+                            config.new_value.current(),
+                            config.new_hash.current(),
+                        );
+                    },
+                );
+            }
+            SegmentType::AccountLeaf4
+            | SegmentType::StorageTrie
+            | SegmentType::StorageLeaf0
+            | SegmentType::StorageLeaf1 => {
+                cb.assert_unreachable("unreachable segment type for nonce update")
+            }
+        };
+        cb.condition(
+            config.segment_type.current_matches(&[variant]),
+            conditional_constraints,
+        );
+    }
+}
 
 fn configure_code_hash<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig<F>) {}
 
@@ -1051,6 +1136,9 @@ mod test {
                             u64s.push(account.code_size);
                         };
                     }
+                    MPTProofType::BalanceChanged => {
+                        u128s.push(address_high(proof.claim.address));
+                    }
                     _ => {}
                 }
             }
@@ -1213,6 +1301,30 @@ mod test {
         mock_prove(
             MPTProofType::NonceChanged,
             include_str!("../../tests/generated/nonce_update_type_2.json"),
+        );
+    }
+
+    #[test]
+    fn balance_update_existing() {
+        mock_prove(
+            MPTProofType::BalanceChanged,
+            include_str!("../../tests/generated/balance_update_existing.json"),
+        );
+    }
+
+    #[test]
+    fn balance_update_type_1() {
+        mock_prove(
+            MPTProofType::BalanceChanged,
+            include_str!("../../tests/generated/balance_update_type_1.json"),
+        );
+    }
+
+    #[test]
+    fn balance_update_type_2() {
+        mock_prove(
+            MPTProofType::BalanceChanged,
+            include_str!("../../tests/generated/balance_update_type_2.json"),
         );
     }
 
