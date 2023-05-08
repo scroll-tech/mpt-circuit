@@ -2,8 +2,11 @@ use super::{byte_bit::RangeCheck256Lookup, is_zero::IsZeroGadget};
 use crate::constraint_builder::{
     AdviceColumn, ConstraintBuilder, FixedColumn, Query, SelectorColumn,
 };
+use crate::util::u256_to_big_endian;
 use ethers_core::types::{Address, H256, U256};
-use halo2_proofs::{arithmetic::FieldExt, circuit::Region, plonk::ConstraintSystem};
+use halo2_proofs::{
+    arithmetic::FieldExt, circuit::Region, halo2curves::bn256::Fr, plonk::ConstraintSystem,
+};
 
 pub trait RlcLookup {
     fn lookup<F: FieldExt>(&self) -> [Query<F>; 2];
@@ -83,19 +86,15 @@ impl ByteRepresentationConfig {
         region: &mut Region<'_, F>,
         u64s: &[u64],
         u128s: &[u128],
-        addresses: &[Address],
-        hashes: &[H256],
-        words: &[U256],
+        frs: &[Fr],
     ) {
         let randomness = F::from(123123u64); // TODOOOOOOO
 
-        let byte_representations = addresses
+        let byte_representations = u64s
             .iter()
-            .map(address_to_big_endian)
-            .chain(u64s.iter().map(u64_to_big_endian))
+            .map(u64_to_big_endian)
             .chain(u128s.iter().map(u128_to_big_endian))
-            .chain(hashes.iter().map(h256_to_big_endian))
-            .chain(words.iter().map(u256_to_big_endian));
+            .chain(frs.iter().map(fr_to_big_endian));
 
         let mut offset = 0;
         for byte_representation in byte_representations {
@@ -133,14 +132,14 @@ fn address_to_big_endian(x: &Address) -> Vec<u8> {
     x.0.to_vec()
 }
 
-pub fn u256_to_big_endian(x: &U256) -> Vec<u8> {
-    let mut bytes = [0; 32];
-    x.to_big_endian(&mut bytes);
-    bytes.to_vec()
-}
-
 fn h256_to_big_endian(x: &H256) -> Vec<u8> {
     x.0.to_vec()
+}
+
+fn fr_to_big_endian(x: &Fr) -> Vec<u8> {
+    let mut bytes = x.to_bytes();
+    bytes.reverse();
+    bytes.to_vec()
 }
 
 #[cfg(test)]
@@ -157,9 +156,7 @@ mod test {
     struct TestCircuit {
         u64s: Vec<u64>,
         u128s: Vec<u128>,
-        addresses: Vec<Address>,
-        hashes: Vec<H256>, // this should never be used
-        words: Vec<U256>,  // this should never be used
+        frs: Vec<Fr>,
     }
 
     impl Circuit<Fr> for TestCircuit {
@@ -189,14 +186,9 @@ mod test {
                 || "asdfawefasdf",
                 |mut region| {
                     config.0.assign(&mut region);
-                    config.1.assign(
-                        &mut region,
-                        &self.u64s,
-                        &self.u128s,
-                        &self.addresses,
-                        &self.hashes,
-                        &self.words,
-                    );
+                    config
+                        .1
+                        .assign(&mut region, &self.u64s, &self.u128s, &self.frs);
                     Ok(())
                 },
             )
@@ -208,13 +200,26 @@ mod test {
         let circuit = TestCircuit {
             u64s: vec![u64::MAX],
             u128s: vec![0, 1, u128::MAX],
-            addresses: vec![Address::repeat_byte(34)],
-            hashes: vec![H256::repeat_byte(48)],
-            words: vec![U256::zero(), U256::from(123412123)],
+            frs: vec![Fr::zero() - Fr::one()],
         };
         let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
 
         // TODO test that intermediate values are in here....
+    }
+
+    #[test]
+    fn test_helpers() {
+        let mut x = vec![0; 8];
+        x[7] = 1;
+        assert_eq!(u64_to_big_endian(&1), x);
+
+        let mut y = vec![0; 16];
+        y[15] = 1;
+        assert_eq!(u128_to_big_endian(&1), y);
+
+        let mut z = vec![0; 32];
+        z[31] = 1;
+        assert_eq!(fr_to_big_endian(&Fr::one()), z);
     }
 }
