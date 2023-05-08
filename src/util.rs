@@ -69,13 +69,21 @@ pub(crate) fn balance_convert(balance: &BigUint) -> Fr {
 }
 
 pub fn rlc(be_bytes: &[u8], randomness: Fr) -> Fr {
-    be_bytes.iter().fold(Fr::zero(), |acc, byte| {
+    let x = be_bytes.iter().fold(Fr::zero(), |acc, byte| {
         randomness * acc + Fr::from(u64::from(*byte))
-    })
+    });
+    // dbg!(x);
+    x
 }
 
 pub fn u256_to_fr(x: U256) -> Fr {
     let mut bytes = [0u8; 32];
     x.to_little_endian(&mut bytes);
     Fr::from_repr(bytes).unwrap()
+}
+
+pub fn u256_to_big_endian(x: &U256) -> Vec<u8> {
+    let mut bytes = [0; 32];
+    x.to_big_endian(&mut bytes);
+    bytes.to_vec()
 }

@@ -88,7 +88,7 @@ impl ByteRepresentationConfig {
         u128s: &[u128],
         frs: &[Fr],
     ) {
-        let randomness = F::from(123123u64); // TODOOOOOOO
+        let randomness = F::from(0xaa00); // TODOOOOOOO
 
         let byte_representations = u64s
             .iter()

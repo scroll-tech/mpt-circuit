@@ -4,7 +4,7 @@ use path::PathType;
 use segment::SegmentType;
 
 use super::{
-    byte_representation::{u256_to_big_endian, BytesLookup, RlcLookup},
+    byte_representation::{BytesLookup, RlcLookup},
     is_equal::IsEqualGadget,
     is_zero::IsZeroGadget,
     key_bit::KeyBitLookup,
@@ -15,7 +15,7 @@ use crate::{
     constraint_builder::{AdviceColumn, ConstraintBuilder, Query, SelectorColumn},
     serde::SMTTrace,
     types::{account_key, hash, ClaimKind, Proof},
-    util::rlc,
+    util::{rlc, u256_to_big_endian}, // rlc is clobbered by rlc in configure....
     MPTProofType,
 };
 use ethers_core::k256::elliptic_curve::PrimeField;
@@ -97,6 +97,7 @@ struct MptUpdateConfig<F: FieldExt> {
 
     sibling: AdviceColumn,
 
+    // use this for upper/lower half lookups.
     upper_128_bits: AdviceColumn, // most significant 128 bits of address or storage key
 
                                   // not_equal_witness, // inverse used to prove to expressions are not equal.
@@ -265,7 +266,7 @@ impl<F: FieldExt> MptUpdateConfig<F> {
         for variant in MPTProofType::iter() {
             let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
                 MPTProofType::NonceChanged => configure_nonce(cb, &config, bytes, poseidon),
-                MPTProofType::BalanceChanged => configure_balance(cb, &config, poseidon),
+                MPTProofType::BalanceChanged => configure_balance(cb, &config, poseidon, rlc),
                 MPTProofType::CodeSizeExists => configure_code_size(cb, &config, bytes, poseidon),
                 MPTProofType::PoseidonCodeHashExists => {
                     configure_poseidon_code_hash(cb, &config, poseidon)
@@ -282,7 +283,7 @@ impl<F: FieldExt> MptUpdateConfig<F> {
     }
 
     fn assign(&self, region: &mut Region<'_, Fr>, proofs: &[Proof]) {
-        let randomness = Fr::from(123123u64); // TODOOOOOOO
+        let randomness = Fr::from(0xaa00); // TODOOOOOOO
 
         let mut offset = 0;
         for proof in proofs {
@@ -473,6 +474,7 @@ impl<F: FieldExt> MptUpdateConfig<F> {
                 }
                 MPTProofType::BalanceChanged => vec![true, false, false, true],
                 MPTProofType::PoseidonCodeHashExists => vec![true, true],
+                MPTProofType::CodeHashExists => vec![true, false, true, true],
                 _ => unimplemented!(),
             };
 
@@ -990,6 +992,7 @@ fn configure_balance<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig<F>,
     poseidon: &impl PoseidonLookup,
+    rlc: &impl RlcLookup,
 ) {
     for variant in SegmentType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
@@ -1038,10 +1041,10 @@ fn configure_balance<F: FieldExt>(
                         .path_type
                         .current_matches(&[PathType::Common, PathType::ExtensionOld]),
                     |cb| {
-                        cb.assert_equal(
-                            "old_hash is old balance",
-                            config.old_value.current(),
-                            config.old_hash.current(),
+                        cb.add_lookup(
+                            "old value is rlc(old_hash)",
+                            [config.old_hash.current(), config.old_value.current()],
+                            rlc.lookup(),
                         );
                     },
                 );
@@ -1050,10 +1053,10 @@ fn configure_balance<F: FieldExt>(
                         .path_type
                         .current_matches(&[PathType::Common, PathType::ExtensionNew]),
                     |cb| {
-                        cb.assert_equal(
-                            "new_hash is new balance",
-                            config.new_value.current(),
-                            config.new_hash.current(),
+                        cb.add_lookup(
+                            "new value is rlc(new_hash)",
+                            [config.new_hash.current(), config.new_value.current()],
+                            rlc.lookup(),
                         );
                     },
                 );
@@ -1313,14 +1316,10 @@ mod test {
             lookups
         }
 
-        fn byte_representations(
-            &self,
-        ) -> (Vec<u64>, Vec<u128>, Vec<Address>, Vec<H256>, Vec<U256>) {
+        fn byte_representations(&self) -> (Vec<u64>, Vec<u128>, Vec<Fr>) {
             let mut u64s = vec![];
             let mut u128s = vec![0];
-            let mut addresses = vec![];
-            let mut hashes = vec![];
-            let mut words = vec![];
+            let mut frs = vec![];
 
             for proof in &self.proofs {
                 match MPTProofType::from(proof.claim) {
@@ -1337,6 +1336,15 @@ mod test {
                     }
                     MPTProofType::BalanceChanged => {
                         u128s.push(address_high(proof.claim.address));
+                        dbg!(proof.old_account);
+                        dbg!(proof.new_account);
+                        if let Some(account) = proof.old_account {
+                            frs.push(account.balance);
+                        };
+                        if let Some(account) = proof.new_account {
+                            frs.push(account.balance);
+                        };
+                        dbg!(frs.clone());
                     }
                     MPTProofType::PoseidonCodeHashExists => {
                         u128s.push(address_high(proof.claim.address));
@@ -1344,7 +1352,35 @@ mod test {
                     _ => {}
                 }
             }
-            (u64s, u128s, addresses, hashes, words)
+            (u64s, u128s, frs)
+        }
+
+        fn rlc_lookups(&self) -> Vec<U256> {
+            let mut words = vec![];
+            for proof in &self.proofs {
+                match proof.claim.kind {
+                    ClaimKind::Nonce { .. }
+                    | ClaimKind::CodeSize { .. }
+                    | ClaimKind::PoseidonCodeHash { .. } => {}
+                    ClaimKind::Balance { old, new } | ClaimKind::CodeHash { old, new } => {
+                        words.push(old);
+                        words.push(new);
+                    }
+                    ClaimKind::Storage {
+                        key,
+                        old_value,
+                        new_value,
+                    } => {
+                        words.push(Some(key));
+                        words.push(old_value);
+                        words.push(new_value);
+                    }
+                    ClaimKind::IsEmpty(key) => {
+                        words.push(key);
+                    }
+                }
+            }
+            words.into_iter().flatten().collect()
         }
     }
 
@@ -1418,7 +1454,8 @@ mod test {
                 byte_representation,
             ) = config;
 
-            let (u64s, u128s, addresses, hashes, words) = self.byte_representations();
+            let (u64s, u128s, frs) = self.byte_representations();
+            dbg!(frs.clone());
 
             layouter.assign_region(
                 || "",
@@ -1431,14 +1468,7 @@ mod test {
                     canonical_representation.assign(&mut region, &self.keys());
                     key_bit.assign(&mut region, &self.key_bit_lookups());
                     byte_bit.assign(&mut region);
-                    byte_representation.assign(
-                        &mut region,
-                        &u64s,
-                        &u128s,
-                        &addresses,
-                        &hashes,
-                        &words,
-                    );
+                    byte_representation.assign(&mut region, &u64s, &u128s, &frs);
                     Ok(())
                 },
             )
