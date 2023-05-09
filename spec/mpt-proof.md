@@ -1,235 +1,375 @@
-# Storage Tree Proof
+---
+tags: zkevm-circuits
+---
+
+# MPT circuit doc/spec draft
+
+code: https://github.com/scroll-tech/mpt-circuit `feat/refactor` branch and `feat/refactor_nonce` branch.
 
-The storage tree proof helps to check updating on accounts and their storage (via SSTORE and SSLOAD op) are correctly integrated into the storage tree, so the change of state root of EVM has represented and only represented the effects from transactions being executed in EVM. The `Account` and `Storage` records in state proof, which would finally take effect on storage tree, need to be picked into storage tree proof. The storage tree circuit provide EVM's state root are updated sequentially and the final root after being updated by the records sequence from state proof coincided with which being purposed in the new block.
+This draft may serve as a preliminary version of a part of future documentation/spec.
 
-## The architecture of state trie
+Notice that the document is <i>not final</i> and may change due to potential errors in my understanding of the codebase or due to frequent changes of the codebase itself.
 
-An alternative implement of BMPT (Binary Patricia Merkle Tree) has been applied for the zk-evm as the state trie. The BMPT has replaced the original MPT for world state trie and account storage trie, and a stepwise hashing scheme instead of rlp encoding-hashing has been used for mapping data structures into hashes. For the BMPT implement we have:
+Corrections, suggestions and comments are very welcome at any time.
+
+Thanks to @z2trillion for collaborating on drafting this documentation.
+
+[zkTrie spec]: https://www.notion.so/scrollzkp/zkTrie-Spec-be31b03b7bcd4cdc8ece2dd3dca61928?pvs=4
+
+[zkevm-circuits]: https://github.com/scroll-tech/zkevm-circuits
+
+[zkTrie]: https://github.com/scroll-tech/zkevm-circuits/tree/develop/zktrie
+
+## MPT table structure 
+
+[MPT-table](https://github.com/scroll-tech/zkevm-circuits/blob/700e93c898775a19c22f9abd560ebb945082c854/zkevm-circuits/src/table.rs#L680) in zkevm-circuits has the following table layout
+
+|address|storage_key|proof_type|new_root|old_root|new_value|old_value|
+|-|-|-|-|-|-|-|
+|||[MPTProofType](https://github.com/scroll-tech/zkevm-circuits/blob/700e93c898775a19c22f9abd560ebb945082c854/zkevm-circuits/src/table.rs#L645): NonceMod, BalanceMod, KeccakCodeHashExists, PoseidonCodeHashExists, CodeSizeExists, NonExistingAccountProof, StorageMod, NonExistingStorageProof|||||
+
+The MPT table is constructed following this [zkTrie spec].
+
+Each row of the MPT table reflects an 
+
+- `MPTUpdate`
+    - `key`: `AccountStorage` or `Account`, each one has its onw data fields
+    - `old_value` and `new_value`, change in value
+    - `old_root` and `new_root`, change in trie root
+
+Columns `address` and `storage_key` indicate the location where changes in account or storage happen.
+
+## The purpose of MPT circuit and its witness generation inside [zkevm-circuits]
+
+MPT circuit aims at proving the correctedness of the MPT table described above. This means its constraint system enforces a unique structure of the MPT (zkTrie) as described. 
+
+When the MPT is changed due to account or storage updates, MPT circuit must prove this update leads to the correct root change. We [encode](https://github.com/scroll-tech/zkevm-circuits/blob/c656b971d894102c41c30000a40e07f8e0520627/zkevm-circuits/src/witness/mpt.rs#L77) one step of `MPTUpdate` into an `SMTTrace` that carries [old_path, new_path] on the trie for account/storage. Here SMT stands for <i>Sparse Merkle Trie</i> (this confirmed by repo author @noel2004).
+
+Both paths are from root to leaf, encoding the change of path in that step. This construction is done inside the [zkTrie] of the zkevm-circuits. 
+
+<i>Note: Refactor logic (for account as example) is [handle_new_state](https://github.com/scroll-tech/zkevm-circuits/blob/7e821a9386e6c9aad85ef40e669986305e04dc77/zktrie/src/state/witness.rs#L258) (update the trie according to `MPTProofType` category) -> [trace_account_update](https://github.com/scroll-tech/zkevm-circuits/blob/7e821a9386e6c9aad85ef40e669986305e04dc77/zktrie/src/state/witness.rs#L182) (provide old and new paths in the trie based on the update) -> [decode_proof_for_mpt_path](https://github.com/scroll-tech/zkevm-circuits/blob/7e821a9386e6c9aad85ef40e669986305e04dc77/zktrie/src/state/witness.rs#L398) (determine the path, which must start from root and end at either a leafnode or an empty node in the old/new trie based on the given key).</i>
+
+<i>Note: In [zkTrie] the update is constructed according to `MPTProofType`, and for `MPTProofType::AccountDoesNotExist` and `MPTProofType::StorageDoesNotExist` the convention here is that the provided account/storage is empty both <b>before and after</b> the update. The proof of non-existence of account before writing into or after deletion from the existing mpt, will be included as separate constraints that correspond to different types of non-existence proof (we call them type 1 and type 2 non-existence, see below).</i>
+
+`SMTTrace` consists of the following hierarchy of notions:
+
+- `SMTTrace`
+    - `address`: 20-byte hex, the address of the account being updated.
+    - `account_key`: 32-byte hex, the [hash of address](https://www.notion.so/scrollzkp/zkTrie-Spec-be31b03b7bcd4cdc8ece2dd3dca61928?pvs=4#2d4a954446e5433e9ff521a0461d10bb).
+    - `account_path`: `SMTPath`, old and new
+        - `SMTPath`: It is understood that this path has an order that goes from root node to leaf node.
+            - `root`: hash
+            - `leaf`: `SMTNode`
+            - `path`: `Vec<SMTNode>`
+            - `path_part`: partial key
+        - `SMTNode`
+            - `value`: hash
+            - `sibling`: hash
+    - `account_update`: `[Option<AccountData>; 2]`, old and new
+        - `AccountData`
+            - `nonce`
+            - `balance`
+            - `code_hash`: keccak code hash
+            - `poisedon_code_hash`
+            - `code_size`
+        - Either account update can be `None`, if the `SMTTrace` is for an update to an account that previously doesn't exist, or the update for `MPTProofType::AccountDoesNotExist`.
+    - `state_path`: `Option<[Option<SMTPath>; 2]>`. SMTPath's for **storage** trie. There are 5 possibilities for `None`/`Some(...)` here:
+        1. `None`: the update doesn't touch the account's storage. I.e. the proof type matches `MPTProofType::{NonceChanged, BalanceChanged, CodeHashExists, PoseidonCodeHashExists, CodeSizeExists, AccountDoesNotExist}`
+        2. `[None, None]` the storage slot for the update starts and ends with value 0. Either the proof type is `MPTProofType::StorageDoesNotExist` or it is `MPTProofType::StorageChanged` and the new and old values are both 0. 
+        3. `[Some(...), Some(...)]`: the proof type is `MPTProofType::StorageChanged` and the new and old values are non-zero.
+        4. `[None, Some(...)]`: the proof type is `MPTProofType::StorageChanged` and the old value is 0 and the new value is non-zero.
+        5. `[Some(...), None]`: the proof type is `MPTProofType::StorageChanged` and the old value is non-zero and the new value is non-zero.
+    - `common_state_root`: 32-byte hex, hash. This is optional and is present iff `state_path` and `state_update` are both `None`. (It is not possible for only one of `state_path` or `state_update` to be `None`.)
+    - `state_key`: optional [hash of **storage** key](https://www.notion.so/scrollzkp/zkTrie-Spec-be31b03b7bcd4cdc8ece2dd3dca61928?pvs=4#9d41b37c56be4f1d91301d083261f1ef). `None` if the update doesn't touch the account's storage.
+    - `state_update`: `StateData`, old and new, reflecting update on storage
+        - `StateData`
+            - `key`
+            - `value`
+
+hierarchy looks like:
+```mermaid
+stateDiagram
+    SMTNode --> SMTPath
+    SMTPath --> account_path
+    SMTPath --> state_path
+    AccountData --> AccountUpdate
+    AccountUpdate --> SMTTrace
+    StateData --> StateUpdate
+    StateUpdate --> SMTTrace
+    account_path --> SMTTrace
+    state_path --> SMTTrace
+    address --> SMTTrace
+    account_key --> SMTTrace
+    common_state_root --> SMTTrace
+    state_key --> SMTTrace
+```
+
+
+## MPT proofs as witnesses for the `feat/refactor` branch
+
+During the witness assignment in mpt_update circuit, a sequence of mpt updates with each `update` being of type `SMTTrace` is provided. Each `update` is then [turned into](https://github.com/scroll-tech/mpt-circuit/blob/feat/refactor/src/types.rs) a `Proof` and then filled into the circuit as witnesses. Each `Proof` consists of the following components
+    
+- `Proof`
+    - `claim`: A `Claim`
+       - `Claim`
+            - `old_root`
+            - `new_root`
+            - `address`
+            - `kind`: `ClaimKind`
+                - `Read`
+                - `Write`
+                - `IsEmpty`
+    - `address_hash_traces`: vector of traces of hash obtained from `AccountPath` with path going from leaf to root. Each vector item is a list with components, that stands for a node in the path at the depth going from high (leaf end) to low (=0, root end). Components are 
+        - `direction`: bool, this is corresponding to `account_key`, left or right that this node is with respect to its father (not sure? but  @z2trillion has the same opinion)
+        -  `open_value`: `Fr` field element, old hash at this node, i.e. for old path
+        -  `close_value`: `Fr` field element, new hash at this node, i.e. for new path
+        -  `sibling`: `Fr` field element, sibling node's hash
+        -  `is_open_padding`: bool, true if this node is empty for old path 
+        -  `is_close_padding`: bool, true if this node is empty for new path 
+    - `leafs`: `[LeafNode; 2]`, for old and new path
+        - `LeafNode`
+            - `key`
+            - `value_hash`
+    - `old_account_hash_traces`: Vector with item in `[[Fr; 3]; 6]`. For non-empty account
+        - `[codehash_hi, codehash_lo, h1=hash(codehash_hi, codehash_lo)]`
+        - `[h1, storage_root, h2=hash(h1, storage_root)]` 
+        - `[nonce, balance, h3=hash(nonce, balance)]`
+        - `[h3, h2, h4=hash(h3, h2)]`
+        - `[1, account_key, h5=hash(1, account_key)]`
+        - `[h4, h5, h6=hash(h4, h5)]`
+    For empty account
+        - `[0,0,0]`
+        - `[0,0,0]` 
+        - `[0,0,0]`
+        - `[0,0,0]`
+        - `[1, leaf.key, h5=hash(1, leaf.key)]`
+        - `[h5, leaf.value_hash, h6=hash(h5, leaf.value_hash)]`
+    -    `new_account_hash_traces`:same as above, but for the new account.
+    - `storage_hash_traces`: same as address_hash_traces, but for storage
+    - `storage_key_value_hash_traces`: `Option<[[[Fr; 3]; 3]; 2]>`, old and new of the following list
+        - `[key_high, key_low, h0=hash(key_high, key_low)]`
+        - `[value_high, value_low, h1=hash(value_high, value_low)]`
+        - `[h0, h1, hash(h0, h1)]`
 
-+ Replacing all hashing calculations from kecca256 to poseidon hash
+Circuit configures constraints for each [`MPTProofType`](https://github.com/scroll-tech/mpt-circuit/blob/2cc63d2b765a20cd12136d1df675052c9353a582/src/mpt_table.rs#L231)
+    
+- `MPTProofType`
+    - `NonceChanged` = 1
+    - `BalanceChanged`
+    - `CodeHashExists`: keccak codehash updated
+    - `PoseidonCodeHashExists`: poseidon codehash updated 
+    - `CodeSizeExists`: code size updated
+    - `AccountDoesNotExist`: non exist proof for account
+    - `AccountDestructed`: this does not match what is in zkevm-circuits?
+    - `StorageChanged`
+    - `StorageDoesNotExist`
+    
 
-+ In BMPT there are only branch and leaf nodes, and their hashes are calculated as following schemes:
+    
+## Circuit layout and constraints
 
-    * Branch node is an 2 item node and `NodeHash = H(NodeHashLeft, NodeHashRight)`
-    * Leaf node is an 2 item node and `NodeHash = H(H(1, encodedPath), value)`
+<i>TODO: The circuit layout columns may have not been finalized and will be constantly updated based on recent pushes to the git repo branch.</i>
 
-+ In world state trie, the value of leaf node is obtained from account state and the hashing scheme is: `AccountHash = H(H(nonce, balance), H(H(CodeHash_first16, CodeHash_last16), storageRoot))`, in which `CodeHash_first16` and `CodeHash_last16` represent the first and last 16 bytes of the 32-byte codeHash item
+|old_hash|new_hash|old_value|new_value|proof_type|address|storage_key_rlc|segment_type|path_type|depth|key|other_key|other_key_hash|other_leaf_data_hash|direction|sibling|upper_128_bits|
+|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|
+|node's open hash|node's close hash|node's open value|node's close value|MPTProofType|||Start, AccountTrie, AccountLeaf0, AccountLeaf1, AccountLeaf2, AccountLeaf3, AccountLeaf4, StorageTrie, StorageLeaf0, StorageLeaf1|Common, ExtensionOld, ExtensionNew|depth increase from root to leaf, from current row to next row|provided key|match provided key with existing mpt path key, until reaching leafnode, obtain resulting key. For type 1 non-existence proof, this key is different from provided key, for type 2 non-existence proof, this key is same as provided key|hash(1, other_key) if other_key matches provided key, else is 0|hash of the leaf/empty node pointed by other key|direction must match key|sibling node's hash|most significant 128 bits of address or storage key|
 
-+ In account storage trie, the value of leaf node is obtained from hashing the first and last 16 bytes of the storaged 32-byte value, i.e: `ValueHash = H(value_first16, value_last16)`
+Each circuit row represents the mpt update (from old to new) of a path from root to leaf, at a certain depth (depth of root is 0). So each row represents only one node (virtual node in case it does not exist). The row offset order `previous --> current --> next` indicates an increase of depth towards leafnode.
 
-## Layouts of the circuit
+The configuration changes to the MPT is characterized by the following two columns: 
 
-To provide there is value `v` and key `k` existed for account `addr` we need 4 proofs:
+(1) `PathType`: This characterizes topological structural change. It includes `PathType::Start`, `PathType::Common`, `PathType::ExtensionOld` and `PathType::ExtensionNew`; 
 
-1. Proof the stored key and value has been correctly encoded and hashed into the secured key and value in one of the leaf node of account storage trie
-2. Proof the BMPT path for the leaf node in proof `1` against the current root `Rs` of storage trie, is correct
-3. Proof the account `addr` with stateRoot is `Rs` can be encoded and hashed into one of the leaf node of state trie
-4. Proof the BMPT path for the leaf node in proof `3` against the current root `R` of state trie, is correct
+(2) `SegmentType`: This characterizes data field (which form the trie's leafnode hash) change. It includes `SegmentType::Start`, `SegmentType::AccountTrie`, `SegmentType::AccountLeaf0`-`SegmentType::AccountLeaf4`, `SegmentType::StorageTrie`, `SegmentType::StorageLeaf0`-`SegmentType::StorageLeaf1`.
 
-To provide the root of state trie change from `R0` to `R1` is contributed by updating key `k` for account `addr` from value `v0` to `v1`, we used 4 proofs as described before for providing `(v0, k, addr) -> R0` and another 4 proofs for providing `(v1, k, addr) -> R1`. Then another updating on storage can be applied on the new state trie with root `R1` and transit it to root `R2`. For a series of *n* updates on storage of EVM which transit state trie from root `R0` to `Rn`, our proofs provide the transition via *n* intermediate roots `R1, R2 ... Rn-1`, and provide *n* transitions `R0 -> R1`, `R1 -> R2`, ... `Rn-1 -> Rn` caused by the *n* updates are all correct.
+In both of the above two column witnesses, `Start` is used as boundary marker between updates. This means each circuit row with a `Start` indicates a new MPT update.
 
-For the proof of each transition `Ri -> Ri+1` on the trie. Every of the 4 proofs for the start state `Ri` is paired with the 4 proofs for the end state `Ri+1` and the 4 proof pairs are stacked from bottom to top, so the layout would look like:
 
-| state | proof of start | proof of end | trie root |
-| ----- | -------------- | ------------ | --------- |
-|  ...  |                |              |           |
-|   i   |  <proof 4>     |   <proof 4>  |  Ri, Ri+1 |
-|       |  <proof 3>     |   <proof 3>  |           |
-|       |  <proof 2>     |   <proof 2>  |           |
-|       |  <proof 1>     |   <proof 1>  |           |
-|  i+1  |  <proof 4>     |   <proof 4>  | Ri+1, Ri+2|
+### Topological structure changes to the trie, their corresponding mpt operations and account/storage types
 
-So there are 5 kinds of proof (4 proof 'pair' mentioned before and a 'padding' proof) which need to be layout to the circuit. Columns in circuit are grouped for 3 parts:
+Operations to the trie can be classified as 
 
-+ Controlling part enable different proofs being activated in specified row and constraint how adjacent rows for different proofs can transit:
+(1) <i>modify</i>: an account/storage slot is being changed. The account/storage under this operation is named <b>type 0</b>, i.e., type 0 account/storage are in the MPT. This means that they're non-emtpy, i.e. at least one of their fields is non-zero. Figure below:
+![PathType_Common_modify](https://i.imgur.com/jPtyZia.jpg)
 
->    * `series` indicate one row is dedicated for the i*th* transition for state trie. The cell of `series` on next row must be the same or only 1 more than the current one.
->    * `selector 0~5` each enable the row for one of the 5 proofs. With constraint `sigma(selector_i) = 1` there would be one and only one selector is enabled for each row.
->    * `op_type` can be 0 to 5 and specified the row currently works for proof N. And constraint `sigma(selector_i * i) = op_type` bind the value of `op_type` to the enabled `selector_i`.
->    * `op_delta_aux` reflects whether there is a different between the value of current `op_type` cell and the one above it.
->    * `ctrl_type` is used by different proofs to mark one row for its roles. When the value of `op_type` changed in adjacent rows, only the constrained pairs of `(op_type, ctrl_type)` are allowed so the sequence of proofs stacking is controlled. More specific, we just: 
->        + look up current `(op_type, ctrl_type)` pair from 'external rules' collection when value of current `op_type` cell different from which in above row (the difference must be one)
->        + look up current `(op_type, ctrl_type)` pair from 'internal rules' collection when value of current `op_delta_aux` is one
+(2) <i>insert to/delete from append</i>: an account/storage slot is inserted to the MPT as append, i.e. it forms a new leafnode that previously does not exist even as empty nodes (<i>insert to append</i>), or it is deleted from an appended leaf, i.e., after deletion there will be no node (including empty node) left (<i>delete from append</i>). The account/storage under this operation is named <b>type 1</b>, i.e., type 1 account/storage are empty. Where they could be in the MPT, there is instead a leaf node that maps to another non-empty account/storage. Figure below (for insert case, and delete case just swap old and new): 
+![PathType_ExtensionNew_append](https://i.imgur.com/n45hYz3.jpg)
+Notice that the zkTrie adds only one bit of common prefix at each level of its depth. It also applies the optimization that replaces subtrees consisting of exactly one leaf with a single leaf node to reduce the tree height. This means that when inserting/deleting new account as append, it may happen that an extension happens with some intermediate nodes that provide key prefix bits, either for the old path or for the new path. It is constrained that at all the new siblings added are empty nodes. 
 
-+ Data part currently has 3 cols `data_0` ~ `data_2` which dedicate to values whose relations should be provided to be correct by a proof, and 3 additional cols `data_0_ext` ~ `data_2_ext` if 1 field is not enough for represent the value (like codehash and storekey/value). Different proof assign specified data on that columns: For proof 1 and 3 (the BMPT proof), the hashes of nodes for the BMPT before and after updating are recorded in `data_0` and `data_1` respectively; for proof 2 `data_0` and `data_1` are used for account hash before and after being updated. proofs can also refer cells in data columns which belong to the rows adjacent to it, i.e. the data which has been provided by another proof.
+(3) <i>insert to/delete from fill</i>: insert an account/storage slot to fill in an empty node (<i>insert to fill</i>) as well as delete an account/storage slot from a filled leafnode and leaves with an empty node (<i>delete from fill</i>). The account/storage under this operation is named <b>type 2</b>, i.e., type 2 account/storage are also empty. Where they could be in the MPT, there is instead an empty node. Figure below (for insert case, and delete case just swap old and new):
+![PathType_Common_insertdelete_fill](https://i.imgur.com/agw0OsP.jpg)
 
-There are also 2 limb cols for each `data_N` col in case of a 256bit variable and assign it into 2 128-bit limbs, naming as `data_N_limb_0/1`.
+### PathTypes
 
-Since the transition is provided in a series of adjacent rows (a "block") in our layout, and the proof of state trie being stacked first. The beginning row of the proof block always contain the start and end trie root in the transition. So a `root_aux` col is used to 'carry' the end trie root to the last row of the proof block, to ensure the start trie root of next transition must equal to the end trie root of previous proof block. The layout look like follows:
+#### PathType::Common
 
-| series| data_0 *for old_root* | data_1 *for new_root* | root_aux |
-| ----- | -------- | -------- | -------- |
-|  ...  |          |          |          |
-|   i   |    Ri    |   Ri+1   |  Ri+1    |
-|       |          |          |  Ri+1    |
-|       |          |          |  Ri+1    |
-|       |          |          |  Ri+1    |
-|  i+1  |  Ri+1    |   Ri+2   |  Ri+2    |
+`PathType::Common` refers to the sitation that the old and new path share the same toplogical configuration.
 
-The constraint for `root_aux` is:
+This can correspond to the toloplgical configuration change on the whole path in the modify operation, or the common path (not extended one) of the insert to/delete from append, or the insert to/delete from fill operations. 
 
-> `root_aux(cur) = new_root(cur)` if `series` has changed, else `root_aux(cur) = root_aux(prev)`
+#### PathType::ExtensionNew
 
-+ Gadget part has columns dedicated by different proof. Each kind of proof (BMPT, account hash, value hash or padding) use these columns and custom gates for a proof has to be enabled by the `selector_i` col inside controlling part.
+`PathType::ExtensionNew` refers to the sitation that the new path extends the old path in its toplogical configuration.
 
-### BMPT transition proof
+This can correspond to the extended part of the path in insert to append, insert to fill operations.
 
-This provide an updating on the key `k` of BMPT has made its root to change from `Ri` to `Ri+1` under one of the following three possible transitions:
+#### PathType::ExtensionOld
 
-1. A new leaf node with value `v1` is created
-2. The leaf node with value `v0` is removed
-3. The leaf node with value `v0` is being updated to value `v1`
+`PathType::ExtensionOld` refers to the sitation that the old path extends the new path in its toplogical configuration.
 
-It is needed to provide the path in BMPT, from root to the leaf node of key `k`, is valid. Both the BMPT path before and after leaf node `k` being updated has to be provided and the two BMPT path shared the same siblings. It take one row to put the data of one layer in the BMPT path, including the type of node (branch or leaf), the hash of node, the prefix bit for the corresponding layer etc. The two BMPT path for providing should has the same depth. In the case of transitions 1 and 2, an un-existing proof, i.e. an BMPT path from root to an empty node should be provided.
+This can correspond to the extended part of the path in delete from append, delete from fill operations.
 
-For the nature of patricia tree, if there is no leaf with key `k` in the trie and leaf node `k1` which has longest common prefix with `k` in all leafs of the trie. Suppose the length of the common prefix is `l` and currently the length of prefix of leaf node `k1` is still less than `l`, depth of BMPT path would be changed after being updated. In this case, in the (un-existing) proof for the empty node of key `k` the BMPT path has to be re-organized for reflecting the trie state right before leaf node of key `k` being updated to an empty node, or right after the leaf node being removed and the empty node left. Take following example:
+#### Change of PathType along a path
 
-![a Merkle tree storing example](https://i.imgur.com/SaLpIn3.png)
+Each circuit row will be assigned a PathType at witness generation. Along a path (old/new) provided by the `Proof`, each node will correspond to a row in the circuit. So `PathType` can change from `Common` to `ExtensionOld(New)` when hitting the extended part of the trie. This also includes the case when a type 2 account/storage is inserted/deleted, where the empty node pointed by the key will be extended to a leafnode.
 
-+ While only leaf node A and B is inserted, the prefix path for node B (key 1000) is 1, and the root of current trie is `Rb`;
-+ Now node C (key 1010) will be inserted. For providing, we use the re-organized trie state which leaf node C just updated the empty node with key 1010, and the prefix path of this empty node is 101.
-+ For such a situation, the prefix path for node B has become 100 instead of 1.
-+ Notice this is a 'virtual' state for the trie, for the root of trie doesn't change from `Rb`. To provide this virtual BMPT path, we induce a special node types for the reorganized branch node (whose prefix path is 1 and 10 in our case).
+#### <i>Discussion: Can we come up with a simpler way of looking at all the PathTypes?</i>
+<i>In fact, if we do not compress subtrees with empty nodes as in the [zkTrie spec], then we can combine the two subcases in account addition case (or account deletion case). Here the previous figure for `PathType::ExtensionNew` in account addition case becomes the following
+![PathTypeDiscussion_FullTrieCase](https://i.imgur.com/0D6BYhb.jpg)
+    However, using the empty-node compression in the current [zkTrie spec] will result in extension and we have to work with various PathTypes. This is a trade-off, though from the above agument based on whether old path hits a leaf or an empty node, we know that we exhausted all path types.</i>
+    
 
-Since we are using binary Merkle tree, each layer in the tree would take one bit from the key. From top (root) of the trie, the least-significant bit in the key would be checked and for the leaf node with `l` bits as prefix, the partial key for leaf part would just right shift the original key by `l`. For example, for a leaf node with key is 19 (`B10011`) with 3 bits prefix for path, the path (from root to leaf) is `1-1-0` and the partial key is 2 (`B10`).
 
-Following is the layout of a BMPT path in proof, one row for each layer:
+### Type 1 and Type 2 non-existence proofs
 
-![layout of a BMPT path](https://gist.githubusercontent.com/noel2004/40cc19fa97924d0e383ef6b7e53d5e6d/raw/23797d692ef91cd47d34fb4942a9a38c50de959c/1.svg)
+These cases of non-existence proofs do <b>not</b> really correspond to `MPTProofType::AccountDoesNotExist` or `MPTProofType::StorageDoesNotExist`, but are related to non-existence before writing into or after deletion from existing mpt. 
 
-The BMPT transition proof use following columns:
+There are 2 cases to constrain based on the path directed by the provided non-existing key (coming from hash of account address):
 
-> `Old/NewHashType`: Record the type of a node in current row, the two column `Old-` and `New-` is dedicated to the state of trie before and after updating respectively. There are 6 types would be used:
->  + `Start`: indicate the node is dedicated for the root hash of trie, both in old- and new- state the rows for BMPT path should start with this node
->  + `Mid`: indicate a branch node
->  + `Leaf`: indicate a leaf node
->  + `Empty`: indicate an empty node, the hash of this node is Fq::Zero
->  + `LeafExt`: indicate a "virtual" node in the leaf inserted / deleted case, which in fact exist only in the updated state, the node hash for these node types is just equal to its child
->  + `LeafExtFinal`: Parent of the empty node which would be updated
+- <b>Type 1 non-existence proof</b> (insert to append/delete from append): the path ended at a leaf node. Illustration figure shown below:
+![AccountNotExist_Leaf](https://i.imgur.com/SyExuBC.png)
+In this case, due to our construction of the old and new paths of `SMTTrace`, the old path (when inserting)/new path (when deleting) must be directed to this leaf node. The prefix key provided by the old/new path must end at a bit position <i>before</i> the last bit of the leaf key that is to be proved non-exist. So we constrain that the non-existing account/storage must have its key that is not equal to the key at this leaf node. Circuit columns `other_key`, `other_key_hash`, `other_leafnode_hash` and an IsEqualGadget `key_equals_other_key` are used to provide witness to these constraints and to constrain.
 
-> `sibling`: The siblings of nodes in BMPT path
+- <b>Type 2 non-existence proof</b> (insert to fill/delete from fill): the path ended at an empty node. Illustration figure shown below:
+![AccounNotExist_Empty](https://i.imgur.com/FLxg11Q.png)
+In this case, due to our construction of the old and new paths of `SMTTrace`, the old path (when inserting)/new path (when deleting) must be directed to this empty node. So we constrain the emptiness of these nodes. Circuit provides two IsZeroGadgets `old_hash_is_zero` and`new_hash_is_zero` to constrain this case.
 
-> `path`: The prefix bit in each layer of BMPT path, for the last layer (which the leaf node lies), record the residue of current key
 
-> `depth`: An aux column which start from 1 on the first row of proof and double in the cell of next row
+### SegmentTypes
 
-and defining following columns in the data part:
+According to the [zkTrie spec], the leafnode hash is calculated by the formula
+`leafNodeHash = h(h(1, nodeKey), valueHash)`
 
-> `Old/NewVal` for `data_0` and `data_1`: For branch node, record the hash of its child which is in the BMPT path; for leaf node, record the value
+#### Account SegmentTypes
+
+For account, the formula for `valueHash` is
+![Account_ValueHash](https://i.imgur.com/6vahp0j.png)
 
-> `accKey` for `data_2`: Calculate the whole key from `path` and `depth` cols, as shown in the "key" column in the diagram before, so the output is laid in the cell of last row of the proof
+So we introduce account `SegmentType` as shown in the following figure
 
-**Constraints**
+![SegmentType_Account](https://hackmd.io/_uploads/S1Xew1L42.png)
 
-There is two groups of constraints: one for the validity of BMPT path and one for the validity of the correction in state transition
+#### Storage SegmentTypes
+For storage, the formula for `valueHash` is
+`valueHash = h(storageValue[0:16], storageValue[16:32])`, so we have the following figure
 
-There is two BMPT path in the proof (for the columns with 'Old-' and 'New-' prefix), to provide the validity of them we should:
+![SegmentType_Storage](https://hackmd.io/_uploads/rklHPNX4n.png)
 
-+ construct and look up the hash calculations from hash table (see below) according to the node type for current row:
 
-    * For branch node (type is `Mid`), the hashing input has two fields which are from `-Val` and `Sibling`, and the output in `-Val(prev)` (cell above current row). They are lookup according to current `path` cell: when `path` is 1, lookup `Poseidon(Sibling, -Val) = -Val(prev)`, else lookup `Poseidon(-Val, Sibling) = -Val(prev)`
-    * For leaf node (type is `Leaf`) we lookup for the leaf scheme: `Poseidon(1, accKey, -Val) = -Val(prev)`
-    * For node type `LeafExt`, we constraint current `-Val` cell is equal to its child, i.e `-Val(next)` (cell below current row)
-    * For node type `LeafExtFinal`, we constraint current `sibling` cell is equal to the `-Val(prev)`
 
-+ calculate the key in `accKey` col and make output in the bottom layer:
+#### Expanding the trie leaf via SegmentTypes during circuit witness generation
 
-    * constraint cell in `depth` is double to the cell above of it: `depth = 2*depth(prev)` and the first cell in `depth` is `Fq::one`
-    * constraint cell in `accKey` in the recursive way: `accKey = depth(prev) * path + accKey(prev)` and the first cell in `accKey` is zero
+The above expansions are beyond what the original trie defined in [zkTrie spec] can have, where the expansion of the trie will only be up to leafnodes that are classified into `AccountTrie` or `StorageTrie`, i.e.  trie-type segments. The leaf-type segments (non-trie segments) are witnesses generated <i>inside</i> the circuit (parsed from `SMTTrace`), and the trie-like structure shown above are just imaginary/virtual which only lives in the circuit. So such common constraints as key is 0 and depth is 0 for non-trie segments must be enforced in the circuit constraint system. 
 
-+ and also ensure the layout of path is valid, i.e: for a specified type in `-hashType`, there is only limited possible value for the cell below it, we lookup `-hashType, -hashType(prev)` from following constant transition rules:
+The `PathType` used inside the circuit is also corresponding to this expanded trie including leaf-type segments (non-trie segments). For example, in the case of insert to fill operation, `PathType` changes from `Common` to `ExtensionNew` at the empty node that is filled by a new leaf, and the path continues to the specific account/storage field. So constraints for `PathType::ExtensionNew(Old)` must discuss separately for trie and non-trie segment cases.
 
->    * `Start -> Mid / Leaf / Empty / LeafExt / LeafExtFinal`
->    * `Mid -> Mid / Empty / Leaf / LeafExt / LeafExtFinal`
->    * `LeafExt -> LeafExt / LeafExtFinal`
->    * `LeafExtFinal -> Empty`
 
-+ finally, we must constraint a proof must end its layout with `Empty` or `Leaf` node. We just assign `OldHashType` as the `ctrl_type` column in controlling part. For `op_type` is 1 or 3 (the two BMPT proof for two tries), the value of `op_type` can be change only when `ctrl_type` is `Empty` or `Leaf`
+### Constraints 
 
-To provide the transition, i.e. the relationship between two BMPT path is correct, we constraint the two node type in the same layer, that is, `OldHashType` and `NewHashType` has to be one of the following pairs (Notice the reversed of one pair is also valid):
+#### Shared Constraints
+for every row:
+- When `SegmentType==AccountTrie` or `StorageTrie` (`is_trie` is true):
+    - `key` at `depth` matches `direction`
+    - `depth_curr==depth_prev+1`
+    - when `PathType::Common`, `other_key` at `depth` matches `direction`
+    
+- When `SegmentType` is any other (non-trie) type (`is_trie` is false):
+    - `key==0`
+    - `depth==0` 
 
->    * `Start` - `Start`
->    * `Leaf` - `Leaf`
->    * `Empty` - `Leaf`
->    * `Mid` - `Mid`
->    * `LeafExt` - `Mid`
->    * `LeafExtFinal` - `Mid`
+- upper 128 bits of account/storage value is 16 bytes 
 
 
-### Account data proof
+#### PathType::Common
+on rows with `PathType::Common`:
+- for the old common path, `old_hash_previous==poisedon_hash(old_hash_left_child, old_hash_right_child)`
+- for the new common path, `new_hash_previous==poisedon_hash(new_hash_left_child, new_hash_right_child)`
+- for type 2 non-existence proof, common path includes an empty node as leafnode. So we provide constraints for this case
+    - if next row has `PathType::ExtensionNew` and `SegmentType::AccountTrie0`, then current row has `old_hash==0`
+    - if next row has `PathType::ExtensionOld` and `SegmentType::AccountTrie0`, then `new_hash==0`
 
-This provide the account data consist with its hash under the new zktrie scheme (not the original RLP encoding scheme) and the hash act as the value of leaf node in state trie.
 
-There are a pair of proofs which provide for the account data before and after updating respectively. For each use following columns:
+#### PathType::ExtensionNew
+on rows with `PathType::ExtensionNew`:
+- `old_value==0`
+- old path has `old_hash` keep unchanged on the extended path
+- new path has `new_hash=poisedon_hash(leftchild, rightchild)`
+- on trie segments (`is_trie==true`)
+    - In case next`SegmentType` is still trie type (`is_final_trie_segment==false` )
+        - For the extended part of the path, sibling is zero
+    - In case next `SegmentType` is non-trie (leaf) type (`is_final_trie_segment==true`): 
+        - sibling is old leaf hash for final new extension path segments
+- on non-trie segments
+    - when `SegmentType::AccountLeaf0`
+        - `other_key_hash=poisedon(1, other_key)` 
+        - `old_hash_prev==poisedon(other_key_hash, other_leaf_data_hash)`
+        - we use `key!=other_key` to check type 1 non-existence (type 1 account), in case `key!=other_key`, constrain that `old_value==0`
 
-> + `data_0` and `data_1` in the data part contain all fields in account data except for the account root (the root of storage trie for current account), i.e. the `nonce`, `balance` and `code_hash`, for the 32 bytes codeHash, two cols would be assigned for the two 16 bytes limbs (first and last 16 bytes) and the RLC of them is recorded in `data_0/1` col.
-> + For codehash, which require 2 field to be represented, the `data_0/1_ext` are also used
-> + `Intermediate_1`, `Intermediate_2`: contain account root and some intermediate value being use in the hashing scheme
+<i>TODO: Need to think about if there are missing constraints here.</i>
 
-The layout for account proof looks like following:
+#### MPTProofType::NonceChanged
 
-|op_type|ctrl_type| Intermediate_1  | Intermediate_2  |    data_0/1    |  data_0/1_ext |
-|-------|---------|-----------------|-----------------|----------------|---------------|
-|   1   |         |                 |                 |   *hash_final* |               |
-|   2   |    0    |                 |   hash_final    |    nonce       |               |
-|   2   |    1    |      hash3      |      hash2      |    balance     |               |
-|   2   |    2    |      hash1      |      Root       |  code_hash_hi  | code_hash_low |
-|   3   |         |                 |                 |      *Root*    |               |
+on rows with `MPTProofType::NonceChanged`:
 
-value of `1`, `2`, `3` in`op_type` col indicate the row dedicating to proof of state trie (proof 4), account data (proof 3) and storage trie (proof 2) respectively. we can see in account data proof  the top and bottom cell in data columns can be easily constrained to be equal to the cell above / below them. So the proofs are being "connected".
+- Constrain allowed `SegmentType` transitions:
+    - `Start -> [Start, AccountTrie, AccountLeaf0]`
+    - `AccountTrie -> [AccountTrie, AccountLeaf0, Start]`
+    - `AccountLeaf0 -> [Start, AccountLeaf1]`
+    - `AccountLeaf1 -> AccountLeaf2`
+    - `AccountLeaf2 -> AccountLeaf3`
+    - `AccountLeaf3 -> Start`
+- Constraints correspond to specific `SegumentType` for the particular row
+    -  `AccountLeaf0`
+        - `direction==1`
+        - `key_prev==poisedon(address_lo, address_hi)` (see [here](https://www.notion.so/scrollzkp/zkTrie-Spec-deprecated-be31b03b7bcd4cdc8ece2dd3dca61928?pvs=4#2d4e62a92ba04ec98fc2586bf69a549f))
+        - `sibling==poisedon(1, key_prev)`
+    -  `AccountLeaf1`
+        - `direction==0`
+    -  `AccountLeaf2`
+        - `direction==0`
+    -  `AccountLeaf3`
+        - `direction==0`
+        - in case `PathType::Common`:
+            - `value` (=`nonce`) is 8 bytes, old and new
+            - `code_size` (=(`hash`-`value`)$/2^{64}$, since `hash` is now `nonce||codesize||0` from LSB to MSB and `nonce` is 8 bytes, `codesize` is 8 bytes and `0` is 16 bytes) is 8 bytes, old and new
+            - `code_size` does not change between old and new
+        - in case `PathType::ExtensionNew`:
+            - `value` (=`nonce`) is 8 bytes for new
+            - `code_size` is 0 for new
+        - in case `PathType::ExtensionOld`: 
+            - `value` (=`nonce`) is 8 bytes for old
+            - `code_size` is 0 for old
+    -  `AccountLeaf4, StorageTrie, StorageLeaf0, StorageLeaf1` 
+        -  unreachable segment type for nonce update
 
-The proof also lookup hashes for the hashing scheme:
+#### MPTProofType::CodesizeExists
 
->    * `Poseidon(Codehash_hi, Codehash_low) = hash1`
->    * `Poseidon(nonce, balance) = hash3`
->    * `Poseidon(hash1, Root) = hash2`
->    * `Poseidon(hash3, hash2) = hash_final`
+on rows with `MPTProofType::CodesizeExists`:
 
-**Constraints**
+- same structure of constraints as in the `MPTProofType::NonceChanged` case. The only difference is that instead of computing `codesize` from `nonce` and `hash`, compute `nonce` from `codesize` and `hash` and then constrain.
 
-Current the proof has a layout with 3 or 4 rows, with cells in `ctrl_type` col being assigned from 0 ~ 2 (or 3, in case of 4 rows). And it also has a gate for some equality:
+#### MPTProofType::BalanceChanged
 
->    * ctrl_type is 0: `hash_final = data_0/1 (prev)`
->    * ctrl_type is 2: `Root = data_0/1 (next)`
+on rows with `MPTProofType::BalanceChanged`:
 
-The 4 rows layout is used when the value in `OldHash` and `NewHash` is equal. The value of 3 in `ctrl_type` indicate the row below current proof is not dedicated for a BMPT proof (proof 2) but a proof block for another state transition, since more proof is not needed when the storage roof of current account is unchanged.
+- same structure of constraints as in the `MPTProofType::NonceChanged` case. The only difference is that 
+    - direction for `AccountLeaf0-4` becomes `[1, 0, 0, 1]`
+    - At `AccountLeaf3`, constrain that `old_hash==old_balance (old_value)`  for `PathType::{Common, ExtensionOld}` and `new_hash==new_balance (new_value)` for `PathType::{Common, ExtensionNew}`
 
-### Storage value proof
+#### MPTProofType::PoisedonCodehashExists
 
-This provide the hash of stored value and key is consistent with the key / value of leaf node in the BMPT proof for storage proof (proof 2). It has a one-row layout as follows:
+on rows with `MPTProofType::PoisedonCodehashExists`:
 
-|op_type|ctrl_type|    data_0     |   data_0_ext   |    data_1     |   data_1_ext   |   data_2  | data_2_ext |
-|-------|---------|---------------|----------------|---------------|----------------|-----------|------------|
-|   3   |         |   *s_hash*    |                |   *e_hash*    |                |*key_hash* |            |
-|   4   |   0     | s_value_first | s_value_second | e_value_first | e_value_second | key_first | key_second |
-
-The data cols is assigned with the RLC of their corresponding 16-byte limbs and hash is being lookup:
-
->    * `Poseidon(s_value_first, s_value_second) = s_hash`
->    * `Poseidon(e_value_first, e_value_second) = e_hash`
->    * `Poseidon(key_first, key_second) = key_hash`
-
-The value in `ctrl_type` is fixed to 0
-
-### padding 
-
- Padding proof is used for fill the unused rows, it just constrain the `data_0` and `data_1` should be equal to each other, and cell in `data_1` col must equal to which above it. So the last cell in `data_1` col in mpt circuit would always equal to the last hash provided by a proof except padding.
-
-## Hash table
-
-Proved by poseidon hash circuit. Inputs and output for each hash calculation are put in the same row. For a hash circuit which calculate the hash of at most N items we have N+2 cols: 
-
->  - **Items** the number of items in the calculation
->  - **1..N (Fields)** N cols for at most N items
->  - **Hash** then the col for the hash.
-
-Currently the least N we need is 3:
-
-| 0 Items| 1  | 2  | 3  | Hash       |
-| ---    |--- |--- |--- | ---        |
-|   1    | FQ1|    |    | FQ         |
-|   3    | FQ1| FQ2| FQ3| FQ         |
-|   3    | FQ1| FQ2| FQ3| FQ         |
-
-## MPT table
-
+- same structure of constraints as in the `MPTProofType::NonceChanged` case. The only difference is that 
+    - direction for `AccountLeaf0-4` becomes `[1,1]`
+    - At `AccountLeaf1`, constrain that `old_hash==poisedon_code_hash (old_value)`  for `PathType::{Common, ExtensionOld}` and `new_hash==poisedon_code_hash (new_value)` for `PathType::{Common, ExtensionNew}`
