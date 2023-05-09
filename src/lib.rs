@@ -13,10 +13,8 @@ mod constraint_builder;
 mod eth;
 mod gadgets;
 mod layers;
-mod mason;
 mod mpt;
 mod mpt_table;
-mod proof;
 #[cfg(test)]
 mod test_utils;
 mod types;

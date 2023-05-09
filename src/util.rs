@@ -1,5 +1,6 @@
 use crate::serde::HexBytes;
 use crate::Hashable;
+use ethers_core::k256::elliptic_curve::PrimeField;
 use ethers_core::types::U256;
 use halo2_proofs::arithmetic::FieldExt;
 use halo2_proofs::halo2curves::bn256::Fr;
@@ -65,4 +66,16 @@ pub(crate) fn balance_convert(balance: &BigUint) -> Fr {
         .fold(Fr::zero(), |a, b| {
             a * Fr::from(1 << 32).square() + Fr::from(*b)
         })
+}
+
+pub fn rlc(be_bytes: &[u8], randomness: Fr) -> Fr {
+    be_bytes.iter().fold(Fr::zero(), |acc, byte| {
+        randomness * acc + Fr::from(u64::from(*byte))
+    })
+}
+
+pub fn u256_to_fr(x: U256) -> Fr {
+    let mut bytes = [0u8; 32];
+    x.to_little_endian(&mut bytes);
+    Fr::from_repr(bytes).unwrap()
 }

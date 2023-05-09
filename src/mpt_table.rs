@@ -1,4 +1,5 @@
 use crate::operation::{AccountOp, KeyValue};
+use crate::types::{Claim, ClaimKind};
 use halo2_proofs::{
     arithmetic::{Field, FieldExt},
     circuit::{Layouter, Value},
@@ -227,7 +228,7 @@ impl Config {
 }
 
 /// The defination is greped from state-circuit
-#[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter, Hash)]
 pub enum MPTProofType {
     /// nonce
     NonceChanged = 1,
@@ -247,6 +248,21 @@ pub enum MPTProofType {
     StorageChanged,
     /// non exist proof for storage
     StorageDoesNotExist,
+}
+
+impl From<Claim> for MPTProofType {
+    fn from(claim: Claim) -> Self {
+        match claim.kind {
+            ClaimKind::Nonce { .. } => MPTProofType::NonceChanged,
+            ClaimKind::Balance { .. } => MPTProofType::BalanceChanged,
+            ClaimKind::PoseidonCodeHash { .. } => MPTProofType::PoseidonCodeHashExists,
+            ClaimKind::CodeHash { .. } => MPTProofType::CodeHashExists,
+            ClaimKind::CodeSize { .. } => MPTProofType::CodeSizeExists,
+            ClaimKind::Storage { .. } => MPTProofType::StorageChanged,
+            ClaimKind::IsEmpty(None) => MPTProofType::AccountDoesNotExist,
+            ClaimKind::IsEmpty(Some(_)) => MPTProofType::StorageDoesNotExist,
+        }
+    }
 }
 
 /// the Entry for mpt table

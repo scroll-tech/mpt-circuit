@@ -35,13 +35,11 @@ impl IsZeroGadget {
     pub fn configure<F: FieldExt>(
         cs: &mut ConstraintSystem<F>,
         cb: &mut ConstraintBuilder<F>,
-        selector: BinaryQuery<F>,
         value: AdviceColumn, // TODO: make this a query once Query is clonable/copyable.....
     ) -> Self {
         let inverse_or_zero = AdviceColumn(cs.advice_column());
-        cb.add_constraint(
+        cb.assert_zero(
             "value is 0 or inverse_or_zero is inverse of value",
-            selector,
             value.current() * (Query::one() - value.current() * inverse_or_zero.current()),
         );
         Self {
