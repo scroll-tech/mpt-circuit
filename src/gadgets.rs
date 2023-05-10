@@ -1,3 +1,5 @@
+const RANDOMNESS: u64 = 0xaa00;
+
 mod byte_bit;
 mod byte_representation;
 mod canonical_representation;

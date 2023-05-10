@@ -1,4 +1,4 @@
-use super::{byte_bit::RangeCheck256Lookup, is_zero::IsZeroGadget};
+use super::{byte_bit::RangeCheck256Lookup, is_zero::IsZeroGadget, RANDOMNESS};
 use crate::constraint_builder::{
     AdviceColumn, ConstraintBuilder, FixedColumn, Query, SelectorColumn,
 };
@@ -88,7 +88,7 @@ impl ByteRepresentationConfig {
         u128s: &[u128],
         frs: &[Fr],
     ) {
-        let randomness = F::from(0xaa00); // TODOOOOOOO
+        let randomness = F::from(RANDOMNESS); // TODOOOOOOO
 
         let byte_representations = u64s
             .iter()

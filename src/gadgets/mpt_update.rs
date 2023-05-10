@@ -10,12 +10,13 @@ use super::{
     key_bit::KeyBitLookup,
     one_hot::OneHot,
     poseidon::PoseidonLookup,
+    RANDOMNESS,
 };
 use crate::{
     constraint_builder::{AdviceColumn, ConstraintBuilder, Query, SelectorColumn},
     serde::SMTTrace,
     types::{account_key, hash, ClaimKind, Proof},
-    util::{rlc, u256_to_big_endian}, // rlc is clobbered by rlc in configure....
+    util::{rlc, u256_hi_lo, u256_to_big_endian}, // rlc is clobbered by rlc in configure....
     MPTProofType,
 };
 use ethers_core::k256::elliptic_curve::PrimeField;
@@ -271,6 +272,9 @@ impl<F: FieldExt> MptUpdateConfig<F> {
                 MPTProofType::PoseidonCodeHashExists => {
                     configure_poseidon_code_hash(cb, &config, poseidon)
                 }
+                MPTProofType::CodeHashExists => {
+                    configure_keccak_code_hash(cb, &config, poseidon, bytes, rlc)
+                }
                 _ => cb.assert_unreachable("unimplemented!"),
             };
             cb.condition(
@@ -283,7 +287,7 @@ impl<F: FieldExt> MptUpdateConfig<F> {
     }
 
     fn assign(&self, region: &mut Region<'_, Fr>, proofs: &[Proof]) {
-        let randomness = Fr::from(0xaa00); // TODOOOOOOO
+        let randomness = Fr::from(RANDOMNESS);
 
         let mut offset = 0;
         for proof in proofs {
@@ -292,6 +296,7 @@ impl<F: FieldExt> MptUpdateConfig<F> {
             let storage_key = rlc(&u256_to_big_endian(&proof.claim.storage_key()), randomness);
             let old_value = proof.claim.old_value_assignment(randomness);
             let new_value = proof.claim.new_value_assignment(randomness);
+            dbg!(new_value);
 
             let key = account_key(proof.claim.address);
             let (other_key, other_key_hash, other_leaf_data_hash) =
@@ -520,6 +525,32 @@ impl<F: FieldExt> MptUpdateConfig<F> {
                 offset,
                 Fr::from_u128(address_high(proof.claim.address)),
             );
+            match proof.claim.kind {
+                ClaimKind::CodeHash { old, new } => {
+                    if let Some(new_value) = new {
+                        let (new_value_high, new_value_low) = u256_hi_lo(&new_value);
+                        self.upper_128_bits.assign(
+                            region,
+                            offset + 2,
+                            Fr::from_u128(new_value_high),
+                        );
+                        let rlc_new_value_high = rlc(&new_value_high.to_be_bytes(), randomness);
+                        self.other_leaf_data_hash
+                            .assign(region, offset + 2, rlc_new_value_high);
+                        self.upper_128_bits.assign(
+                            region,
+                            offset + 3,
+                            Fr::from_u128(new_value_low),
+                        );
+                        let rlc_new_value_low = rlc(&new_value_low.to_be_bytes(), randomness);
+                        self.other_leaf_data_hash
+                            .assign(region, offset + 3, rlc_new_value_low);
+
+                        dbg!(rlc_new_value_low, rlc_new_value_high);
+                    }
+                }
+                _ => (),
+            }
         }
     }
 }
@@ -1036,6 +1067,7 @@ fn configure_balance<F: FieldExt>(
             SegmentType::AccountLeaf3 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
 
+                // TODO: canonical representation lookups?
                 cb.condition(
                     config
                         .path_type
@@ -1147,6 +1179,116 @@ fn configure_poseidon_code_hash<F: FieldExt>(
             | SegmentType::StorageLeaf0
             | SegmentType::StorageLeaf1 => {
                 cb.assert_unreachable("unreachable segment type for poseidon code hash update")
+            }
+        };
+        cb.condition(
+            config.segment_type.current_matches(&[variant]),
+            conditional_constraints,
+        );
+    }
+}
+
+fn configure_keccak_code_hash<F: FieldExt>(
+    cb: &mut ConstraintBuilder<F>,
+    config: &MptUpdateConfig<F>,
+    poseidon: &impl PoseidonLookup,
+    bytes: &impl BytesLookup,
+    rlc: &impl RlcLookup,
+) {
+    for variant in SegmentType::iter() {
+        let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
+            SegmentType::Start | SegmentType::AccountTrie => {}
+            SegmentType::AccountLeaf0 => {
+                cb.assert_equal("direction is 1", config.direction.current(), Query::one());
+
+                // this should hold for all MPTProofType's
+                let address_low: Query<F> = (config.address.current()
+                    - config.upper_128_bits.current() * (1 << 32))
+                    * (1 << 32)
+                    * (1 << 32)
+                    * (1 << 32);
+                cb.add_lookup(
+                    "key = h(address_high, address_low)",
+                    [
+                        config.upper_128_bits.current(),
+                        address_low,
+                        config.key.previous(),
+                    ],
+                    poseidon.lookup(),
+                );
+                cb.add_lookup(
+                    "sibling = h(1, key)",
+                    [
+                        Query::one(),
+                        // this could be Start, which could have key = 0. Do we need to special case that?
+                        // We could also just assign a non-zero key here....
+                        config.key.previous(),
+                        config.sibling.current(),
+                    ],
+                    poseidon.lookup(),
+                );
+            }
+            SegmentType::AccountLeaf1 => {
+                cb.assert_zero("direction is 0", config.direction.current());
+            }
+            SegmentType::AccountLeaf2 => {
+                cb.assert_equal("direction is 1", config.direction.current(), Query::one());
+            }
+            SegmentType::AccountLeaf3 => {
+                cb.assert_equal("direction is 1", config.direction.current(), Query::one());
+
+                cb.condition(
+                    config
+                        .path_type
+                        .current_matches(&[PathType::Common, PathType::ExtensionNew]),
+                    |cb| {
+                        let [new_high, new_low] =
+                            [-1, 0].map(|i| config.upper_128_bits.rotation(i));
+                        cb.add_lookup(
+                            "new hash = poseidon(high, low)",
+                            [new_high.clone(), new_low.clone(), config.new_hash.current()],
+                            poseidon.lookup(),
+                        );
+                        cb.add_lookup(
+                            "new_high is 16 bytes",
+                            [new_high.clone(), Query::from(15)],
+                            bytes.lookup(),
+                        );
+                        cb.add_lookup(
+                            "new_low is 16 bytes",
+                            [new_low.clone(), Query::from(15)],
+                            bytes.lookup(),
+                        );
+
+                        let [rlc_new_high, rlc_new_low] =
+                            [-1, 0].map(|i| config.other_leaf_data_hash.rotation(i));
+                        cb.add_lookup(
+                            "rlc_new_high = rlc(new_high)",
+                            [new_high, rlc_new_high.clone()],
+                            rlc.lookup(),
+                        );
+
+                        cb.add_lookup(
+                            "rlc_new_low = rlc(new_low)",
+                            [new_low, rlc_new_low.clone()],
+                            rlc.lookup(),
+                        );
+
+                        let randomness_raised_to_16 =
+                            Query::from(RANDOMNESS).square().square().square().square();
+                        cb.assert_equal(
+                            "new value is rlc(new_high) * randomness ^ 16 + rlc(new_low)",
+                            config.new_value.current(),
+                            rlc_new_high * randomness_raised_to_16 + rlc_new_low,
+                        );
+                    },
+                );
+            }
+            SegmentType::AccountLeaf4
+            | SegmentType::StorageTrie
+            | SegmentType::StorageLeaf0
+            | SegmentType::StorageLeaf1 => {
+                cb.assert_unreachable("unreachable segment type for keccak code hash update")
             }
         };
         cb.condition(
@@ -1348,6 +1490,19 @@ mod test {
                     }
                     MPTProofType::PoseidonCodeHashExists => {
                         u128s.push(address_high(proof.claim.address));
+                    }
+                    MPTProofType::CodeHashExists => {
+                        u128s.push(address_high(proof.claim.address));
+                        if let Some(account) = proof.old_account {
+                            let (hi, lo) = u256_hi_lo(&account.keccak_codehash);
+                            u128s.push(hi);
+                            u128s.push(lo);
+                        };
+                        if let Some(account) = proof.new_account {
+                            let (hi, lo) = u256_hi_lo(&account.keccak_codehash);
+                            u128s.push(hi);
+                            u128s.push(lo);
+                        };
                     }
                     _ => {}
                 }

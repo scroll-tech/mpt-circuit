@@ -132,7 +132,7 @@ pub struct EthAccount {
     pub code_size: u64,
     poseidon_codehash: Fr,
     pub balance: Fr,
-    keccak_codehash: U256,
+    pub keccak_codehash: U256,
 }
 
 impl From<AccountData> for EthAccount {
@@ -156,7 +156,7 @@ impl Proof {
                 ClaimKind::CodeSize { .. } => 4,
                 ClaimKind::Balance { .. } => 4,
                 ClaimKind::PoseidonCodeHash { .. } => 2,
-                ClaimKind::CodeHash { .. } => 5,
+                ClaimKind::CodeHash { .. } => 4,
                 _ => unimplemented!("{:?}", self.claim),
             }
     }
