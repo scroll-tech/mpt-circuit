@@ -1,4 +1,4 @@
-{
+    {
     "address": "0x4dc7d71e240e1a5aa71e612caf5d097274f8237b",
     "accountKey": "0xee005ff59199cf501f06c351ddf1c5662f20667c15f90719611729ca500cc919",
     "accountPath": [
@@ -41,7 +41,7 @@
     ],
     "accountUpdate": [
         null,
-        null,
+        null
     ],
     "commonStateRoot": "0x0000000000000000000000000000000000000000000000000000000000000000",
     "statePath": [
