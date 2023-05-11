@@ -2101,6 +2101,22 @@ mod test {
     }
 
     #[test]
+    fn nonexisting_type_1() {
+        mock_prove(
+            MPTProofType::AccountDoesNotExist,
+            include_str!("../../tests/dual_code_hash/type_1_empty_account.json"),
+        );
+    }
+
+    #[test]
+    fn nonexisting_type_2() {
+        mock_prove(
+            MPTProofType::AccountDoesNotExist,
+            include_str!("../../tests/dual_code_hash/type_2_empty_account.json"),
+        );
+    }
+
+    #[test]
     fn test_account_key() {
         for address in vec![Address::zero(), Address::repeat_byte(0x56)] {
             assert_eq!(
