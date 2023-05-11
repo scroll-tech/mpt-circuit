@@ -298,6 +298,14 @@ impl<F: FieldExt> MptUpdateConfig<F> {
             let new_value = proof.claim.new_value_assignment(randomness);
             dbg!(new_value);
 
+            for i in 0..proof.n_rows() {
+                self.proof_type.assign(region, offset + i, proof_type);
+                self.address.assign(region, offset + i, address);
+                self.storage_key_rlc.assign(region, offset + i, storage_key);
+                self.old_value.assign(region, offset + i, old_value);
+                self.new_value.assign(region, offset + i, new_value);
+            }
+
             let key = account_key(proof.claim.address);
             let (other_key, other_key_hash, other_leaf_data_hash) =
                 // checking if type 1 or type 2
@@ -312,20 +320,6 @@ impl<F: FieldExt> MptUpdateConfig<F> {
                     // handle type 0 and type 2 paths here:
                     (proof.old.key, proof.old.key_hash, proof.new.leaf_data_hash.unwrap_or_default())
                 };
-
-            for i in 0..proof.n_rows() {
-                self.proof_type.assign(region, offset + i, proof_type);
-                self.address.assign(region, offset + i, address);
-                self.storage_key_rlc.assign(region, offset + i, storage_key);
-                self.old_value.assign(region, offset + i, old_value);
-                self.new_value.assign(region, offset + i, new_value);
-
-                self.other_key.assign(region, offset + i, other_key);
-                self.other_key_hash
-                    .assign(region, offset + i, other_key_hash);
-                self.other_leaf_data_hash
-                    .assign(region, offset + i, other_leaf_data_hash);
-            }
 
             let mut path_type = PathType::Start; // should get rid of this variant and just start from Common.
 
@@ -351,7 +345,7 @@ impl<F: FieldExt> MptUpdateConfig<F> {
                 *ZERO_ACCOUNT_HASH,
             );
             self.key_equals_other_key
-                .assign(region, offset, Fr::zero(), other_key);
+                .assign(region, offset, Fr::zero(), Fr::zero());
 
             offset += 1;
 
@@ -401,6 +395,7 @@ impl<F: FieldExt> MptUpdateConfig<F> {
 
                 let key = account_key(proof.claim.address);
                 self.key.assign(region, offset, key);
+                self.other_key.assign(region, offset, other_key);
                 self.key_equals_other_key
                     .assign(region, offset, key, other_key);
 
@@ -517,8 +512,25 @@ impl<F: FieldExt> MptUpdateConfig<F> {
 
                 self.direction.assign(region, offset + i, direction);
                 // TODO: would it be possible to assign key here to make the keybit lookup unconditional?
-                self.key_equals_other_key
-                    .assign(region, offset + i, Fr::zero(), other_key);
+
+                match segment_type {
+                    SegmentType::AccountLeaf0 => {
+                        self.other_key.assign(region, offset, other_key);
+                        self.other_key_hash.assign(region, offset, other_key_hash);
+                        self.other_leaf_data_hash
+                            .assign(region, offset, other_leaf_data_hash);
+                        self.key_equals_other_key
+                            .assign(region, offset + i, Fr::zero(), other_key);
+                    }
+                    _ => {
+                        self.key_equals_other_key.assign(
+                            region,
+                            offset + i,
+                            Fr::zero(),
+                            Fr::zero(),
+                        );
+                    }
+                };
             }
             self.upper_128_bits.assign(
                 region,
@@ -527,26 +539,41 @@ impl<F: FieldExt> MptUpdateConfig<F> {
             );
             match proof.claim.kind {
                 ClaimKind::CodeHash { old, new } => {
-                    if let Some(new_value) = new {
-                        let (new_value_high, new_value_low) = u256_hi_lo(&new_value);
-                        self.upper_128_bits.assign(
+                    let assign = |region: &mut Region<'_, Fr>,
+                                  value,
+                                  u128_column: AdviceColumn,
+                                  rlc_column: AdviceColumn| {
+                        let (high, low) = u256_hi_lo(&value);
+                        u128_column.assign(region, offset + 2, Fr::from_u128(high));
+                        u128_column.assign(region, offset + 3, Fr::from_u128(low));
+                        let rlc_high = rlc(&high.to_be_bytes(), randomness);
+                        let rlc_low = rlc(&low.to_be_bytes(), randomness);
+                        rlc_column.assign(region, offset + 2, rlc_high);
+                        rlc_column.assign(region, offset + 3, rlc_low);
+                    };
+                    if let Some(value) = old {
+                        assign(region, value, self.other_key_hash, self.other_key);
+                        let (high, low) = u256_hi_lo(&value);
+                        self.key_equals_other_key.assign(
                             region,
                             offset + 2,
-                            Fr::from_u128(new_value_high),
+                            Fr::zero(),
+                            rlc(&high.to_be_bytes(), randomness),
                         );
-                        let rlc_new_value_high = rlc(&new_value_high.to_be_bytes(), randomness);
-                        self.other_leaf_data_hash
-                            .assign(region, offset + 2, rlc_new_value_high);
-                        self.upper_128_bits.assign(
+                        self.key_equals_other_key.assign(
                             region,
                             offset + 3,
-                            Fr::from_u128(new_value_low),
+                            Fr::zero(),
+                            rlc(&low.to_be_bytes(), randomness),
                         );
-                        let rlc_new_value_low = rlc(&new_value_low.to_be_bytes(), randomness);
-                        self.other_leaf_data_hash
-                            .assign(region, offset + 3, rlc_new_value_low);
-
-                        dbg!(rlc_new_value_low, rlc_new_value_high);
+                    }
+                    if let Some(value) = new {
+                        assign(
+                            region,
+                            value,
+                            self.upper_128_bits,
+                            self.other_leaf_data_hash,
+                        );
                     }
                 }
                 _ => (),
@@ -1242,6 +1269,49 @@ fn configure_keccak_code_hash<F: FieldExt>(
                         .path_type
                         .current_matches(&[PathType::Common, PathType::ExtensionNew]),
                     |cb| {
+                        // We current and previous values of other_key_hash, other_key,
+                        // upper_128_bits and other_leaf_data_hash to store intermediate
+                        // values here.
+                        let [old_high, old_low] =
+                            [-1, 0].map(|i| config.other_key_hash.rotation(i));
+                        cb.add_lookup(
+                            "old hash = poseidon(high, low)",
+                            [old_high.clone(), old_low.clone(), config.old_hash.current()],
+                            poseidon.lookup(),
+                        );
+                        cb.add_lookup(
+                            "old_high is 16 bytes",
+                            [old_high.clone(), Query::from(15)],
+                            bytes.lookup(),
+                        );
+                        cb.add_lookup(
+                            "old_low is 16 bytes",
+                            [old_low.clone(), Query::from(15)],
+                            bytes.lookup(),
+                        );
+
+                        let [rlc_old_high, rlc_old_low] =
+                            [-1, 0].map(|i| config.other_key.rotation(i));
+                        cb.add_lookup(
+                            "rlc_old_high = rlc(old_high)",
+                            [old_high, rlc_old_high.clone()],
+                            rlc.lookup(),
+                        );
+
+                        cb.add_lookup(
+                            "rlc_old_low = rlc(old_low)",
+                            [old_low, rlc_old_low.clone()],
+                            rlc.lookup(),
+                        );
+
+                        let randomness_raised_to_16 =
+                            Query::from(RANDOMNESS).square().square().square().square();
+                        cb.assert_equal(
+                            "old value is rlc(old_high) * randomness ^ 16 + rlc(old_low)",
+                            config.old_value.current(),
+                            rlc_old_high * randomness_raised_to_16.clone() + rlc_old_low,
+                        );
+
                         let [new_high, new_low] =
                             [-1, 0].map(|i| config.upper_128_bits.rotation(i));
                         cb.add_lookup(
@@ -1267,15 +1337,11 @@ fn configure_keccak_code_hash<F: FieldExt>(
                             [new_high, rlc_new_high.clone()],
                             rlc.lookup(),
                         );
-
                         cb.add_lookup(
                             "rlc_new_low = rlc(new_low)",
                             [new_low, rlc_new_low.clone()],
                             rlc.lookup(),
                         );
-
-                        let randomness_raised_to_16 =
-                            Query::from(RANDOMNESS).square().square().square().square();
                         cb.assert_equal(
                             "new value is rlc(new_high) * randomness ^ 16 + rlc(new_low)",
                             config.new_value.current(),
@@ -1736,6 +1802,14 @@ mod test {
         mock_prove(
             MPTProofType::CodeHashExists, // yes, the naming is very confusing :/
             include_str!("../../tests/generated/keccak_code_hash_update_existing.json"),
+        );
+    }
+
+    #[test]
+    fn keccak_code_hash_read_existing() {
+        mock_prove(
+            MPTProofType::CodeHashExists, // yes, the naming is very confusing :/
+            include_str!("../../tests/generated/keccak_code_hash_read_existing.json"),
         );
     }
 
