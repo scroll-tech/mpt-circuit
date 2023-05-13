@@ -728,24 +728,38 @@ fn configure_common_path<F: FieldExt>(
     config: &MptUpdateConfig<F>,
     poseidon: &impl PoseidonLookup,
 ) {
-    cb.add_lookup(
-        "poseidon hash correct for old common path",
-        [
-            old_left(config),
-            old_right(config),
-            config.old_hash.previous(),
-        ],
-        poseidon.lookup(),
-    );
-    cb.add_lookup(
-        "poseidon hash correct for new common path",
-        [
-            new_left(config),
-            new_right(config),
-            config.new_hash.previous(),
-        ],
-        poseidon.lookup(),
-    );
+    cb.condition(
+        config.path_type.current_matches(&[PathType::Common, PathType::ExtensionOld])
+        .and(
+            !config.segment_type.current_matches(&[SegmentType::Start])
+        ), 
+        |cb|{
+            cb.poseidon_lookup(
+                "poseidon hash correct for old common path",
+                [
+                    old_left(config),
+                    old_right(config),
+                    config.old_hash.previous(),
+                ],
+                poseidon,
+            )  
+        });
+     cb.condition(
+        config.path_type.current_matches(&[PathType::Common, PathType::ExtensionNew])
+        .and(
+            !config.segment_type.current_matches(&[SegmentType::Start])
+        ), 
+        |cb|{
+            cb.poseidon_lookup(
+                "poseidon hash correct for new common path",
+                [
+                    new_left(config),
+                    new_right(config),
+                    config.new_hash.previous(),
+                ],
+                poseidon,
+            )
+        });
 
     // These apply for AccountTrie rows....
     // If this is the final row of this update, then the proof type must be
@@ -760,6 +774,49 @@ fn configure_common_path<F: FieldExt>(
     //         config.new_value.current(),
     //     );
     // });
+    cb.condition(
+        config
+            .segment_type
+            .current_matches(&[SegmentType::AccountLeaf0]),
+        |cb| {
+
+            let address_low: Query<F> = (config.address.current()
+                - config.upper_128_bits.current() * (1 << 32))
+                * (1 << 32)
+                * (1 << 32)
+                * (1 << 32);
+            cb.poseidon_lookup(
+                "key = h(address_high, address_low)",
+                [
+                    config.upper_128_bits.current(),
+                    address_low,
+                    config.key.previous(),
+                ],
+                poseidon,
+            );
+            cb.poseidon_lookup(
+                "sibling = h(1, key)",
+                [
+                    Query::one(),
+                    // this could be Start, which could have key = 0. Do we need to special case that?
+                    // We could also just assign a non-zero key here....
+                    config.key.previous(),
+                    config.sibling.current(),
+                ],
+                poseidon,
+            );
+
+            cb.poseidon_lookup(
+                "other_key_hash = h(1, other_key)",
+                [
+                    Query::one(),
+                    config.other_key.current(),
+                    config.other_key_hash.current(),
+                ],
+                poseidon,
+            );
+        },
+    );    
     cb.condition(
         config
             .path_type
@@ -871,39 +928,21 @@ fn configure_extension_new<F: FieldExt>(
         config.old_hash.current(),
         config.old_hash.previous(),
     );
-    cb.add_lookup(
-        "poseidon hash correct for new path",
-        [
-            new_left(config),
-            new_right(config),
-            config.new_hash.previous(),
-        ],
-        poseidon.lookup(),
-    );
     cb.condition(
         config
             .segment_type
             .current_matches(&[SegmentType::AccountLeaf0]),
         |cb| {
-            cb.add_lookup(
-                "other_key_hash = h(1, other_key)",
-                [
-                    Query::one(),
-                    config.other_key.current(),
-                    config.other_key_hash.current(),
-                ],
-                poseidon.lookup(),
-            );
 
             cb.condition(!config.old_hash_is_zero.current(), |cb| {
-                cb.add_lookup(
+                cb.poseidon_lookup(
                     "previous old_hash = h(data_hash, key_hash)",
                     [
                         config.other_key_hash.current(),
                         config.other_leaf_data_hash.current(),
                         config.old_hash.previous(),
                     ],
-                    poseidon.lookup(),
+                    poseidon,
                 );
             });
             // A type 1 account is an empty account in an MPT where another leaf occupies the node where it would be.
@@ -931,33 +970,6 @@ fn configure_nonce<F: FieldExt>(
             SegmentType::Start | SegmentType::AccountTrie => {}
             SegmentType::AccountLeaf0 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
-
-                // this should hold for all MPTProofType's
-                let address_low: Query<F> = (config.address.current()
-                    - config.upper_128_bits.current() * (1 << 32))
-                    * (1 << 32)
-                    * (1 << 32)
-                    * (1 << 32);
-                cb.add_lookup(
-                    "key = h(address_high, address_low)",
-                    [
-                        config.upper_128_bits.current(),
-                        address_low,
-                        config.key.previous(),
-                    ],
-                    poseidon.lookup(),
-                );
-                cb.add_lookup(
-                    "sibling = h(1, key)",
-                    [
-                        Query::one(),
-                        // this could be Start, which could have key = 0. Do we need to special case that?
-                        // We could also just assign a non-zero key here....
-                        config.key.previous(),
-                        config.sibling.current(),
-                    ],
-                    poseidon.lookup(),
-                );
             }
             SegmentType::AccountLeaf1 => {
                 cb.assert_zero("direction is 0", config.direction.current());
@@ -1051,33 +1063,6 @@ fn configure_code_size<F: FieldExt>(
             SegmentType::Start | SegmentType::AccountTrie => {}
             SegmentType::AccountLeaf0 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
-
-                // this should hold for all MPTProofType's
-                let address_low: Query<F> = (config.address.current()
-                    - config.upper_128_bits.current() * (1 << 32))
-                    * (1 << 32)
-                    * (1 << 32)
-                    * (1 << 32);
-                cb.add_lookup(
-                    "key = h(address_high, address_low)",
-                    [
-                        config.upper_128_bits.current(),
-                        address_low,
-                        config.key.previous(),
-                    ],
-                    poseidon.lookup(),
-                );
-                cb.add_lookup(
-                    "sibling = h(1, key)",
-                    [
-                        Query::one(),
-                        // this could be Start, which could have key = 0. Do we need to special case that?
-                        // We could also just assign a non-zero key here....
-                        config.key.previous(),
-                        config.sibling.current(),
-                    ],
-                    poseidon.lookup(),
-                );
             }
             SegmentType::AccountLeaf1 => {
                 cb.assert_zero("direction is 0", config.direction.current());
@@ -1171,33 +1156,6 @@ fn configure_balance<F: FieldExt>(
             SegmentType::Start | SegmentType::AccountTrie => {}
             SegmentType::AccountLeaf0 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
-
-                // this should hold for all MPTProofType's
-                let address_low: Query<F> = (config.address.current()
-                    - config.upper_128_bits.current() * (1 << 32))
-                    * (1 << 32)
-                    * (1 << 32)
-                    * (1 << 32);
-                cb.add_lookup(
-                    "key = h(address_high, address_low)",
-                    [
-                        config.upper_128_bits.current(),
-                        address_low,
-                        config.key.previous(),
-                    ],
-                    poseidon.lookup(),
-                );
-                cb.add_lookup(
-                    "sibling = h(1, key)",
-                    [
-                        Query::one(),
-                        // this could be Start, which could have key = 0. Do we need to special case that?
-                        // We could also just assign a non-zero key here....
-                        config.key.previous(),
-                        config.sibling.current(),
-                    ],
-                    poseidon.lookup(),
-                );
             }
             SegmentType::AccountLeaf1 => {
                 cb.assert_zero("direction is 0", config.direction.current());
@@ -1258,33 +1216,6 @@ fn configure_poseidon_code_hash<F: FieldExt>(
             SegmentType::Start | SegmentType::AccountTrie => {}
             SegmentType::AccountLeaf0 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
-
-                // this should hold for all MPTProofType's
-                let address_low: Query<F> = (config.address.current()
-                    - config.upper_128_bits.current() * (1 << 32))
-                    * (1 << 32)
-                    * (1 << 32)
-                    * (1 << 32);
-                cb.add_lookup(
-                    "key = h(address_high, address_low)",
-                    [
-                        config.upper_128_bits.current(),
-                        address_low,
-                        config.key.previous(),
-                    ],
-                    poseidon.lookup(),
-                );
-                cb.add_lookup(
-                    "sibling = h(1, key)",
-                    [
-                        Query::one(),
-                        // this could be Start, which could have key = 0. Do we need to special case that?
-                        // We could also just assign a non-zero key here....
-                        config.key.previous(),
-                        config.sibling.current(),
-                    ],
-                    poseidon.lookup(),
-                );
             }
             SegmentType::AccountLeaf1 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
@@ -1651,7 +1582,7 @@ mod test {
     use super::super::{
         byte_bit::ByteBitGadget, byte_representation::ByteRepresentationConfig,
         canonical_representation::CanonicalRepresentationConfig, key_bit::KeyBitConfig,
-        poseidon::PoseidonConfig,
+        poseidon::PoseidonTable,
     };
     use super::*;
     use crate::{constraint_builder::SelectorColumn, serde::SMTTrace};
@@ -1889,7 +1820,7 @@ mod test {
         type Config = (
             SelectorColumn,
             MptUpdateConfig<Fr>,
-            PoseidonConfig,
+            PoseidonTable,
             CanonicalRepresentationConfig,
             KeyBitConfig,
             ByteBitGadget,
@@ -1905,7 +1836,7 @@ mod test {
             let selector = SelectorColumn(cs.fixed_column());
             let mut cb = ConstraintBuilder::new(selector);
 
-            let poseidon = PoseidonConfig::configure(cs, &mut cb);
+            let poseidon = PoseidonTable::configure(cs, &mut cb, 4096);
             let byte_bit = ByteBitGadget::configure(cs, &mut cb);
             let byte_representation = ByteRepresentationConfig::configure(cs, &mut cb, &byte_bit);
             let canonical_representation =
@@ -1964,7 +1895,7 @@ mod test {
                         selector.enable(&mut region, offset);
                     }
                     mpt_update.assign(&mut region, &self.proofs);
-                    poseidon.assign(&mut region, &self.hash_traces());
+                    poseidon.dev_load(&mut region, &self.hash_traces());
                     canonical_representation.assign(&mut region, &self.keys());
                     key_bit.assign(&mut region, &self.key_bit_lookups());
                     byte_bit.assign(&mut region);
