@@ -284,6 +284,7 @@ impl<F: FieldExt> MptUpdateConfig<F> {
                 MPTProofType::StorageChanged => {
                     configure_storage(cb, &config, poseidon, bytes, rlc)
                 }
+                MPTProofType::AccountDoesNotExist => configure_empty_account(cb, &config, poseidon),
                 _ => cb.assert_unreachable("unimplemented!"),
             };
             cb.condition(
@@ -484,6 +485,7 @@ impl<F: FieldExt> MptUpdateConfig<F> {
                 MPTProofType::PoseidonCodeHashExists => vec![true, true],
                 MPTProofType::CodeHashExists => vec![true, false, true, true],
                 MPTProofType::StorageChanged => vec![true, false, true, false],
+                MPTProofType::AccountDoesNotExist => vec![false],
                 _ => unimplemented!(),
             };
             let next_offset = offset + directions.len();
@@ -728,38 +730,45 @@ fn configure_common_path<F: FieldExt>(
     config: &MptUpdateConfig<F>,
     poseidon: &impl PoseidonLookup,
 ) {
-    cb.add_lookup(
-        "poseidon hash correct for old common path",
-        [
-            old_left(config),
-            old_right(config),
-            config.old_hash.previous(),
-        ],
-        poseidon.lookup(),
+    let is_non_existing_type1 = config.path_type.next_matches(&[PathType::Start]).and(
+        config
+            .segment_type
+            .current_matches(&[SegmentType::AccountLeaf0]),
     );
-    cb.add_lookup(
-        "poseidon hash correct for new common path",
-        [
-            new_left(config),
-            new_right(config),
-            config.new_hash.previous(),
-        ],
-        poseidon.lookup(),
+    let is_non_existing_type2 = config.path_type.next_matches(&[PathType::Start]).and(
+        config
+            .segment_type
+            .current_matches(&[SegmentType::AccountTrie]),
     );
+    cb.condition(is_non_existing_type1.clone(), |cb| {
+        configure_non_existing_type1(cb, config, poseidon)
+    });
+    cb.condition(is_non_existing_type2, |cb| {
+        configure_non_existing_type2(cb, config)
+    });
 
-    // These apply for AccountTrie rows....
-    // If this is the final row of this update, then the proof type must be
-    // cb.condition(config.path_type.next_matches(PathType::Start), |cb| {
-    //     cb.assert("type 2 non-existence proof if no account leaf rows", config.proof.current_matches(MPTProofType::AccountDoesNotExist));
-    //     cb.assert_zero(
-    //         "old value is 0 for type 2 non-existence proof",
-    //         config.old_value.current(),
-    //     );
-    //     cb.assert_zero(
-    //         "new value is 0 for type 2 non-existence proof",
-    //         config.new_value.current(),
-    //     );
-    // });
+    // TODO: cannot poseidon lookup for AccountLeaf0 here.
+    cb.condition(!is_non_existing_type1, |cb| {
+        cb.add_lookup(
+            "poseidon hash correct for old common path",
+            [
+                old_left(config),
+                old_right(config),
+                config.old_hash.previous(),
+            ],
+            poseidon.lookup(),
+        );
+        cb.add_lookup(
+            "poseidon hash correct for new common path",
+            [
+                new_left(config),
+                new_right(config),
+                config.new_hash.previous(),
+            ],
+            poseidon.lookup(),
+        );
+    });
+
     cb.condition(
         config
             .path_type
@@ -1615,7 +1624,112 @@ fn configure_storage<F: FieldExt>(
 fn configure_empty_account<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig<F>,
+    poseidon: &impl PoseidonLookup,
 ) {
+    for variant in SegmentType::iter() {
+        let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
+            SegmentType::Start => {}
+            SegmentType::AccountTrie => {
+                // Check if next path is start for type 2 non-existence.
+                cb.condition(config.path_type.next_matches(&[PathType::Start]), |cb| {
+                    configure_non_existing_type2(cb, config)
+                });
+            }
+            SegmentType::AccountLeaf0 => {
+                cb.assert(
+                    "path type is common",
+                    config.path_type.current_matches(&[PathType::Common]),
+                );
+
+                configure_non_existing_type1(cb, config, poseidon);
+            }
+            SegmentType::AccountLeaf1
+            | SegmentType::AccountLeaf2
+            | SegmentType::AccountLeaf3
+            | SegmentType::AccountLeaf4
+            | SegmentType::StorageTrie
+            | SegmentType::StorageLeaf0
+            | SegmentType::StorageLeaf1 => {
+                cb.assert_unreachable("unreachable segment type for empty accounts")
+            }
+        };
+        cb.condition(
+            config.segment_type.current_matches(&[variant]),
+            conditional_constraints,
+        );
+    }
+}
+fn configure_non_existing_type1<F: FieldExt>(
+    cb: &mut ConstraintBuilder<F>,
+    config: &MptUpdateConfig<F>,
+    poseidon: &impl PoseidonLookup,
+) {
+    configure_common_non_existing(cb, config);
+
+    cb.assert_zero("direction is 0", config.direction.current());
+
+    // this should hold for all MPTProofType's
+    let address_low: Query<F> = (config.address.current()
+        - config.upper_128_bits.current() * (1 << 32))
+        * (1 << 32)
+        * (1 << 32)
+        * (1 << 32);
+    cb.add_lookup(
+        "key = h(address_high, address_low)",
+        [
+            config.upper_128_bits.current(),
+            address_low,
+            config.key.previous(),
+        ],
+        poseidon.lookup(),
+    );
+
+    cb.assert_zero(
+        "key != other_key for type 1 non-existence",
+        config.key_equals_other_key.clone().current().0,
+    );
+
+    cb.add_lookup(
+        "other_key_hash = h(1, other_key)",
+        [
+            Query::one(),
+            config.other_key.previous(),
+            config.other_key_hash.current(),
+        ],
+        poseidon.lookup(),
+    );
+}
+
+fn configure_non_existing_type2<F: FieldExt>(
+    cb: &mut ConstraintBuilder<F>,
+    config: &MptUpdateConfig<F>,
+) {
+    configure_common_non_existing(cb, config);
+
+    cb.assert_zero(
+        "both old hash and new hash are zero for type 2 non-existence",
+        Query::one()
+            - config
+                .old_hash_is_zero
+                .current()
+                .and(config.new_hash_is_zero.current())
+                .0,
+    );
+}
+
+fn configure_common_non_existing<F: FieldExt>(
+    cb: &mut ConstraintBuilder<F>,
+    config: &MptUpdateConfig<F>,
+) {
+    cb.assert(
+        "proof type is account does not exist",
+        config
+            .proof_type
+            .current_matches(&[MPTProofType::AccountDoesNotExist]),
+    );
+
+    cb.assert_zero("old value is 0", config.old_value.current());
+    cb.assert_zero("new value is 0", config.new_value.current());
 }
 
 fn configure_self_destruct<F: FieldExt>(
@@ -1759,6 +1873,7 @@ mod test {
                     ClaimKind::Storage { key, .. } => keys.push(storage_key_hash(key)),
                     _ => (),
                 };
+                keys.push(account_key(proof.claim.address));
             }
             keys
         }
@@ -1769,13 +1884,25 @@ mod test {
                 for (i, (direction, _, _, _, is_padding_open, is_padding_close)) in
                     proof.address_hash_traces.iter().rev().enumerate()
                 {
-                    // TODO: use PathType here
-                    if !is_padding_open {
-                        lookups.push((proof.old.key, i, *direction));
-                    }
-                    if !is_padding_close {
-                        lookups.push((proof.new.key, i, *direction));
-                    }
+                    match (is_padding_open, is_padding_close) {
+                        (false, false) => {
+                            let mut lookup_keys = vec![proof.old.key, proof.new.key];
+                            let key = account_key(proof.claim.address);
+                            if !lookup_keys.contains(&key) {
+                                lookup_keys.push(key);
+                            }
+                            lookup_keys
+                                .into_iter()
+                                .for_each(|k| lookups.push((k, i, *direction)));
+                        }
+                        (false, true) => {
+                            lookups.push((proof.old.key, i, *direction));
+                        }
+                        (true, false) => {
+                            lookups.push((proof.new.key, i, *direction));
+                        }
+                        (true, true) => unreachable!(),
+                    };
                 }
                 lookups.extend(proof.storage.key_bit_lookups());
             }
