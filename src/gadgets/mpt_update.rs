@@ -1637,8 +1637,11 @@ fn configure_empty_account<F: FieldExt>(
             }
             SegmentType::AccountLeaf0 => {
                 cb.assert(
-                    "path type is common",
-                    config.path_type.current_matches(&[PathType::Common]),
+                    "current path type is common and next is start",
+                    config
+                        .path_type
+                        .current_matches(&[PathType::Common])
+                        .and(config.path_type.next_matches(&[PathType::Start])),
                 );
 
                 configure_non_existing_type1(cb, config, poseidon);
