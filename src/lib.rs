@@ -199,7 +199,7 @@ impl<F: FieldExt> Circuit<F> for SimpleTrie<F> {
         mut layouter: impl Layouter<F>,
     ) -> Result<(), Error> {
         layouter.assign_region(
-            || "main",
+            || "simple trie main",
             |mut region| {
                 let mut series: usize = 1;
                 let mut last_op_code = config.layer.start_op_code();
@@ -497,7 +497,7 @@ impl EthTrieConfig {
             .unwrap_or_else(F::zero);
 
         layouter.assign_region(
-            || "main",
+            || "eth trie main",
             |mut region| {
                 let mut series: usize = 1;
                 let mut last_op_code = self.layer.start_op_code();
