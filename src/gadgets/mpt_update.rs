@@ -1,6 +1,6 @@
 mod path;
 mod segment;
-use path::PathType;
+pub use path::PathType;
 use segment::SegmentType;
 
 use super::{
@@ -15,12 +15,12 @@ use super::{
 use crate::{
     constraint_builder::{AdviceColumn, ConstraintBuilder, Query, SelectorColumn},
     serde::SMTTrace,
-    types::{account_key, hash, ClaimKind, Proof},
-    util::{rlc, u256_hi_lo, u256_to_big_endian}, // rlc is clobbered by rlc in configure....
+    types::{account_key, hash, storage::StorageProof, trie::TrieRows, ClaimKind, Proof},
+    util::{rlc, storage_key_hash, u256_hi_lo, u256_to_big_endian}, // rlc is clobbered by rlc in configure....
     MPTProofType,
 };
 use ethers_core::k256::elliptic_curve::PrimeField;
-use ethers_core::types::Address;
+use ethers_core::types::{Address, U256};
 use halo2_proofs::{
     arithmetic::{Field, FieldExt},
     circuit::Region,
@@ -89,10 +89,9 @@ struct MptUpdateConfig<F: FieldExt> {
     old_hash_is_zero: IsZeroGadget,
     new_hash_is_zero: IsZeroGadget,
 
-    // These two are needed to prove that a zero account is not in from the MPT.
-    old_hash_is_zero_account_hash: IsEqualGadget<F>,
-    new_hash_is_zero_account_hash: IsEqualGadget<F>,
-
+    // // These two are needed to prove that a zero account is not in from the MPT.
+    // old_hash_is_zero_account_hash: IsEqualGadget<F>,
+    // new_hash_is_zero_account_hash: IsEqualGadget<F>,
     key_equals_other_key: IsEqualGadget<F>,
     direction: AdviceColumn, // this actually must be binary because of a KeyBitLookup
 
@@ -193,10 +192,10 @@ impl<F: FieldExt> MptUpdateConfig<F> {
         let old_hash_is_zero = IsZeroGadget::configure(cs, cb, old_hash);
         let new_hash_is_zero = IsZeroGadget::configure(cs, cb, new_hash);
 
-        let old_hash_is_zero_account_hash =
-            IsEqualGadget::configure(cs, cb, old_hash.current(), Query::zero()); // problem is here because you need to construct a query over Fr.
-        let new_hash_is_zero_account_hash =
-            IsEqualGadget::configure(cs, cb, new_hash.current(), Query::zero());
+        // let old_hash_is_zero_account_hash =
+        //     IsEqualGadget::configure(cs, cb, old_hash.current(), Query::zero()); // problem is here because you need to construct a query over Fr.
+        // let new_hash_is_zero_account_hash =
+        //     IsEqualGadget::configure(cs, cb, new_hash.current(), Query::zero());
 
         let key_equals_other_key =
             IsEqualGadget::configure(cs, cb, key.current(), other_key.current());
@@ -222,8 +221,8 @@ impl<F: FieldExt> MptUpdateConfig<F> {
             key_equals_other_key,
             old_hash_is_zero,
             new_hash_is_zero,
-            old_hash_is_zero_account_hash,
-            new_hash_is_zero_account_hash,
+            // old_hash_is_zero_account_hash,
+            // new_hash_is_zero_account_hash,
         };
 
         // Transitions for state machines:
@@ -274,6 +273,9 @@ impl<F: FieldExt> MptUpdateConfig<F> {
                 }
                 MPTProofType::CodeHashExists => {
                     configure_keccak_code_hash(cb, &config, poseidon, bytes, rlc)
+                }
+                MPTProofType::StorageChanged => {
+                    configure_storage(cb, &config, poseidon, bytes, rlc)
                 }
                 _ => cb.assert_unreachable("unimplemented!"),
             };
@@ -329,21 +331,21 @@ impl<F: FieldExt> MptUpdateConfig<F> {
             self.old_hash.assign(region, offset, proof.claim.old_root);
             self.old_hash_is_zero
                 .assign(region, offset, proof.claim.old_root);
-            self.old_hash_is_zero_account_hash.assign(
-                region,
-                offset,
-                proof.claim.old_root,
-                *ZERO_ACCOUNT_HASH,
-            );
+            // self.old_hash_is_zero_account_hash.assign(
+            //     region,
+            //     offset,
+            //     proof.claim.old_root,
+            //     *ZERO_ACCOUNT_HASH,
+            // );
             self.new_hash.assign(region, offset, proof.claim.new_root);
             self.new_hash_is_zero
                 .assign(region, offset, proof.claim.new_root);
-            self.new_hash_is_zero_account_hash.assign(
-                region,
-                offset,
-                proof.claim.new_root,
-                *ZERO_ACCOUNT_HASH,
-            );
+            // self.new_hash_is_zero_account_hash.assign(
+            //     region,
+            //     offset,
+            //     proof.claim.new_root,
+            //     *ZERO_ACCOUNT_HASH,
+            // );
             self.key_equals_other_key
                 .assign(region, offset, Fr::zero(), Fr::zero());
 
@@ -377,20 +379,20 @@ impl<F: FieldExt> MptUpdateConfig<F> {
                 self.sibling.assign(region, offset, *sibling);
                 self.old_hash.assign(region, offset, *old_hash);
                 self.old_hash_is_zero.assign(region, offset, *old_hash);
-                self.old_hash_is_zero_account_hash.assign(
-                    region,
-                    offset,
-                    *old_hash,
-                    *ZERO_ACCOUNT_HASH,
-                );
+                // self.old_hash_is_zero_account_hash.assign(
+                //     region,
+                //     offset,
+                //     *old_hash,
+                //     *ZERO_ACCOUNT_HASH,
+                // );
                 self.new_hash.assign(region, offset, *new_hash);
                 self.new_hash_is_zero.assign(region, offset, *new_hash);
-                self.new_hash_is_zero_account_hash.assign(
-                    region,
-                    offset,
-                    *new_hash,
-                    *ZERO_ACCOUNT_HASH,
-                );
+                // self.new_hash_is_zero_account_hash.assign(
+                //     region,
+                //     offset,
+                //     *new_hash,
+                //     *ZERO_ACCOUNT_HASH,
+                // );
                 self.direction.assign(region, offset, *direction);
 
                 let key = account_key(proof.claim.address);
@@ -431,6 +433,7 @@ impl<F: FieldExt> MptUpdateConfig<F> {
                         previous_new_hash = *new_hash;
                     }
                 }
+                dbg!(offset);
                 offset += 1;
             }
 
@@ -475,8 +478,10 @@ impl<F: FieldExt> MptUpdateConfig<F> {
                 MPTProofType::BalanceChanged => vec![true, false, false, true],
                 MPTProofType::PoseidonCodeHashExists => vec![true, true],
                 MPTProofType::CodeHashExists => vec![true, false, true, true],
+                MPTProofType::StorageChanged => vec![true, false, true, false],
                 _ => unimplemented!(),
             };
+            let next_offset = offset + directions.len();
 
             let old_hashes = proof
                 .old_account_leaf_hashes()
@@ -494,21 +499,21 @@ impl<F: FieldExt> MptUpdateConfig<F> {
                 self.sibling.assign(region, offset + i, sibling);
                 self.old_hash.assign(region, offset + i, old_hash);
                 self.old_hash_is_zero.assign(region, offset + i, old_hash);
-                self.old_hash_is_zero_account_hash.assign(
-                    region,
-                    offset + i,
-                    old_hash,
-                    *ZERO_ACCOUNT_HASH,
-                );
+                // self.old_hash_is_zero_account_hash.assign(
+                //     region,
+                //     offset + i,
+                //     old_hash,
+                //     *ZERO_ACCOUNT_HASH,
+                // );
 
                 self.new_hash.assign(region, offset + i, new_hash);
                 self.new_hash_is_zero.assign(region, offset + i, new_hash);
-                self.new_hash_is_zero_account_hash.assign(
-                    region,
-                    offset + i,
-                    new_hash,
-                    *ZERO_ACCOUNT_HASH,
-                );
+                // self.new_hash_is_zero_account_hash.assign(
+                //     region,
+                //     offset + i,
+                //     new_hash,
+                //     *ZERO_ACCOUNT_HASH,
+                // );
 
                 self.direction.assign(region, offset + i, direction);
                 // TODO: would it be possible to assign key here to make the keybit lookup unconditional?
@@ -578,8 +583,84 @@ impl<F: FieldExt> MptUpdateConfig<F> {
                 }
                 _ => (),
             }
+
+            dbg!(next_offset);
+            self.assign_storage(region, next_offset, &proof.storage);
         }
     }
+
+    fn assign_trie_rows(
+        &self,
+        region: &mut Region<'_, Fr>,
+        starting_offset: usize,
+        rows: &TrieRows,
+    ) -> usize {
+        for (i, row) in rows.0.iter().enumerate() {
+            let offset = starting_offset + i;
+            dbg!(offset, row.clone());
+            self.depth
+                .assign(region, offset, u64::try_from(i + 1).unwrap());
+            self.path_type.assign(region, offset, row.path_type);
+
+            for (value, column) in [
+                (row.sibling, self.sibling),
+                (row.old, self.old_hash),
+                (row.new, self.new_hash),
+                (row.direction.into(), self.direction),
+            ] {
+                column.assign(region, offset, value);
+            }
+
+            for (value, gadget) in [
+                (row.old, self.old_hash_is_zero),
+                (row.new, self.new_hash_is_zero),
+            ] {
+                gadget.assign(region, offset, value);
+            }
+        }
+        rows.len()
+    }
+
+    fn assign_storage(&self, region: &mut Region<'_, Fr>, offset: usize, storage: &StorageProof) {
+        dbg!(offset);
+        if let StorageProof::Update {
+            path,
+            trie_rows,
+            old_entry,
+            new_entry,
+        } = storage
+        {
+            let assigned_rows = self.assign_trie_rows(region, offset, trie_rows);
+            for i in 0..assigned_rows {
+                self.segment_type
+                    .assign(region, offset + i, SegmentType::StorageTrie);
+                self.key.assign(region, offset + i, *path);
+                self.other_key.assign(region, offset + i, *path);
+                self.key_equals_other_key
+                    .assign(region, offset + i, *path, *path);
+            }
+
+            // self.assign_storage_leaf_rows(region, offset + trie_rows.len(), old_entry, new_entry);
+        }
+    }
+
+    // fn assign_storage_leaf_rows(
+    //     &self,
+    //     region: &mut Region<'_, Fr>,
+    //     offset: usize,
+    //     old: [[Fr; 3]; 3],
+    //     new: [[Fr; 3]; 3],
+    // ) -> usize {
+    //     let [old_key_high, old_key_low, old_key_hash] = old[0];
+    //     let [old_value_high, old_value_low, old_value_hash] = old[1];
+    //     let old_entry_hash = old[2][2];
+
+    //     let [new_key_high, new_key_low, new_key_hash] = new[0];
+    //     let [new_value_high, new_value_low, new_value_hash] = new[1];
+    //     let new_entry_hash = new[2][2];
+
+    //     2
+    // }
 }
 
 fn old_left<F: FieldExt>(config: &MptUpdateConfig<F>) -> Query<F> {
@@ -1364,6 +1445,140 @@ fn configure_keccak_code_hash<F: FieldExt>(
     }
 }
 
+fn configure_storage<F: FieldExt>(
+    cb: &mut ConstraintBuilder<F>,
+    config: &MptUpdateConfig<F>,
+    poseidon: &impl PoseidonLookup,
+    bytes: &impl BytesLookup,
+    rlc: &impl RlcLookup,
+) {
+    for variant in SegmentType::iter() {
+        let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
+            SegmentType::Start | SegmentType::AccountTrie => {}
+            SegmentType::AccountLeaf0 => {
+                cb.assert_equal("direction is 1", config.direction.current(), Query::one());
+
+                // this should hold for all MPTProofType's
+                let address_low: Query<F> = (config.address.current()
+                    - config.upper_128_bits.current() * (1 << 32))
+                    * (1 << 32)
+                    * (1 << 32)
+                    * (1 << 32);
+                cb.add_lookup(
+                    "key = h(address_high, address_low)",
+                    [
+                        config.upper_128_bits.current(),
+                        address_low,
+                        config.key.previous(),
+                    ],
+                    poseidon.lookup(),
+                );
+                cb.add_lookup(
+                    "sibling = h(1, key)",
+                    [
+                        Query::one(),
+                        // this could be Start, which could have key = 0. Do we need to special case that?
+                        // We could also just assign a non-zero key here....
+                        config.key.previous(),
+                        config.sibling.current(),
+                    ],
+                    poseidon.lookup(),
+                );
+            }
+            SegmentType::AccountLeaf1 => {
+                cb.assert_zero("direction is 0", config.direction.current());
+            }
+            SegmentType::AccountLeaf2 => {
+                cb.assert_equal("direction is 1", config.direction.current(), Query::one());
+            }
+            SegmentType::AccountLeaf3 => {
+                cb.assert_zero("direction is 0", config.direction.current());
+            }
+            SegmentType::AccountLeaf4 => {
+                cb.assert_unreachable("AccountLeaf4 is not used");
+            }
+            SegmentType::StorageTrie => {}
+            SegmentType::StorageLeaf0 => {
+                cb.assert_equal("direction is 1", config.direction.current(), Query::one());
+
+                let randomness_raised_to_16 =
+                    Query::from(RANDOMNESS).square().square().square().square();
+                let configure_word = |cb: &mut ConstraintBuilder<F>,
+                                      high: Query<F>,
+                                      low: Query<F>,
+                                      rlc_high: Query<F>,
+                                      rlc_low: Query<F>,
+                                      rlc_word: Query<F>,
+                                      hash_word: Query<F>| {
+                    cb.add_lookup(
+                        "rlc_high = rlc(high)",
+                        [high.clone(), rlc_high.clone()],
+                        rlc.lookup(),
+                    );
+                    cb.add_lookup(
+                        "rlc_low = rlc(low)",
+                        [low.clone(), rlc_low.clone()],
+                        rlc.lookup(),
+                    );
+                    cb.assert_equal(
+                        "rlc_word = rlc(high) * randomness ^ 16 + rlc(low)",
+                        rlc_word,
+                        high.clone() * randomness_raised_to_16.clone() + low.clone(),
+                    );
+                    cb.add_lookup(
+                        "hash_word = h(high, low)",
+                        [high, low, hash_word],
+                        poseidon.lookup(),
+                    );
+                };
+
+                let storage_key_hash = config.upper_128_bits.rotation(-4);
+                configure_word(
+                    cb,
+                    config.upper_128_bits.rotation(0),
+                    config.upper_128_bits.rotation(-1),
+                    config.upper_128_bits.rotation(-2),
+                    config.upper_128_bits.rotation(-3),
+                    config.storage_key_rlc.current(),
+                    storage_key_hash.clone(),
+                );
+                cb.add_lookup(
+                    "sibling = h(1, storage_key_hash)",
+                    [Query::one(), storage_key_hash, config.sibling.current()],
+                    poseidon.lookup(),
+                );
+
+                configure_word(
+                    cb,
+                    config.other_key_hash.rotation(0),
+                    config.other_key_hash.rotation(-1),
+                    config.other_key_hash.rotation(-2),
+                    config.other_key_hash.rotation(-3),
+                    config.old_value.current(),
+                    config.old_hash.current(),
+                );
+
+                configure_word(
+                    cb,
+                    config.other_leaf_data_hash.rotation(0),
+                    config.other_leaf_data_hash.rotation(-1),
+                    config.other_leaf_data_hash.rotation(-2),
+                    config.other_leaf_data_hash.rotation(-3),
+                    config.new_value.current(),
+                    config.new_hash.current(),
+                );
+            }
+            SegmentType::StorageLeaf1 => {
+                cb.assert_unreachable("StorageLeaf1 is not used");
+            }
+        };
+        cb.condition(
+            config.segment_type.current_matches(&[variant]),
+            conditional_constraints,
+        );
+    }
+}
+
 fn configure_empty_account<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig<F>,
@@ -1375,9 +1590,6 @@ fn configure_self_destruct<F: FieldExt>(
     config: &MptUpdateConfig<F>,
 ) {
 }
-
-fn configure_storage<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig<F>) {}
-
 fn configure_empty_storage<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig<F>,
@@ -1454,6 +1666,16 @@ mod test {
                         hash_traces.push((*left, *right, hash(*left, *right)));
                     }
                 }
+                // dbg!(proof.storage.poseidon_lookups());
+                assert_eq!(
+                    proof.storage.old_root(),
+                    proof.old_account_hash_traces[1][0]
+                );
+                assert_eq!(
+                    proof.storage.new_root(),
+                    proof.new_account_hash_traces[1][0]
+                );
+                hash_traces.extend(proof.storage.poseidon_lookups());
 
                 hash_traces.push((
                     Fr::from_u128(address_high(proof.claim.address)),
@@ -1501,6 +1723,10 @@ mod test {
             for proof in self.proofs.iter() {
                 keys.push(proof.old.key);
                 keys.push(proof.new.key);
+                match proof.claim.kind {
+                    ClaimKind::Storage { key, .. } => keys.push(storage_key_hash(key)),
+                    _ => (),
+                };
             }
             keys
         }
@@ -1510,7 +1736,6 @@ mod test {
             for proof in self.proofs.iter() {
                 for (i, (direction, _, _, _, is_padding_open, is_padding_close)) in
                     proof.address_hash_traces.iter().rev().enumerate()
-                //
                 {
                     // TODO: use PathType here
                     if !is_padding_open {
@@ -1520,6 +1745,7 @@ mod test {
                         lookups.push((proof.new.key, i, *direction));
                     }
                 }
+                lookups.extend(proof.storage.key_bit_lookups());
             }
             lookups
         }
@@ -1559,6 +1785,23 @@ mod test {
                     }
                     MPTProofType::CodeHashExists => {
                         u128s.push(address_high(proof.claim.address));
+                        if let Some(account) = proof.old_account {
+                            let (hi, lo) = u256_hi_lo(&account.keccak_codehash);
+                            u128s.push(hi);
+                            u128s.push(lo);
+                        };
+                        if let Some(account) = proof.new_account {
+                            let (hi, lo) = u256_hi_lo(&account.keccak_codehash);
+                            u128s.push(hi);
+                            u128s.push(lo);
+                        };
+                    }
+                    MPTProofType::StorageChanged => {
+                        u128s.push(address_high(proof.claim.address));
+                        let (storage_key_high, storage_key_low) =
+                            u256_hi_lo(&proof.claim.storage_key());
+                        u128s.push(storage_key_high);
+                        u128s.push(storage_key_low);
                         if let Some(account) = proof.old_account {
                             let (hi, lo) = u256_hi_lo(&account.keccak_codehash);
                             u128s.push(hi);
@@ -1810,6 +2053,14 @@ mod test {
         mock_prove(
             MPTProofType::CodeHashExists, // yes, the naming is very confusing :/
             include_str!("../../tests/generated/keccak_code_hash_read_existing.json"),
+        );
+    }
+
+    #[test]
+    fn update_storage_existing_to_existing() {
+        mock_prove(
+            MPTProofType::StorageChanged,
+            include_str!("../../tests/generated/storage/update_storage_existing_to_existing.json"),
         );
     }
 

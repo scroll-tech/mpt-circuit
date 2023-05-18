@@ -96,6 +96,11 @@ pub fn u256_to_big_endian(x: &U256) -> Vec<u8> {
     bytes.to_vec()
 }
 
+pub fn storage_key_hash(key: U256) -> Fr {
+    let (high, low) = split_word(key);
+    hash(high, low)
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
