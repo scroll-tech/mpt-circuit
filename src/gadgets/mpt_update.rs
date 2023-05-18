@@ -664,7 +664,7 @@ impl<F: FieldExt> MptUpdateConfig<F> {
         self.segment_type
             .assign(region, offset, SegmentType::StorageLeaf0);
         self.direction.assign(region, offset, true);
-        self.sibling.assign(region, offset, old.path_hash());
+        self.sibling.assign(region, offset, old.key_hash());
 
         let old_hash = old.value_hash();
         let new_hash = new.value_hash();
@@ -683,8 +683,8 @@ impl<F: FieldExt> MptUpdateConfig<F> {
             column.assign(region, offset - 3, rlc_low);
         };
 
-        assign_word(region, old.key(), &self.upper_128_bits);
-        self.upper_128_bits.assign(region, offset - 4, old.path());
+        assign_word(region, old.storage_key().unwrap(), &self.upper_128_bits);
+        self.upper_128_bits.assign(region, offset - 4, old.key());
         assign_word(region, old.value(), &self.other_key_hash);
         assign_word(region, new.value(), &self.other_leaf_data_hash);
 

@@ -1,12 +1,14 @@
-use crate::serde::{SMTTrace, StateData};
-use crate::types::trie::TrieRows;
-use crate::util::{fr, hash, u256_from_hex, u256_hi_lo};
+use crate::{
+    serde::{SMTTrace, StateData},
+    types::trie::TrieRows,
+    util::{fr, hash, storage_key_hash, u256_from_hex, u256_hi_lo},
+};
 use ethers_core::types::U256;
 use halo2_proofs::{arithmetic::FieldExt, halo2curves::bn256::Fr};
 
 #[derive(Clone, Debug)]
 pub enum StorageProof {
-    Root(Fr),
+    Root(Fr), // Not proving a storage update, so we only need the storage root.
     Update {
         path: Fr,
         trie_rows: TrieRows,
@@ -17,9 +19,9 @@ pub enum StorageProof {
 
 #[derive(Clone, Debug)]
 pub enum StorageLeaf {
-    Empty,
-    Leaf { key: U256, value_hash: Fr },
-    Entry { key: U256, value: U256 },
+    Empty { mpt_key: Fr },                    // Type 2 empty storage leaf
+    Leaf { mpt_key: Fr, value_hash: Fr },     // Type 1 empty storage leaf
+    Entry { storage_key: U256, value: U256 }, // Existing storage leaf (value is non-zero)
 }
 
 impl StorageProof {
@@ -67,32 +69,8 @@ impl StorageProof {
                 ..
             } => {
                 let mut lookups = trie_rows.poseidon_lookups();
-                match (old_leaf.value().is_zero(), new_leaf.value().is_zero()) {
-                    (true, true) => {
-                        unimplemented!()
-                    }
-                    (true, false) => {
-                        unimplemented!()
-                    }
-                    (false, true) => {
-                        unimplemented!()
-                    }
-                    (false, false) => {
-                        assert_eq!(old_leaf.key(), new_leaf.key());
-                        lookups.push((old_leaf.key_high(), old_leaf.key_low(), old_leaf.path()));
-                        lookups.push((Fr::one(), old_leaf.path(), old_leaf.path_hash()));
-                        lookups.push((
-                            old_leaf.value_high(),
-                            old_leaf.value_low(),
-                            old_leaf.value_hash(),
-                        ));
-                        lookups.push((
-                            new_leaf.value_high(),
-                            new_leaf.value_low(),
-                            new_leaf.value_hash(),
-                        ));
-                    }
-                }
+                lookups.extend(old_leaf.poseidon_lookups());
+                lookups.extend(new_leaf.poseidon_lookups());
                 lookups
             }
         }
@@ -111,59 +89,42 @@ impl StorageProof {
 impl StorageLeaf {
     fn n_rows(&self) -> usize {
         match self {
-            Self::Empty => 0,
+            Self::Empty { .. } => 0,
             Self::Leaf { .. } | Self::Entry { .. } => 1,
         }
     }
 
-    pub fn key(&self) -> U256 {
+    pub fn storage_key(&self) -> Option<U256> {
         match self {
-            Self::Empty => U256::zero(),
-            Self::Leaf { key, .. } | Self::Entry { key, .. } => *key,
+            Self::Empty { .. } | Self::Leaf { .. } => None,
+            Self::Entry { storage_key, .. } => Some(*storage_key),
         }
     }
 
-    pub fn key_high(&self) -> Fr {
+    pub fn key(&self) -> Fr {
         match self {
-            Self::Empty => Fr::zero(),
-            Self::Leaf { key, .. } | Self::Entry { key, .. } => Fr::from_u128(u256_hi_lo(&key).0),
+            Self::Empty { mpt_key } | Self::Leaf { mpt_key, .. } => *mpt_key,
+            Self::Entry { storage_key, .. } => storage_key_hash(*storage_key),
         }
     }
 
-    pub fn key_low(&self) -> Fr {
-        match self {
-            Self::Empty => Fr::zero(),
-            Self::Leaf { key, .. } | Self::Entry { key, .. } => Fr::from_u128(u256_hi_lo(&key).1),
-        }
-    }
-
-    pub fn path(&self) -> Fr {
-        hash(self.key_high(), self.key_low())
-    }
-
-    pub fn path_hash(&self) -> Fr {
-        hash(Fr::one(), self.path())
+    pub fn key_hash(&self) -> Fr {
+        hash(Fr::one(), self.key())
     }
 
     pub fn value(&self) -> U256 {
         match self {
-            Self::Empty | Self::Leaf { .. } => U256::zero(),
+            Self::Empty { .. } | Self::Leaf { .. } => U256::zero(),
             Self::Entry { value, .. } => *value,
         }
     }
 
     pub fn value_high(&self) -> Fr {
-        match self {
-            Self::Empty | Self::Leaf { .. } => Fr::zero(),
-            Self::Entry { value, .. } => Fr::from_u128(u256_hi_lo(&value).0),
-        }
+        Fr::from_u128(u256_hi_lo(&self.value()).0)
     }
 
     pub fn value_low(&self) -> Fr {
-        match self {
-            Self::Empty | Self::Leaf { .. } => Fr::zero(),
-            Self::Entry { value, .. } => Fr::from_u128(u256_hi_lo(&value).1),
-        }
+        Fr::from_u128(u256_hi_lo(&self.value()).1)
     }
 
     pub fn value_hash(&self) -> Fr {
@@ -171,7 +132,19 @@ impl StorageLeaf {
     }
 
     pub fn hash(&self) -> Fr {
-        hash(self.path_hash(), self.value_hash())
+        hash(self.key_hash(), self.value_hash())
+    }
+
+    fn poseidon_lookups(&self) -> Vec<(Fr, Fr, Fr)> {
+        let mut lookups = vec![(Fr::one(), self.key(), self.key_hash())];
+        if let Self::Entry { storage_key, value } = self {
+            let (key_high, key_low) = u256_hi_lo(storage_key);
+            lookups.extend(vec![
+                (Fr::from_u128(key_high), Fr::from_u128(key_low), self.key()),
+                (self.value_high(), self.value_low(), self.value_hash()),
+            ]);
+        }
+        lookups
     }
 }
 
@@ -215,7 +188,7 @@ impl From<&SMTTrace> for StorageProof {
 impl From<&StateData> for StorageLeaf {
     fn from(data: &StateData) -> Self {
         Self::Entry {
-            key: u256_from_hex(data.key),
+            storage_key: u256_from_hex(data.key),
             value: u256_from_hex(data.value),
         }
     }
