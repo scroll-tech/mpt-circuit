@@ -71,8 +71,8 @@ impl Claim {
             ClaimKind::Balance { old, .. } | ClaimKind::CodeHash { old, .. } => {
                 rlc(&u256_to_big_endian(&old.unwrap_or_default()), randomness)
             }
-            ClaimKind::Storage { new_value, .. } => rlc(
-                &u256_to_big_endian(&new_value.unwrap_or_default()),
+            ClaimKind::Storage { old_value, .. } => rlc(
+                &u256_to_big_endian(&old_value.unwrap_or_default()),
                 randomness,
             ),
             _ => unimplemented!("{:?}", self),
@@ -167,7 +167,7 @@ impl Proof {
                 ClaimKind::Storage { .. } => 4,
                 _ => unimplemented!("{:?}", self.claim),
             }
-            + self.storage.n_rows() // perhaps this???
+            + self.storage.n_rows()
     }
 }
 

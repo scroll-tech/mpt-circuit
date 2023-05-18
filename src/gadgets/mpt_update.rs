@@ -14,12 +14,19 @@ use super::{
 };
 use crate::{
     constraint_builder::{AdviceColumn, ConstraintBuilder, Query},
-    types::{account_key, hash, storage::StorageProof, trie::TrieRows, ClaimKind, Proof},
+    types::{
+        account_key, hash,
+        storage::{StorageEntry, StorageProof},
+        trie::TrieRows,
+        ClaimKind, Proof,
+    },
     util::{rlc, storage_key_hash, u256_hi_lo, u256_to_big_endian}, // rlc is clobbered by rlc in configure....
     MPTProofType,
 };
-use ethers_core::k256::elliptic_curve::PrimeField;
-use ethers_core::types::Address;
+use ethers_core::{
+    k256::elliptic_curve::PrimeField,
+    types::{Address, U256},
+};
 use halo2_proofs::{
     arithmetic::{Field, FieldExt},
     circuit::Region,
@@ -182,11 +189,12 @@ impl<F: FieldExt> MptUpdateConfig<F> {
             cb.assert_zero("depth is 0 in non-trie segments", depth.current());
         });
 
-        cb.add_lookup(
-            "upper_128_bits is 16 bytes",
-            [upper_128_bits.current(), Query::from(15)],
-            bytes.lookup(),
-        );
+        // TODO: enable this where needed!!
+        // cb.add_lookup(
+        //     "upper_128_bits is 16 bytes",
+        //     [upper_128_bits.current(), Query::from(15)],
+        //     bytes.lookup(),
+        // );
 
         let old_hash_is_zero = IsZeroGadget::configure(cs, cb, old_hash);
         let new_hash_is_zero = IsZeroGadget::configure(cs, cb, new_hash);
@@ -616,45 +624,76 @@ impl<F: FieldExt> MptUpdateConfig<F> {
         rows.len()
     }
 
-    fn assign_storage(&self, region: &mut Region<'_, Fr>, offset: usize, storage: &StorageProof) {
-        if let StorageProof::Update {
-            path,
-            trie_rows,
-            old_entry,
-            new_entry,
-        } = storage
-        {
-            let assigned_rows = self.assign_trie_rows(region, offset, trie_rows);
-            for i in 0..assigned_rows {
-                self.segment_type
-                    .assign(region, offset + i, SegmentType::StorageTrie);
-                self.key.assign(region, offset + i, *path);
-                self.other_key.assign(region, offset + i, *path);
-                self.key_equals_other_key
-                    .assign(region, offset + i, *path, *path);
+    fn assign_storage(
+        &self,
+        region: &mut Region<'_, Fr>,
+        offset: usize,
+        storage: &StorageProof,
+    ) -> usize {
+        match storage {
+            StorageProof::Root(_) => 0,
+            StorageProof::Update {
+                path,
+                trie_rows,
+                old_entry,
+                new_entry,
+            } => {
+                let n_trie_rows = self.assign_trie_rows(region, offset, trie_rows);
+                for i in 0..n_trie_rows {
+                    self.segment_type
+                        .assign(region, offset + i, SegmentType::StorageTrie);
+                    self.key.assign(region, offset + i, *path);
+                    self.other_key.assign(region, offset + i, *path);
+                    self.key_equals_other_key
+                        .assign(region, offset + i, *path, *path);
+                }
+                let n_leaf_rows = self.assign_storage_leaf_row(
+                    region,
+                    offset + n_trie_rows,
+                    old_entry,
+                    new_entry,
+                );
+                n_trie_rows + n_leaf_rows
             }
-
-            // self.assign_storage_leaf_rows(region, offset + trie_rows.len(), old_entry, new_entry);
         }
     }
 
-    // fn assign_storage_leaf_rows(
-    //     &self,
-    //     region: &mut Region<'_, Fr>,
-    //     offset: usize,
-    //     old: [[Fr; 3]; 3],
-    //     new: [[Fr; 3]; 3],
-    // ) -> usize {
-    //     let [old_key_high, old_key_low, old_key_hash] = old[0];
-    //     let [old_value_high, old_value_low, old_value_hash] = old[1];
-    //     let old_entry_hash = old[2][2];
+    fn assign_storage_leaf_row(
+        &self,
+        region: &mut Region<'_, Fr>,
+        offset: usize,
+        old: &StorageEntry,
+        new: &StorageEntry,
+    ) -> usize {
+        self.segment_type
+            .assign(region, offset, SegmentType::StorageLeaf0);
+        self.direction.assign(region, offset, true);
+        self.sibling.assign(region, offset, old.path_hash());
 
-    //     let [new_key_high, new_key_low, new_key_hash] = new[0];
-    //     let [new_value_high, new_value_low, new_value_hash] = new[1];
-    //     let new_entry_hash = new[2][2];
+        let old_hash = old.value_hash();
+        let new_hash = new.value_hash();
+        self.old_hash.assign(region, offset, old_hash);
+        self.new_hash.assign(region, offset, new_hash);
+        self.old_hash_is_zero.assign(region, offset, old_hash);
+        self.new_hash_is_zero.assign(region, offset, new_hash);
 
-    //     2
-    // }
+        let assign_word = |region: &mut Region<'_, Fr>, word: U256, column: &AdviceColumn| {
+            let (high, low) = u256_hi_lo(&word);
+            let rlc_high = rlc(&high.to_be_bytes(), Fr::from(RANDOMNESS));
+            let rlc_low = rlc(&low.to_be_bytes(), Fr::from(RANDOMNESS));
+            column.assign(region, offset, Fr::from_u128(high));
+            column.assign(region, offset - 1, Fr::from_u128(low));
+            column.assign(region, offset - 2, rlc_high);
+            column.assign(region, offset - 3, rlc_low);
+        };
+
+        assign_word(region, old.key, &self.upper_128_bits);
+        self.upper_128_bits.assign(region, offset - 4, old.path());
+        assign_word(region, old.value, &self.other_key_hash);
+        assign_word(region, new.value, &self.other_leaf_data_hash);
+
+        1
+    }
 }
 
 fn old_left<F: FieldExt>(config: &MptUpdateConfig<F>) -> Query<F> {
@@ -1517,7 +1556,7 @@ fn configure_storage<F: FieldExt>(
                     cb.assert_equal(
                         "rlc_word = rlc(high) * randomness ^ 16 + rlc(low)",
                         rlc_word,
-                        high.clone() * randomness_raised_to_16.clone() + low.clone(),
+                        rlc_high.clone() * randomness_raised_to_16.clone() + rlc_low.clone(),
                     );
                     cb.add_lookup(
                         "hash_word = h(high, low)",
@@ -1616,7 +1655,7 @@ mod test {
     };
     use super::*;
     use crate::{constraint_builder::SelectorColumn, serde::SMTTrace};
-    use ethers_core::types::{U256};
+    use ethers_core::types::U256;
     use halo2_proofs::{
         circuit::{Layouter, SimpleFloorPlanner},
         dev::MockProver,
@@ -1792,16 +1831,24 @@ mod test {
                             u256_hi_lo(&proof.claim.storage_key());
                         u128s.push(storage_key_high);
                         u128s.push(storage_key_low);
-                        if let Some(account) = proof.old_account {
-                            let (hi, lo) = u256_hi_lo(&account.keccak_codehash);
-                            u128s.push(hi);
-                            u128s.push(lo);
-                        };
-                        if let Some(account) = proof.new_account {
-                            let (hi, lo) = u256_hi_lo(&account.keccak_codehash);
-                            u128s.push(hi);
-                            u128s.push(lo);
-                        };
+
+                        match &proof.storage {
+                            StorageProof::Root(_) => unreachable!(),
+                            StorageProof::Update {
+                                old_entry,
+                                new_entry,
+                                ..
+                            } => {
+                                let (old_value_high, old_value_low) = u256_hi_lo(&old_entry.value);
+                                let (new_value_high, new_value_low) = u256_hi_lo(&new_entry.value);
+                                u128s.extend(vec![
+                                    old_value_high,
+                                    old_value_low,
+                                    new_value_high,
+                                    new_value_low,
+                                ]);
+                            }
+                        }
                     }
                     _ => {}
                 }

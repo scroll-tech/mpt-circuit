@@ -17,15 +17,23 @@ pub enum StorageProof {
 
 #[derive(Clone, Debug)]
 pub struct StorageEntry {
-    key: U256,
-    value: U256,
+    pub key: U256,
+    pub value: U256,
 }
 
 impl StorageProof {
     pub fn n_rows(&self) -> usize {
         match self {
             Self::Root(_) => 0,
-            Self::Update { trie_rows, .. } => trie_rows.len(),
+            Self::Update {
+                trie_rows,
+                old_entry,
+                new_entry,
+                ..
+            } => {
+                trie_rows.len()
+                    + usize::from(!old_entry.value.is_zero() || !new_entry.value.is_zero())
+            }
         }
     }
     pub fn old_root(&self) -> Fr {
@@ -45,7 +53,41 @@ impl StorageProof {
     pub fn poseidon_lookups(&self) -> Vec<(Fr, Fr, Fr)> {
         match self {
             Self::Root(_) => vec![],
-            Self::Update { trie_rows, .. } => trie_rows.poseidon_lookups(),
+            Self::Update {
+                trie_rows,
+                old_entry,
+                new_entry,
+                ..
+            } => {
+                let mut lookups = trie_rows.poseidon_lookups();
+                match (old_entry.value.is_zero(), new_entry.value.is_zero()) {
+                    (true, true) => {
+                        unimplemented!()
+                    }
+                    (true, false) => {
+                        unimplemented!()
+                    }
+                    (false, true) => {
+                        unimplemented!()
+                    }
+                    (false, false) => {
+                        assert_eq!(old_entry.key, new_entry.key);
+                        lookups.push((old_entry.key_high(), old_entry.key_low(), old_entry.path()));
+                        lookups.push((Fr::one(), old_entry.path(), old_entry.path_hash()));
+                        lookups.push((
+                            old_entry.value_high(),
+                            old_entry.value_low(),
+                            old_entry.value_hash(),
+                        ));
+                        lookups.push((
+                            new_entry.value_high(),
+                            new_entry.value_low(),
+                            new_entry.value_hash(),
+                        ));
+                    }
+                }
+                lookups
+            }
         }
     }
 
@@ -53,7 +95,11 @@ impl StorageProof {
         match self {
             Self::Root(_) => vec![],
             Self::Update {
-                path, trie_rows, ..
+                path,
+                trie_rows,
+                old_entry,
+                new_entry,
+                ..
             } => trie_rows.key_bit_lookups(*path),
         }
     }
