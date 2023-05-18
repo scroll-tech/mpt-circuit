@@ -5,7 +5,6 @@ use crate::{
 };
 use halo2_proofs::halo2curves::bn256::Fr;
 use itertools::{EitherOrBoth, Itertools};
-use std::iter::once;
 
 #[derive(Clone, Debug)]
 pub struct TrieRow {
@@ -62,24 +61,20 @@ impl TrieRows {
                                 path_type: PathType::Common,
                             }
                         }
-                        EitherOrBoth::Left(old) => {
-                            (TrieRow {
-                                direction,
-                                old: fr(old.value),
-                                new: new_leaf_hash,
-                                sibling: fr(old.sibling),
-                                path_type: PathType::ExtensionOld,
-                            })
-                        }
-                        EitherOrBoth::Right(new) => {
-                            (TrieRow {
-                                direction,
-                                old: old_leaf_hash,
-                                new: fr(new.value),
-                                sibling: fr(new.sibling),
-                                path_type: PathType::ExtensionNew,
-                            })
-                        }
+                        EitherOrBoth::Left(old) => TrieRow {
+                            direction,
+                            old: fr(old.value),
+                            new: new_leaf_hash,
+                            sibling: fr(old.sibling),
+                            path_type: PathType::ExtensionOld,
+                        },
+                        EitherOrBoth::Right(new) => TrieRow {
+                            direction,
+                            old: old_leaf_hash,
+                            new: fr(new.value),
+                            sibling: fr(new.sibling),
+                            path_type: PathType::ExtensionNew,
+                        },
                     }
                 })
                 .collect(),

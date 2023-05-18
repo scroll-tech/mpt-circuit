@@ -1,9 +1,6 @@
 use super::{byte_bit::RangeCheck256Lookup, is_zero::IsZeroGadget, RANDOMNESS};
-use crate::constraint_builder::{
-    AdviceColumn, ConstraintBuilder, FixedColumn, Query, SelectorColumn,
-};
-use crate::util::u256_to_big_endian;
-use ethers_core::types::{Address, H256, U256};
+use crate::constraint_builder::{AdviceColumn, ConstraintBuilder, FixedColumn, Query};
+use ethers_core::types::{Address, H256};
 use halo2_proofs::{
     arithmetic::FieldExt, circuit::Region, halo2curves::bn256::Fr, plonk::ConstraintSystem,
 };
@@ -145,6 +142,7 @@ fn fr_to_big_endian(x: &Fr) -> Vec<u8> {
 #[cfg(test)]
 mod test {
     use super::{super::byte_bit::ByteBitGadget, *};
+    use crate::constraint_builder::SelectorColumn;
     use halo2_proofs::{
         circuit::{Layouter, SimpleFloorPlanner},
         dev::MockProver,

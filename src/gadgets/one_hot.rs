@@ -1,7 +1,5 @@
-use crate::constraint_builder::BinaryQuery;
-use crate::constraint_builder::{AdviceColumn, BinaryColumn, ConstraintBuilder, Query};
+use crate::constraint_builder::{BinaryColumn, BinaryQuery, ConstraintBuilder, Query};
 use halo2_proofs::{arithmetic::FieldExt, circuit::Region, plonk::ConstraintSystem};
-use itertools::Itertools;
 use std::{cmp::Eq, collections::HashMap, hash::Hash};
 use strum::IntoEnumIterator;
 

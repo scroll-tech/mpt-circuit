@@ -7,7 +7,7 @@ use num_traits::identities::Zero;
 use crate::{
     operation::{Account, SMTPathParse},
     serde::{AccountData, HexBytes, SMTNode, SMTPath, SMTTrace},
-    util::{balance_convert, rlc, u256_from_hex, u256_to_big_endian, u256_to_fr},
+    util::{balance_convert, rlc, u256_from_hex, u256_to_big_endian},
     Hashable, MPTProofType,
 };
 

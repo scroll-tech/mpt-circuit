@@ -13,14 +13,13 @@ use super::{
     RANDOMNESS,
 };
 use crate::{
-    constraint_builder::{AdviceColumn, ConstraintBuilder, Query, SelectorColumn},
-    serde::SMTTrace,
+    constraint_builder::{AdviceColumn, ConstraintBuilder, Query},
     types::{account_key, hash, storage::StorageProof, trie::TrieRows, ClaimKind, Proof},
     util::{rlc, storage_key_hash, u256_hi_lo, u256_to_big_endian}, // rlc is clobbered by rlc in configure....
     MPTProofType,
 };
 use ethers_core::k256::elliptic_curve::PrimeField;
-use ethers_core::types::{Address, U256};
+use ethers_core::types::Address;
 use halo2_proofs::{
     arithmetic::{Field, FieldExt},
     circuit::Region,
@@ -298,7 +297,6 @@ impl<F: FieldExt> MptUpdateConfig<F> {
             let storage_key = rlc(&u256_to_big_endian(&proof.claim.storage_key()), randomness);
             let old_value = proof.claim.old_value_assignment(randomness);
             let new_value = proof.claim.new_value_assignment(randomness);
-            dbg!(new_value);
 
             for i in 0..proof.n_rows() {
                 self.proof_type.assign(region, offset + i, proof_type);
@@ -433,7 +431,6 @@ impl<F: FieldExt> MptUpdateConfig<F> {
                         previous_new_hash = *new_hash;
                     }
                 }
-                dbg!(offset);
                 offset += 1;
             }
 
@@ -584,7 +581,6 @@ impl<F: FieldExt> MptUpdateConfig<F> {
                 _ => (),
             }
 
-            dbg!(next_offset);
             self.assign_storage(region, next_offset, &proof.storage);
         }
     }
@@ -597,7 +593,6 @@ impl<F: FieldExt> MptUpdateConfig<F> {
     ) -> usize {
         for (i, row) in rows.0.iter().enumerate() {
             let offset = starting_offset + i;
-            dbg!(offset, row.clone());
             self.depth
                 .assign(region, offset, u64::try_from(i + 1).unwrap());
             self.path_type.assign(region, offset, row.path_type);
@@ -622,7 +617,6 @@ impl<F: FieldExt> MptUpdateConfig<F> {
     }
 
     fn assign_storage(&self, region: &mut Region<'_, Fr>, offset: usize, storage: &StorageProof) {
-        dbg!(offset);
         if let StorageProof::Update {
             path,
             trie_rows,
@@ -1621,8 +1615,8 @@ mod test {
         poseidon::PoseidonConfig,
     };
     use super::*;
-    // use crate::types::{account_key, hash};
-    use ethers_core::types::{H160, H256, U256};
+    use crate::{constraint_builder::SelectorColumn, serde::SMTTrace};
+    use ethers_core::types::{U256};
     use halo2_proofs::{
         circuit::{Layouter, SimpleFloorPlanner},
         dev::MockProver,
@@ -1666,7 +1660,6 @@ mod test {
                         hash_traces.push((*left, *right, hash(*left, *right)));
                     }
                 }
-                // dbg!(proof.storage.poseidon_lookups());
                 assert_eq!(
                     proof.storage.old_root(),
                     proof.old_account_hash_traces[1][0]
@@ -1770,15 +1763,12 @@ mod test {
                     }
                     MPTProofType::BalanceChanged => {
                         u128s.push(address_high(proof.claim.address));
-                        dbg!(proof.old_account);
-                        dbg!(proof.new_account);
                         if let Some(account) = proof.old_account {
                             frs.push(account.balance);
                         };
                         if let Some(account) = proof.new_account {
                             frs.push(account.balance);
                         };
-                        dbg!(frs.clone());
                     }
                     MPTProofType::PoseidonCodeHashExists => {
                         u128s.push(address_high(proof.claim.address));
@@ -1919,7 +1909,6 @@ mod test {
             ) = config;
 
             let (u64s, u128s, frs) = self.byte_representations();
-            dbg!(frs.clone());
 
             layouter.assign_region(
                 || "",
@@ -2074,27 +2063,6 @@ mod test {
                 ),
                 account_key(address)
             );
-        }
-    }
-
-    #[test]
-    fn poseidon_zero_hash() {
-        assert_eq!(hash(Fr::zero(), Fr::zero()), Fr::zero())
-    }
-
-    #[test]
-    fn find_matching_keys() {
-        let zero_key = account_key(H160::zero()).to_bytes()[0];
-        for i in 0..255u8 {
-            let mut address_bytes = [0; 20];
-            address_bytes[0] = i;
-            for j in 1..255u8 {
-                address_bytes[1] = j;
-                let key_byte = account_key(H160(address_bytes)).to_bytes()[0];
-                if zero_key == key_byte {
-                    panic!("{:?}", (i, j));
-                }
-            }
         }
     }
 }
