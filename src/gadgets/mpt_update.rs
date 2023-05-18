@@ -1394,33 +1394,6 @@ fn configure_storage<F: FieldExt>(
             SegmentType::Start | SegmentType::AccountTrie => {}
             SegmentType::AccountLeaf0 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
-
-                // this should hold for all MPTProofType's
-                let address_low: Query<F> = (config.address.current()
-                    - config.upper_128_bits.current() * (1 << 32))
-                    * (1 << 32)
-                    * (1 << 32)
-                    * (1 << 32);
-                cb.add_lookup(
-                    "key = h(address_high, address_low)",
-                    [
-                        config.upper_128_bits.current(),
-                        address_low,
-                        config.key.previous(),
-                    ],
-                    poseidon.lookup(),
-                );
-                cb.add_lookup(
-                    "sibling = h(1, key)",
-                    [
-                        Query::one(),
-                        // this could be Start, which could have key = 0. Do we need to special case that?
-                        // We could also just assign a non-zero key here....
-                        config.key.previous(),
-                        config.sibling.current(),
-                    ],
-                    poseidon.lookup(),
-                );
             }
             SegmentType::AccountLeaf1 => {
                 cb.assert_zero("direction is 0", config.direction.current());
@@ -1462,10 +1435,10 @@ fn configure_storage<F: FieldExt>(
                         rlc_word,
                         rlc_high.clone() * randomness_raised_to_16.clone() + rlc_low.clone(),
                     );
-                    cb.add_lookup(
+                    cb.poseidon_lookup(
                         "hash_word = h(high, low)",
                         [high, low, hash_word],
-                        poseidon.lookup(),
+                        poseidon,
                     );
                 };
 
@@ -1479,10 +1452,10 @@ fn configure_storage<F: FieldExt>(
                     config.storage_key_rlc.current(),
                     storage_key_hash.clone(),
                 );
-                cb.add_lookup(
+                cb.poseidon_lookup(
                     "sibling = h(1, storage_key_hash)",
                     [Query::one(), storage_key_hash, config.sibling.current()],
-                    poseidon.lookup(),
+                    poseidon,
                 );
 
                 configure_word(
