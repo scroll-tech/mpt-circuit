@@ -1272,33 +1272,6 @@ fn configure_keccak_code_hash<F: FieldExt>(
             SegmentType::Start | SegmentType::AccountTrie => {}
             SegmentType::AccountLeaf0 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
-
-                // this should hold for all MPTProofType's
-                let address_low: Query<F> = (config.address.current()
-                    - config.upper_128_bits.current() * (1 << 32))
-                    * (1 << 32)
-                    * (1 << 32)
-                    * (1 << 32);
-                cb.add_lookup(
-                    "key = h(address_high, address_low)",
-                    [
-                        config.upper_128_bits.current(),
-                        address_low,
-                        config.key.previous(),
-                    ],
-                    poseidon.lookup(),
-                );
-                cb.add_lookup(
-                    "sibling = h(1, key)",
-                    [
-                        Query::one(),
-                        // this could be Start, which could have key = 0. Do we need to special case that?
-                        // We could also just assign a non-zero key here....
-                        config.key.previous(),
-                        config.sibling.current(),
-                    ],
-                    poseidon.lookup(),
-                );
             }
             SegmentType::AccountLeaf1 => {
                 cb.assert_zero("direction is 0", config.direction.current());
@@ -1319,10 +1292,10 @@ fn configure_keccak_code_hash<F: FieldExt>(
                         // values here.
                         let [old_high, old_low] =
                             [-1, 0].map(|i| config.other_key_hash.rotation(i));
-                        cb.add_lookup(
+                        cb.poseidon_lookup(
                             "old hash = poseidon(high, low)",
                             [old_high.clone(), old_low.clone(), config.old_hash.current()],
-                            poseidon.lookup(),
+                            poseidon,
                         );
                         cb.add_lookup(
                             "old_high is 16 bytes",
@@ -1359,10 +1332,10 @@ fn configure_keccak_code_hash<F: FieldExt>(
 
                         let [new_high, new_low] =
                             [-1, 0].map(|i| config.upper_128_bits.rotation(i));
-                        cb.add_lookup(
+                        cb.poseidon_lookup(
                             "new hash = poseidon(high, low)",
                             [new_high.clone(), new_low.clone(), config.new_hash.current()],
-                            poseidon.lookup(),
+                            poseidon,
                         );
                         cb.add_lookup(
                             "new_high is 16 bytes",
