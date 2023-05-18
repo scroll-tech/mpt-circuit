@@ -10,15 +10,16 @@ pub enum StorageProof {
     Update {
         path: Fr,
         trie_rows: TrieRows,
-        old_entry: StorageEntry,
-        new_entry: StorageEntry,
+        old_leaf: StorageLeaf,
+        new_leaf: StorageLeaf,
     },
 }
 
 #[derive(Clone, Debug)]
-pub struct StorageEntry {
-    pub key: U256,
-    pub value: U256,
+pub enum StorageLeaf {
+    Empty,
+    Leaf { key: U256, value_hash: Fr },
+    Entry { key: U256, value: U256 },
 }
 
 impl StorageProof {
@@ -27,25 +28,32 @@ impl StorageProof {
             Self::Root(_) => 0,
             Self::Update {
                 trie_rows,
-                old_entry,
-                new_entry,
+                old_leaf,
+                new_leaf,
                 ..
-            } => {
-                trie_rows.len()
-                    + usize::from(!old_entry.value.is_zero() || !new_entry.value.is_zero())
-            }
+            } => trie_rows.len() + std::cmp::max(old_leaf.n_rows(), new_leaf.n_rows()),
         }
     }
+
     pub fn old_root(&self) -> Fr {
         match self {
             Self::Root(root) => *root,
-            Self::Update { trie_rows, .. } => trie_rows.old_root(),
+            Self::Update {
+                trie_rows,
+                old_leaf,
+                ..
+            } => trie_rows.old_root(|| old_leaf.hash()),
         }
     }
+
     pub fn new_root(&self) -> Fr {
         match self {
             Self::Root(root) => *root,
-            Self::Update { trie_rows, .. } => trie_rows.new_root(),
+            Self::Update {
+                trie_rows,
+                new_leaf,
+                ..
+            } => trie_rows.new_root(|| new_leaf.hash()),
         }
     }
 
@@ -54,12 +62,12 @@ impl StorageProof {
             Self::Root(_) => vec![],
             Self::Update {
                 trie_rows,
-                old_entry,
-                new_entry,
+                old_leaf,
+                new_leaf,
                 ..
             } => {
                 let mut lookups = trie_rows.poseidon_lookups();
-                match (old_entry.value.is_zero(), new_entry.value.is_zero()) {
+                match (old_leaf.value().is_zero(), new_leaf.value().is_zero()) {
                     (true, true) => {
                         unimplemented!()
                     }
@@ -70,18 +78,18 @@ impl StorageProof {
                         unimplemented!()
                     }
                     (false, false) => {
-                        assert_eq!(old_entry.key, new_entry.key);
-                        lookups.push((old_entry.key_high(), old_entry.key_low(), old_entry.path()));
-                        lookups.push((Fr::one(), old_entry.path(), old_entry.path_hash()));
+                        assert_eq!(old_leaf.key(), new_leaf.key());
+                        lookups.push((old_leaf.key_high(), old_leaf.key_low(), old_leaf.path()));
+                        lookups.push((Fr::one(), old_leaf.path(), old_leaf.path_hash()));
                         lookups.push((
-                            old_entry.value_high(),
-                            old_entry.value_low(),
-                            old_entry.value_hash(),
+                            old_leaf.value_high(),
+                            old_leaf.value_low(),
+                            old_leaf.value_hash(),
                         ));
                         lookups.push((
-                            new_entry.value_high(),
-                            new_entry.value_low(),
-                            new_entry.value_hash(),
+                            new_leaf.value_high(),
+                            new_leaf.value_low(),
+                            new_leaf.value_hash(),
                         ));
                     }
                 }
@@ -94,23 +102,39 @@ impl StorageProof {
         match self {
             Self::Root(_) => vec![],
             Self::Update {
-                path,
-                trie_rows,
-                old_entry,
-                new_entry,
-                ..
+                path, trie_rows, ..
             } => trie_rows.key_bit_lookups(*path),
         }
     }
 }
 
-impl StorageEntry {
+impl StorageLeaf {
+    fn n_rows(&self) -> usize {
+        match self {
+            Self::Empty => 0,
+            Self::Leaf { .. } | Self::Entry { .. } => 1,
+        }
+    }
+
+    pub fn key(&self) -> U256 {
+        match self {
+            Self::Empty => U256::zero(),
+            Self::Leaf { key, .. } | Self::Entry { key, .. } => *key,
+        }
+    }
+
     pub fn key_high(&self) -> Fr {
-        Fr::from_u128(u256_hi_lo(&self.key).0)
+        match self {
+            Self::Empty => Fr::zero(),
+            Self::Leaf { key, .. } | Self::Entry { key, .. } => Fr::from_u128(u256_hi_lo(&key).0),
+        }
     }
 
     pub fn key_low(&self) -> Fr {
-        Fr::from_u128(u256_hi_lo(&self.key).1)
+        match self {
+            Self::Empty => Fr::zero(),
+            Self::Leaf { key, .. } | Self::Entry { key, .. } => Fr::from_u128(u256_hi_lo(&key).1),
+        }
     }
 
     pub fn path(&self) -> Fr {
@@ -121,12 +145,25 @@ impl StorageEntry {
         hash(Fr::one(), self.path())
     }
 
+    pub fn value(&self) -> U256 {
+        match self {
+            Self::Empty | Self::Leaf { .. } => U256::zero(),
+            Self::Entry { value, .. } => *value,
+        }
+    }
+
     pub fn value_high(&self) -> Fr {
-        Fr::from_u128(u256_hi_lo(&self.value).0)
+        match self {
+            Self::Empty | Self::Leaf { .. } => Fr::zero(),
+            Self::Entry { value, .. } => Fr::from_u128(u256_hi_lo(&value).0),
+        }
     }
 
     pub fn value_low(&self) -> Fr {
-        Fr::from_u128(u256_hi_lo(&self.value).1)
+        match self {
+            Self::Empty | Self::Leaf { .. } => Fr::zero(),
+            Self::Entry { value, .. } => Fr::from_u128(u256_hi_lo(&value).1),
+        }
     }
 
     pub fn value_hash(&self) -> Fr {
@@ -151,26 +188,33 @@ impl From<&SMTTrace> for StorageProof {
             &new_path.as_ref().unwrap().path,
         );
 
-        assert_eq!(trie_rows.old_root(), fr(old_path.as_ref().unwrap().root));
-        assert_eq!(trie_rows.new_root(), fr(new_path.as_ref().unwrap().root));
-
-        let [old_entry, new_entry] = trace
+        let [old_leaf, new_leaf] = trace
             .state_update
             .unwrap()
-            .map(|data| StorageEntry::from(&data.unwrap()));
-        Self::Update {
+            .map(|data| StorageLeaf::from(&data.unwrap()));
+
+        let storage_proof = Self::Update {
             path,
             trie_rows,
-            old_entry,
-            new_entry,
-        }
+            old_leaf,
+            new_leaf,
+        };
+        assert_eq!(
+            storage_proof.old_root(),
+            fr(old_path.as_ref().unwrap().root)
+        );
+        assert_eq!(
+            storage_proof.new_root(),
+            fr(new_path.as_ref().unwrap().root)
+        );
+        storage_proof
     }
 }
 
-// TODO: think carefully about should (0, 0) be None or (0, 0)
-impl From<&StateData> for StorageEntry {
+// TODOOOOOO
+impl From<&StateData> for StorageLeaf {
     fn from(data: &StateData) -> Self {
-        Self {
+        Self::Entry {
             key: u256_from_hex(data.key),
             value: u256_from_hex(data.value),
         }

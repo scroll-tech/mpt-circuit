@@ -16,7 +16,7 @@ use crate::{
     constraint_builder::{AdviceColumn, ConstraintBuilder, Query},
     types::{
         account_key, hash,
-        storage::{StorageEntry, StorageProof},
+        storage::{StorageLeaf, StorageProof},
         trie::TrieRows,
         ClaimKind, Proof,
     },
@@ -635,8 +635,8 @@ impl<F: FieldExt> MptUpdateConfig<F> {
             StorageProof::Update {
                 path,
                 trie_rows,
-                old_entry,
-                new_entry,
+                old_leaf,
+                new_leaf,
             } => {
                 let n_trie_rows = self.assign_trie_rows(region, offset, trie_rows);
                 for i in 0..n_trie_rows {
@@ -647,12 +647,8 @@ impl<F: FieldExt> MptUpdateConfig<F> {
                     self.key_equals_other_key
                         .assign(region, offset + i, *path, *path);
                 }
-                let n_leaf_rows = self.assign_storage_leaf_row(
-                    region,
-                    offset + n_trie_rows,
-                    old_entry,
-                    new_entry,
-                );
+                let n_leaf_rows =
+                    self.assign_storage_leaf_row(region, offset + n_trie_rows, old_leaf, new_leaf);
                 n_trie_rows + n_leaf_rows
             }
         }
@@ -662,8 +658,8 @@ impl<F: FieldExt> MptUpdateConfig<F> {
         &self,
         region: &mut Region<'_, Fr>,
         offset: usize,
-        old: &StorageEntry,
-        new: &StorageEntry,
+        old: &StorageLeaf,
+        new: &StorageLeaf,
     ) -> usize {
         self.segment_type
             .assign(region, offset, SegmentType::StorageLeaf0);
@@ -687,10 +683,10 @@ impl<F: FieldExt> MptUpdateConfig<F> {
             column.assign(region, offset - 3, rlc_low);
         };
 
-        assign_word(region, old.key, &self.upper_128_bits);
+        assign_word(region, old.key(), &self.upper_128_bits);
         self.upper_128_bits.assign(region, offset - 4, old.path());
-        assign_word(region, old.value, &self.other_key_hash);
-        assign_word(region, new.value, &self.other_leaf_data_hash);
+        assign_word(region, old.value(), &self.other_key_hash);
+        assign_word(region, new.value(), &self.other_leaf_data_hash);
 
         1
     }
@@ -1835,12 +1831,10 @@ mod test {
                         match &proof.storage {
                             StorageProof::Root(_) => unreachable!(),
                             StorageProof::Update {
-                                old_entry,
-                                new_entry,
-                                ..
+                                old_leaf, new_leaf, ..
                             } => {
-                                let (old_value_high, old_value_low) = u256_hi_lo(&old_entry.value);
-                                let (new_value_high, new_value_low) = u256_hi_lo(&new_entry.value);
+                                let (old_value_high, old_value_low) = u256_hi_lo(&old_leaf.value());
+                                let (new_value_high, new_value_low) = u256_hi_lo(&new_leaf.value());
                                 u128s.extend(vec![
                                     old_value_high,
                                     old_value_low,
@@ -2097,6 +2091,14 @@ mod test {
         mock_prove(
             MPTProofType::StorageChanged,
             include_str!("../../tests/generated/storage/update_storage_existing_to_existing.json"),
+        );
+    }
+
+    #[test]
+    fn write_empty_storage_trie() {
+        mock_prove(
+            MPTProofType::StorageChanged,
+            include_str!("../../tests/generated/storage/write_empty_storage_trie.json"),
         );
     }
 

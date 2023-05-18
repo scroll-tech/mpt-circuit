@@ -124,11 +124,11 @@ impl TrieRows {
         lookups
     }
 
-    pub fn old_root(&self) -> Fr {
-        self.0.first().map_or_else(Fr::zero, TrieRow::old_hash)
+    pub fn old_root(&self, leaf_hash: impl FnOnce() -> Fr) -> Fr {
+        self.0.first().map_or_else(leaf_hash, TrieRow::old_hash)
     }
 
-    pub fn new_root(&self) -> Fr {
-        self.0.first().map_or_else(Fr::zero, TrieRow::new_hash)
+    pub fn new_root(&self, leaf_hash: impl FnOnce() -> Fr) -> Fr {
+        self.0.first().map_or_else(leaf_hash, TrieRow::new_hash)
     }
 }
