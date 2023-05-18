@@ -48,7 +48,6 @@ impl StorageProof {
             Self::Update { trie_rows, .. } => trie_rows.new_root(),
         }
     }
-    pub fn sanity_check(&self) {}
 
     pub fn poseidon_lookups(&self) -> Vec<(Fr, Fr, Fr)> {
         match self {
