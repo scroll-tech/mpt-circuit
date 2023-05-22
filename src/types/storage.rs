@@ -10,7 +10,7 @@ use halo2_proofs::{arithmetic::FieldExt, halo2curves::bn256::Fr};
 pub enum StorageProof {
     Root(Fr), // Not proving a storage update, so we only need the storage root.
     Update {
-        path: Fr,
+        key: Fr,
         trie_rows: TrieRows,
         old_leaf: StorageLeaf,
         new_leaf: StorageLeaf,
@@ -79,9 +79,7 @@ impl StorageProof {
     pub fn key_bit_lookups(&self) -> Vec<(Fr, usize, bool)> {
         match self {
             Self::Root(_) => vec![],
-            Self::Update {
-                path, trie_rows, ..
-            } => trie_rows.key_bit_lookups(*path),
+            Self::Update { key, trie_rows, .. } => trie_rows.key_bit_lookups(*key),
         }
     }
 }
@@ -180,12 +178,12 @@ impl From<&SMTTrace> for StorageProof {
         if let Some(root) = trace.common_state_root {
             return Self::Root(fr(root));
         }
-        let path = fr(trace.state_key.unwrap());
+        let key = fr(trace.state_key.unwrap());
         let [old_path, new_path] = &trace.state_path;
         let old_leaf = old_path.as_ref().unwrap().leaf;
         let new_leaf = new_path.as_ref().unwrap().leaf;
         let trie_rows = TrieRows::new(
-            path,
+            key,
             &old_path.as_ref().unwrap().path,
             &new_path.as_ref().unwrap().path,
             old_leaf,
@@ -193,11 +191,11 @@ impl From<&SMTTrace> for StorageProof {
         );
 
         let [old_entry, new_entry] = trace.state_update.unwrap().map(Option::unwrap);
-        let old_leaf = StorageLeaf::new(path, &old_leaf, &old_entry);
-        let new_leaf = StorageLeaf::new(path, &new_leaf, &new_entry);
+        let old_leaf = StorageLeaf::new(key, &old_leaf, &old_entry);
+        let new_leaf = StorageLeaf::new(key, &new_leaf, &new_entry);
 
         let storage_proof = Self::Update {
-            path,
+            key,
             trie_rows,
             old_leaf,
             new_leaf,
