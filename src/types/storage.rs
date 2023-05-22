@@ -1,5 +1,5 @@
 use crate::{
-    serde::{SMTTrace, StateData},
+    serde::{SMTNode, SMTTrace, StateData},
     types::trie::TrieRows,
     util::{fr, hash, storage_key_hash, u256_from_hex, u256_hi_lo},
 };
@@ -17,7 +17,7 @@ pub enum StorageProof {
     },
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum StorageLeaf {
     Empty { mpt_key: Fr },                    // Type 2 empty storage leaf
     Leaf { mpt_key: Fr, value_hash: Fr },     // Type 1 empty storage leaf
@@ -87,6 +87,28 @@ impl StorageProof {
 }
 
 impl StorageLeaf {
+    fn new(mpt_key: Fr, node: &Option<SMTNode>, data: &StateData) -> Self {
+        let value = u256_from_hex(data.value);
+        match (node, value.is_zero()) {
+            (None, true) => Self::Empty { mpt_key },
+            (Some(node), true) => {
+                assert_eq!(mpt_key, storage_key_hash(u256_from_hex(data.key)));
+                let (value_high, value_low) = u256_hi_lo(&u256_from_hex(data.value));
+                Self::Leaf {
+                    mpt_key,
+                    value_hash: hash(Fr::from_u128(value_high), Fr::from_u128(value_low)),
+                }
+            }
+            (Some(node), false) => Self::Entry {
+                storage_key: u256_from_hex(data.key),
+                value,
+            },
+            (None, false) => {
+                unreachable!();
+            }
+        }
+    }
+
     fn n_rows(&self) -> usize {
         match self {
             Self::Empty { .. } => 0,
@@ -119,11 +141,11 @@ impl StorageLeaf {
         }
     }
 
-    pub fn value_high(&self) -> Fr {
+    fn value_high(&self) -> Fr {
         Fr::from_u128(u256_hi_lo(&self.value()).0)
     }
 
-    pub fn value_low(&self) -> Fr {
+    fn value_low(&self) -> Fr {
         Fr::from_u128(u256_hi_lo(&self.value()).1)
     }
 
@@ -132,7 +154,12 @@ impl StorageLeaf {
     }
 
     pub fn hash(&self) -> Fr {
-        hash(self.key_hash(), self.value_hash())
+        dbg!(&self);
+        if let Self::Empty { .. } = self {
+            Fr::zero()
+        } else {
+            hash(self.key_hash(), self.value_hash())
+        }
     }
 
     fn poseidon_lookups(&self) -> Vec<(Fr, Fr, Fr)> {
@@ -155,16 +182,19 @@ impl From<&SMTTrace> for StorageProof {
         }
         let path = fr(trace.state_key.unwrap());
         let [old_path, new_path] = &trace.state_path;
+        let old_leaf = old_path.as_ref().unwrap().leaf;
+        let new_leaf = new_path.as_ref().unwrap().leaf;
         let trie_rows = TrieRows::new(
             path,
             &old_path.as_ref().unwrap().path,
             &new_path.as_ref().unwrap().path,
+            old_leaf,
+            new_leaf,
         );
 
-        let [old_leaf, new_leaf] = trace
-            .state_update
-            .unwrap()
-            .map(|data| StorageLeaf::from(&data.unwrap()));
+        let [old_entry, new_entry] = trace.state_update.unwrap().map(Option::unwrap);
+        let old_leaf = StorageLeaf::new(path, &old_leaf, &old_entry);
+        let new_leaf = StorageLeaf::new(path, &new_leaf, &new_entry);
 
         let storage_proof = Self::Update {
             path,
@@ -181,15 +211,5 @@ impl From<&SMTTrace> for StorageProof {
             fr(new_path.as_ref().unwrap().root)
         );
         storage_proof
-    }
-}
-
-// TODOOOOOO
-impl From<&StateData> for StorageLeaf {
-    fn from(data: &StateData) -> Self {
-        Self::Entry {
-            storage_key: u256_from_hex(data.key),
-            value: u256_from_hex(data.value),
-        }
     }
 }

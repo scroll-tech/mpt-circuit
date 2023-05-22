@@ -40,9 +40,21 @@ impl TrieRow {
 }
 
 impl TrieRows {
-    pub fn new(key: Fr, old_nodes: &[SMTNode], new_nodes: &[SMTNode]) -> Self {
-        let [old_leaf_hash, new_leaf_hash] = [old_nodes.last(), new_nodes.last()]
-            .map(|node| node.map(|x| fr(x.value)).unwrap_or_default());
+    pub fn new(
+        key: Fr,
+        old_nodes: &[SMTNode],
+        new_nodes: &[SMTNode],
+        old_leaf: Option<SMTNode>,
+        new_leaf: Option<SMTNode>,
+    ) -> Self {
+        let old_leaf_hash = old_nodes
+            .last()
+            .map(|node| fr(node.value))
+            .unwrap_or_else(|| old_leaf.map(leaf_hash).unwrap_or_default());
+        let new_leaf_hash = new_nodes
+            .last()
+            .map(|node| fr(node.value))
+            .unwrap_or_else(|| old_leaf.map(leaf_hash).unwrap_or_default());
         Self(
             old_nodes
                 .iter()
@@ -131,4 +143,8 @@ impl TrieRows {
     pub fn new_root(&self, leaf_hash: impl FnOnce() -> Fr) -> Fr {
         self.0.first().map_or_else(leaf_hash, TrieRow::new_hash)
     }
+}
+
+fn leaf_hash(leaf: SMTNode) -> Fr {
+    hash(hash(Fr::one(), fr(leaf.sibling)), fr(leaf.value))
 }

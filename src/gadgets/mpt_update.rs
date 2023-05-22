@@ -2103,6 +2103,14 @@ mod test {
     }
 
     #[test]
+    fn write_singleton_storage_trie() {
+        mock_prove(
+            MPTProofType::StorageChanged,
+            include_str!("../../tests/generated/storage/write_singleton_storage_trie.json"),
+        );
+    }
+
+    #[test]
     fn test_account_key() {
         for address in vec![Address::zero(), Address::repeat_byte(0x56)] {
             assert_eq!(
