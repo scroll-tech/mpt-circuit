@@ -875,10 +875,6 @@ fn configure_extension_new<F: FieldExt>(
             );
 
             cb.condition(old_is_type_1, |cb| {
-                cb.assert(
-                    "path type is ExtensionNew for type 1 empty old account",
-                    config.path_type.current_matches(&[PathType::ExtensionNew]),
-                );
                 cb.add_lookup(
                     "previous old_hash = h(other_key_hash, other_leaf_data_hash)",
                     [
