@@ -624,8 +624,13 @@ impl<F: FieldExt> MptUpdateConfig<F> {
                     self.key_equals_other_key
                         .assign(region, offset + i, *key, other_key);
                 }
-                let n_leaf_rows =
-                    self.assign_storage_leaf_row(region, offset + n_trie_rows, *key, old_leaf, new_leaf);
+                let n_leaf_rows = self.assign_storage_leaf_row(
+                    region,
+                    offset + n_trie_rows,
+                    *key,
+                    old_leaf,
+                    new_leaf,
+                );
                 n_trie_rows + n_leaf_rows
             }
         }
@@ -653,13 +658,10 @@ impl<F: FieldExt> MptUpdateConfig<F> {
 
         self.key.assign(region, offset, key);
         let old_key = old.key();
-        let other_key = if key != old_key {
-            old_key
-        } else {
-            new.key()
-        };
+        let other_key = if key != old_key { old_key } else { new.key() };
         self.other_key.assign(region, offset, other_key);
-        self.key_equals_other_key.assign(region, offset, key, other_key);
+        self.key_equals_other_key
+            .assign(region, offset, key, other_key);
 
         let assign_word = |region: &mut Region<'_, Fr>, word: U256, column: &AdviceColumn| {
             let (high, low) = u256_hi_lo(&word);
@@ -2208,11 +2210,15 @@ mod test {
         );
     }
 
+    #[test]
     fn nonexisting_type_1() {
         mock_prove(
             MPTProofType::AccountDoesNotExist,
             include_str!("../../tests/dual_code_hash/type_1_empty_account.json"),
+        );
+    }
 
+    #[test]
     fn write_empty_storage_trie() {
         mock_prove(
             MPTProofType::StorageChanged,
@@ -2220,10 +2226,15 @@ mod test {
         );
     }
 
+    #[test]
     fn nonexisting_type_2() {
         mock_prove(
             MPTProofType::AccountDoesNotExist,
             include_str!("../../tests/dual_code_hash/type_2_empty_account.json"),
+        );
+    }
+
+    #[test]
     fn write_singleton_storage_trie() {
         mock_prove(
             MPTProofType::StorageChanged,
