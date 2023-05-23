@@ -1,9 +1,11 @@
-use super::byte_bit::{ByteBitLookup, RangeCheck256Lookup, RangeCheck8Lookup};
-use super::canonical_representation::CanonicalRepresentationLookup;
-use crate::constraint_builder::ConstraintBuilder;
-use crate::constraint_builder::{AdviceColumn, Query, SelectorColumn};
-use halo2_proofs::arithmetic::FieldExt;
-use halo2_proofs::plonk::ConstraintSystem;
+use super::{
+    byte_bit::{ByteBitLookup, RangeCheck256Lookup, RangeCheck8Lookup},
+    canonical_representation::CanonicalRepresentationLookup,
+};
+use crate::constraint_builder::{AdviceColumn, ConstraintBuilder, Query, SelectorColumn};
+use halo2_proofs::{
+    arithmetic::FieldExt, circuit::Region, halo2curves::bn256::Fr, plonk::ConstraintSystem,
+};
 
 pub trait KeyBitLookup {
     fn lookup<F: FieldExt>(&self) -> [Query<F>; 3];
@@ -15,7 +17,7 @@ pub struct KeyBitConfig {
 
     // Lookup columns
     value: AdviceColumn, // We're proving value.bit(i) = bit in this gadget
-    index: AdviceColumn, // 0 <= index <256
+    index: AdviceColumn, // 0 <= index < 256
     bit: AdviceColumn,
 
     // Witness columns
@@ -52,9 +54,14 @@ impl KeyBitConfig {
             [index_mod_8.current()],
             range_check_8.lookup(),
         );
+        // TODO: standardize endianess to remove this 31 here?
         cb.add_lookup(
-            "byte is correct",
-            [value.current(), index_div_8.current(), byte.current()],
+            "byte in canonical representation",
+            [
+                value.current(),
+                Query::from(31) - index_div_8.current(),
+                byte.current(),
+            ],
             representation.lookup(),
         );
         cb.add_lookup(
@@ -62,10 +69,10 @@ impl KeyBitConfig {
             [byte.current(), index_mod_8.current(), bit.current()],
             byte_bit.lookup(),
         );
-        cb.add_constraint(
+        cb.assert_equal(
             "index = index_div_8 * 8 + index_mod_8",
-            selector.current(),
-            index.current() - index_div_8.current() * 8 + index_mod_8.current(),
+            index.current(),
+            index_div_8.current() * 8 + index_mod_8.current(),
         );
 
         Self {
@@ -79,63 +86,28 @@ impl KeyBitConfig {
         }
     }
 
-    // fn synthesize(
-    //     &self,
-    //     config: Self::Config,
-    //     mut layouter: impl Layouter<Fr>,
-    // ) -> Result<(), Error> {
-    //     layouter.assign_region(
-    //         || "",
-    //         // |mut region| {
-    //         //     for offset in 0..256 {
-    //         //         config
-    //         //             .byte_lookup
-    //         //             .assign(&mut region, offset, u64::try_from(offset).unwrap());
-    //         //     }
-    //         //     let mut offset = 0;
-    //         //     for value in &self.values {
-    //         //         let mut bytes = value.to_bytes();
-    //         //         bytes.reverse();
-    //         //         let mut differences_are_zero_so_far = true;
-    //         //         for (index, (byte, modulus_byte)) in
-    //         //             bytes.iter().zip_eq(&modulus_bytes).enumerate()
-    //         //         {
-    //         //             config.selector.enable(&mut region, offset);
-    //         //             config.byte.assign(&mut region, offset, u64::from(*byte));
-    //         //             config
-    //         //                 .modulus_byte
-    //         //                 .assign(&mut region, offset, u64::from(*modulus_byte));
+    pub fn assign(&self, region: &mut Region<'_, Fr>, lookups: &[(Fr, usize, bool)]) {
+        // TODO; dedup lookups
+        for (offset, (value, index, bit)) in lookups.iter().enumerate() {
+            let bytes = value.to_bytes();
 
-    //         //             config
-    //         //                 .index
-    //         //                 .assign(&mut region, offset, u64::try_from(index).unwrap());
-    //         //             if index.is_zero() {
-    //         //                 config.index_is_zero.enable(&mut region, offset);
-    //         //             }
+            let index_div_8 = index / 8; // index = (31 - index/8) * 8
+            let index_mod_8 = index % 8;
+            let byte = bytes[index_div_8];
+            // sanity check. TODO: Get rid of bit in the assign fn?
+            assert_eq!(*bit, byte & 1 << index_mod_8 != 0);
 
-    //         //             let difference =
-    //         //                 Fr::from(u64::from(*modulus_byte)) - Fr::from(u64::from(*byte));
-    //         //             config.difference.assign(&mut region, offset, difference);
-    //         //             config
-    //         //                 .difference_is_zero
-    //         //                 .assign(&mut region, offset, difference);
-
-    //         //             config.differences_are_zero_so_far.assign(
-    //         //                 &mut region,
-    //         //                 offset,
-    //         //                 differences_are_zero_so_far,
-    //         //             );
-    //         //             differences_are_zero_so_far &= difference.is_zero_vartime();
-
-    //         //             config.value.assign(&mut region, offset, *value);
-
-    //         //             offset += 1
-    //         //         }
-    //         //     }
-    //         //     Ok(())
-    //         // },
-    //     )
-    // }
+            self.value.assign(region, offset, *value);
+            self.index
+                .assign(region, offset, u64::try_from(*index).unwrap());
+            self.bit.assign(region, offset, *bit);
+            self.index_div_8
+                .assign(region, offset, u64::try_from(index_div_8).unwrap());
+            self.index_mod_8
+                .assign(region, offset, u64::try_from(index_mod_8).unwrap());
+            self.byte.assign(region, offset, u64::from(byte));
+        }
+    }
 }
 
 impl KeyBitLookup for KeyBitConfig {
@@ -145,5 +117,94 @@ impl KeyBitLookup for KeyBitConfig {
             self.index.current(),
             self.bit.current(),
         ]
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::super::{
+        byte_bit::ByteBitGadget, canonical_representation::CanonicalRepresentationConfig,
+    };
+    use super::*;
+    use halo2_proofs::{
+        circuit::{Layouter, SimpleFloorPlanner},
+        dev::MockProver,
+        plonk::{Circuit, Error},
+    };
+
+    #[derive(Clone, Default, Debug)]
+    struct TestCircuit {
+        lookups: Vec<(Fr, usize, bool)>,
+    }
+
+    impl Circuit<Fr> for TestCircuit {
+        type Config = (
+            SelectorColumn,
+            KeyBitConfig,
+            ByteBitGadget,
+            CanonicalRepresentationConfig,
+        );
+        type FloorPlanner = SimpleFloorPlanner;
+
+        fn without_witnesses(&self) -> Self {
+            Self::default()
+        }
+
+        fn configure(cs: &mut ConstraintSystem<Fr>) -> Self::Config {
+            let selector = SelectorColumn(cs.fixed_column());
+            let mut cb = ConstraintBuilder::new(selector);
+
+            let byte_bit = ByteBitGadget::configure(cs, &mut cb);
+            let canonical_representation =
+                CanonicalRepresentationConfig::configure(cs, &mut cb, &byte_bit);
+            let key_bit = KeyBitConfig::configure(
+                cs,
+                &mut cb,
+                &canonical_representation,
+                &byte_bit,
+                &byte_bit,
+                &byte_bit,
+            );
+            cb.build(cs);
+            (selector, key_bit, byte_bit, canonical_representation)
+        }
+
+        fn synthesize(
+            &self,
+            config: Self::Config,
+            mut layouter: impl Layouter<Fr>,
+        ) -> Result<(), Error> {
+            let keys: Vec<_> = self.lookups.iter().map(|lookup| lookup.0).collect();
+
+            let (selector, key_bit, byte_bit, canonical_representation) = config;
+
+            layouter.assign_region(
+                || "",
+                |mut region| {
+                    for offset in 0..32 {
+                        selector.enable(&mut region, offset);
+                    }
+
+                    key_bit.assign(&mut region, &self.lookups);
+                    byte_bit.assign(&mut region);
+                    canonical_representation.assign(&mut region, &keys);
+                    Ok(())
+                },
+            )
+        }
+    }
+
+    #[test]
+    fn test_key_bit() {
+        let circuit = TestCircuit {
+            lookups: vec![
+                (Fr::one(), 0, true),
+                (Fr::one(), 1, false),
+                (Fr::from(2342341), 10, true),
+                (Fr::from(2342341), 255, false),
+            ],
+        };
+        let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
+        assert_eq!(prover.verify(), Ok(()));
     }
 }

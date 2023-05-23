@@ -43,6 +43,10 @@ impl<F: FieldExt> Query<F> {
             Query::Mul(q, u) => q.run(meta) * u.run(meta),
         }
     }
+
+    pub fn square(self) -> Self {
+        self.clone() * self
+    }
 }
 
 impl<F: FieldExt> From<u64> for Query<F> {
