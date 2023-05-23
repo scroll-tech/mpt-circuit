@@ -11,6 +11,7 @@ use crate::{
     Hashable, MPTProofType,
 };
 
+mod account;
 pub mod storage;
 pub mod trie;
 use storage::StorageProof;

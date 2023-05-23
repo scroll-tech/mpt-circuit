@@ -10,7 +10,7 @@ pub struct IsEqualGadget<F: FieldExt> {
 }
 
 impl<F: FieldExt> IsEqualGadget<F> {
-    pub fn current(self) -> BinaryQuery<F> {
+    pub fn current(&self) -> BinaryQuery<F> {
         BinaryQuery(
             Query::one()
                 - self.inverse_or_zero.current() * (self.left.clone() - self.right.clone()),
