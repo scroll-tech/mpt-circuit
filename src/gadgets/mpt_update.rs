@@ -17,7 +17,7 @@ use crate::{
     constraint_builder::{AdviceColumn, ConstraintBuilder, Query},
     types::{
         account_key, hash,
-        storage::{StorageEntry, StorageProof},
+        storage::{StorageLeaf, StorageProof},
         trie::TrieRows,
         ClaimKind, Proof,
     },
@@ -187,16 +187,8 @@ impl<F: FieldExt> MptUpdateConfig<F> {
             });
         });
         cb.condition(!is_trie, |cb| {
-            cb.assert_zero("key is 0 in non-trie segments", key.current());
             cb.assert_zero("depth is 0 in non-trie segments", depth.current());
         });
-
-        // TODO: enable this where needed!!
-        // cb.add_lookup(
-        //     "upper_128_bits is 16 bytes",
-        //     [upper_128_bits.current(), Query::from(15)],
-        //     bytes.lookup(),
-        // );
 
         let old_hash_is_zero = IsZeroGadget::configure(cs, cb, old_hash);
         let new_hash_is_zero = IsZeroGadget::configure(cs, cb, new_hash);
@@ -521,25 +513,19 @@ impl<F: FieldExt> MptUpdateConfig<F> {
                 // );
 
                 self.direction.assign(region, offset + i, direction);
-                // TODO: would it be possible to assign key here to make the keybit lookup unconditional?
+
+                self.key.assign(region, offset + i, key);
+                self.other_key.assign(region, offset + i, other_key);
+                self.key_equals_other_key
+                    .assign(region, offset + i, key, other_key);
 
                 match segment_type {
                     SegmentType::AccountLeaf0 => {
-                        self.other_key.assign(region, offset, other_key);
                         self.other_key_hash.assign(region, offset, other_key_hash);
                         self.other_leaf_data_hash
                             .assign(region, offset, other_leaf_data_hash);
-                        self.key_equals_other_key
-                            .assign(region, offset + i, Fr::zero(), other_key);
                     }
-                    _ => {
-                        self.key_equals_other_key.assign(
-                            region,
-                            offset + i,
-                            Fr::zero(),
-                            Fr::zero(),
-                        );
-                    }
+                    _ => {}
                 };
             }
             self.upper_128_bits.assign(
@@ -549,41 +535,20 @@ impl<F: FieldExt> MptUpdateConfig<F> {
             );
             match proof.claim.kind {
                 ClaimKind::CodeHash { old, new } => {
-                    let assign = |region: &mut Region<'_, Fr>,
-                                  value,
-                                  u128_column: AdviceColumn,
-                                  rlc_column: AdviceColumn| {
+                    let assign = |region: &mut Region<'_, Fr>, value, column: AdviceColumn| {
                         let (high, low) = u256_hi_lo(&value);
-                        u128_column.assign(region, offset + 2, Fr::from_u128(high));
-                        u128_column.assign(region, offset + 3, Fr::from_u128(low));
+                        column.assign(region, offset + 2, Fr::from_u128(high));
+                        column.assign(region, offset + 3, Fr::from_u128(low));
                         let rlc_high = rlc(&high.to_be_bytes(), randomness);
                         let rlc_low = rlc(&low.to_be_bytes(), randomness);
-                        rlc_column.assign(region, offset + 2, rlc_high);
-                        rlc_column.assign(region, offset + 3, rlc_low);
+                        column.assign(region, offset, rlc_high);
+                        column.assign(region, offset + 1, rlc_low);
                     };
                     if let Some(value) = old {
-                        assign(region, value, self.other_key_hash, self.other_key);
-                        let (high, low) = u256_hi_lo(&value);
-                        self.key_equals_other_key.assign(
-                            region,
-                            offset + 2,
-                            Fr::zero(),
-                            rlc(&high.to_be_bytes(), randomness),
-                        );
-                        self.key_equals_other_key.assign(
-                            region,
-                            offset + 3,
-                            Fr::zero(),
-                            rlc(&low.to_be_bytes(), randomness),
-                        );
+                        assign(region, value, self.other_key_hash);
                     }
                     if let Some(value) = new {
-                        assign(
-                            region,
-                            value,
-                            self.upper_128_bits,
-                            self.other_leaf_data_hash,
-                        );
+                        assign(region, value, self.other_leaf_data_hash);
                     }
                 }
                 _ => (),
@@ -633,26 +598,32 @@ impl<F: FieldExt> MptUpdateConfig<F> {
         match storage {
             StorageProof::Root(_) => 0,
             StorageProof::Update {
-                path,
+                key,
                 trie_rows,
-                old_entry,
-                new_entry,
+                old_leaf,
+                new_leaf,
             } => {
                 let n_trie_rows = self.assign_trie_rows(region, offset, trie_rows);
+
+                let old_key = old_leaf.key();
+                let new_key = new_leaf.key();
+                let other_key = if *key != old_key {
+                    assert!(new_key == *key || new_key == old_key);
+                    old_key
+                } else {
+                    new_key
+                };
+
                 for i in 0..n_trie_rows {
                     self.segment_type
                         .assign(region, offset + i, SegmentType::StorageTrie);
-                    self.key.assign(region, offset + i, *path);
-                    self.other_key.assign(region, offset + i, *path);
+                    self.key.assign(region, offset + i, *key);
+                    self.other_key.assign(region, offset + i, other_key);
                     self.key_equals_other_key
-                        .assign(region, offset + i, *path, *path);
+                        .assign(region, offset + i, *key, other_key);
                 }
-                let n_leaf_rows = self.assign_storage_leaf_row(
-                    region,
-                    offset + n_trie_rows,
-                    old_entry,
-                    new_entry,
-                );
+                let n_leaf_rows =
+                    self.assign_storage_leaf_row(region, offset + n_trie_rows, *key, old_leaf, new_leaf);
                 n_trie_rows + n_leaf_rows
             }
         }
@@ -662,13 +633,14 @@ impl<F: FieldExt> MptUpdateConfig<F> {
         &self,
         region: &mut Region<'_, Fr>,
         offset: usize,
-        old: &StorageEntry,
-        new: &StorageEntry,
+        key: Fr,
+        old: &StorageLeaf,
+        new: &StorageLeaf,
     ) -> usize {
         self.segment_type
             .assign(region, offset, SegmentType::StorageLeaf0);
         self.direction.assign(region, offset, true);
-        self.sibling.assign(region, offset, old.path_hash());
+        self.sibling.assign(region, offset, old.key_hash());
 
         let old_hash = old.value_hash();
         let new_hash = new.value_hash();
@@ -676,6 +648,16 @@ impl<F: FieldExt> MptUpdateConfig<F> {
         self.new_hash.assign(region, offset, new_hash);
         self.old_hash_is_zero.assign(region, offset, old_hash);
         self.new_hash_is_zero.assign(region, offset, new_hash);
+
+        self.key.assign(region, offset, key);
+        let old_key = old.key();
+        let other_key = if key != old_key {
+            old_key
+        } else {
+            new.key()
+        };
+        self.other_key.assign(region, offset, other_key);
+        self.key_equals_other_key.assign(region, offset, key, other_key);
 
         let assign_word = |region: &mut Region<'_, Fr>, word: U256, column: &AdviceColumn| {
             let (high, low) = u256_hi_lo(&word);
@@ -687,10 +669,9 @@ impl<F: FieldExt> MptUpdateConfig<F> {
             column.assign(region, offset - 3, rlc_low);
         };
 
-        assign_word(region, old.key, &self.upper_128_bits);
-        self.upper_128_bits.assign(region, offset - 4, old.path());
-        assign_word(region, old.value, &self.other_key_hash);
-        assign_word(region, new.value, &self.other_leaf_data_hash);
+        assign_word(region, old.storage_key().unwrap(), &self.upper_128_bits);
+        assign_word(region, old.value(), &self.other_key_hash);
+        assign_word(region, new.value(), &self.other_leaf_data_hash);
 
         1
     }
@@ -883,7 +864,7 @@ fn configure_extension_new<F: FieldExt>(
     cb.condition(
         config
             .segment_type
-            .current_matches(&[SegmentType::AccountLeaf0]),
+            .current_matches(&[SegmentType::AccountLeaf0, SegmentType::StorageLeaf0]),
         |cb| {
             cb.add_lookup(
                 "other_key_hash = h(1, other_key)",
@@ -894,10 +875,18 @@ fn configure_extension_new<F: FieldExt>(
                 ],
                 poseidon.lookup(),
             );
+            let old_is_type_1 = !config.key_equals_other_key.current();
+            let old_is_type_2 = config.old_hash_is_zero.current();
 
-            cb.condition(!config.old_hash_is_zero.current(), |cb| {
+            cb.assert_equal(
+                "Empty old account/storage leaf is either type 1 xor type 2",
+                Query::one(),
+                Query::from(old_is_type_1.clone()) + Query::from(old_is_type_2.clone()),
+            );
+
+            cb.condition(old_is_type_1, |cb| {
                 cb.add_lookup(
-                    "previous old_hash = h(data_hash, key_hash)",
+                    "previous old_hash = h(other_key_hash, other_leaf_data_hash)",
                     [
                         config.other_key_hash.current(),
                         config.other_leaf_data_hash.current(),
@@ -906,18 +895,8 @@ fn configure_extension_new<F: FieldExt>(
                     poseidon.lookup(),
                 );
             });
-            // A type 1 account is an empty account in an MPT where another leaf occupies the node where it would be.
-            let old_account_is_type_1 = !config.key_equals_other_key.clone().current();
-            cb.condition(!config.key_equals_other_key.clone().current(), |cb| {
-                // cb.assert_unreachable("asdfasdfasfd");
-                cb.assert_zero(
-                    "if old account is type 1, then old value is 0",
-                    config.old_value.current(),
-                );
-            })
         },
     );
-    // Need to check that other key !=  key for type 1 and other_key = key for type 2
 }
 
 fn configure_nonce<F: FieldExt>(
@@ -1383,9 +1362,8 @@ fn configure_keccak_code_hash<F: FieldExt>(
                         .path_type
                         .current_matches(&[PathType::Common, PathType::ExtensionNew]),
                     |cb| {
-                        // We current and previous values of other_key_hash, other_key,
-                        // upper_128_bits and other_leaf_data_hash to store intermediate
-                        // values here.
+                        // We current and 3 previous values of other_key_hash and
+                        // other_leaf_data_hash to store intermediate values here.
                         let [old_high, old_low] =
                             [-1, 0].map(|i| config.other_key_hash.rotation(i));
                         cb.add_lookup(
@@ -1405,7 +1383,7 @@ fn configure_keccak_code_hash<F: FieldExt>(
                         );
 
                         let [rlc_old_high, rlc_old_low] =
-                            [-1, 0].map(|i| config.other_key.rotation(i));
+                            [-3, -2].map(|i| config.other_key_hash.rotation(i));
                         cb.add_lookup(
                             "rlc_old_high = rlc(old_high)",
                             [old_high, rlc_old_high.clone()],
@@ -1427,7 +1405,7 @@ fn configure_keccak_code_hash<F: FieldExt>(
                         );
 
                         let [new_high, new_low] =
-                            [-1, 0].map(|i| config.upper_128_bits.rotation(i));
+                            [-1, 0].map(|i| config.other_leaf_data_hash.rotation(i));
                         cb.add_lookup(
                             "new hash = poseidon(high, low)",
                             [new_high.clone(), new_low.clone(), config.new_hash.current()],
@@ -1445,7 +1423,7 @@ fn configure_keccak_code_hash<F: FieldExt>(
                         );
 
                         let [rlc_new_high, rlc_new_low] =
-                            [-1, 0].map(|i| config.other_leaf_data_hash.rotation(i));
+                            [-3, -2].map(|i| config.other_leaf_data_hash.rotation(i));
                         cb.add_lookup(
                             "rlc_new_high = rlc(new_high)",
                             [new_high, rlc_new_high.clone()],
@@ -1565,7 +1543,7 @@ fn configure_storage<F: FieldExt>(
                     );
                 };
 
-                let storage_key_hash = config.upper_128_bits.rotation(-4);
+                let storage_key_hash = config.key.current();
                 configure_word(
                     cb,
                     config.upper_128_bits.rotation(0),
@@ -1577,9 +1555,11 @@ fn configure_storage<F: FieldExt>(
                 );
                 cb.add_lookup(
                     "sibling = h(1, storage_key_hash)",
-                    [Query::one(), storage_key_hash, config.sibling.current()],
+                    [Query::one(), config.key.current(), config.sibling.current()],
                     poseidon.lookup(),
                 );
+
+                // need to do something there for config.other_key.current()
 
                 configure_word(
                     cb,
@@ -1835,12 +1815,10 @@ mod test {
                         match &proof.storage {
                             StorageProof::Root(_) => unreachable!(),
                             StorageProof::Update {
-                                old_entry,
-                                new_entry,
-                                ..
+                                old_leaf, new_leaf, ..
                             } => {
-                                let (old_value_high, old_value_low) = u256_hi_lo(&old_entry.value);
-                                let (new_value_high, new_value_low) = u256_hi_lo(&new_entry.value);
+                                let (old_value_high, old_value_low) = u256_hi_lo(&old_leaf.value());
+                                let (new_value_high, new_value_low) = u256_hi_lo(&new_leaf.value());
                                 u128s.extend(vec![
                                     old_value_high,
                                     old_value_low,
@@ -2109,6 +2087,22 @@ mod test {
         mock_prove(
             MPTProofType::StorageChanged,
             include_str!("../../tests/generated/storage/update_storage_existing_to_existing.json"),
+        );
+    }
+
+    #[test]
+    fn write_empty_storage_trie() {
+        mock_prove(
+            MPTProofType::StorageChanged,
+            include_str!("../../tests/generated/storage/write_empty_storage_trie.json"),
+        );
+    }
+
+    #[test]
+    fn write_singleton_storage_trie() {
+        mock_prove(
+            MPTProofType::StorageChanged,
+            include_str!("../../tests/generated/storage/write_singleton_storage_trie.json"),
         );
     }
 
