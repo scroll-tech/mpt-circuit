@@ -623,7 +623,7 @@ impl<F: FieldExt> MptUpdateConfig<F> {
                         .assign(region, offset + i, *key, other_key);
                 }
                 let n_leaf_rows =
-                    self.assign_storage_leaf_row(region, offset + n_trie_rows, old_leaf, new_leaf);
+                    self.assign_storage_leaf_row(region, offset + n_trie_rows, *key, old_leaf, new_leaf);
                 n_trie_rows + n_leaf_rows
             }
         }
@@ -633,6 +633,7 @@ impl<F: FieldExt> MptUpdateConfig<F> {
         &self,
         region: &mut Region<'_, Fr>,
         offset: usize,
+        key: Fr,
         old: &StorageLeaf,
         new: &StorageLeaf,
     ) -> usize {
@@ -648,6 +649,16 @@ impl<F: FieldExt> MptUpdateConfig<F> {
         self.old_hash_is_zero.assign(region, offset, old_hash);
         self.new_hash_is_zero.assign(region, offset, new_hash);
 
+        self.key.assign(region, offset, key);
+        let old_key = old.key();
+        let other_key = if key != old_key {
+            old_key
+        } else {
+            new.key()
+        };
+        self.other_key.assign(region, offset, other_key);
+        self.key_equals_other_key.assign(region, offset, key, other_key);
+
         let assign_word = |region: &mut Region<'_, Fr>, word: U256, column: &AdviceColumn| {
             let (high, low) = u256_hi_lo(&word);
             let rlc_high = rlc(&high.to_be_bytes(), Fr::from(RANDOMNESS));
@@ -659,7 +670,6 @@ impl<F: FieldExt> MptUpdateConfig<F> {
         };
 
         assign_word(region, old.storage_key().unwrap(), &self.upper_128_bits);
-        self.upper_128_bits.assign(region, offset - 4, old.key());
         assign_word(region, old.value(), &self.other_key_hash);
         assign_word(region, new.value(), &self.other_leaf_data_hash);
 
@@ -1533,7 +1543,7 @@ fn configure_storage<F: FieldExt>(
                     );
                 };
 
-                let storage_key_hash = config.upper_128_bits.rotation(-4);
+                let storage_key_hash = config.key.current();
                 configure_word(
                     cb,
                     config.upper_128_bits.rotation(0),
@@ -1545,9 +1555,11 @@ fn configure_storage<F: FieldExt>(
                 );
                 cb.add_lookup(
                     "sibling = h(1, storage_key_hash)",
-                    [Query::one(), storage_key_hash, config.sibling.current()],
+                    [Query::one(), config.key.current(), config.sibling.current()],
                     poseidon.lookup(),
                 );
+
+                // need to do something there for config.other_key.current()
 
                 configure_word(
                     cb,
