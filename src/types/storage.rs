@@ -160,11 +160,6 @@ impl StorageLeaf {
     }
 
     fn poseidon_lookups(&self) -> Vec<(Fr, Fr, Fr)> {
-        match self {
-            Self::Empty {..} => vec![],
-            Self::Leaf {}
-
-        }
         let mut lookups = vec![(Fr::one(), self.key(), self.key_hash())];
         if let Self::Entry { storage_key, value } = self {
             let (key_high, key_low) = u256_hi_lo(storage_key);
