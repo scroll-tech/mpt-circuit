@@ -106,10 +106,14 @@ struct MptUpdateConfig<F: FieldExt> {
     // use this for upper/lower half lookups.
     upper_128_bits: AdviceColumn, // most significant 128 bits of address or storage key
 
-                                  // not_equal_witness, // inverse used to prove to expressions are not equal.
+    // not_equal_witness, // inverse used to prove to expressions are not equal.
 
-                                  // TODO
-                                  // nonfirst_rows: SelectorColumn, // Enabled on all rows except the last one.
+    // TODO
+    // nonfirst_rows: SelectorColumn, // Enabled on all rows except the last one.
+    intermediate_values: [AdviceColumn; 10],
+
+    is_zero_values: [AdviceColumn; 2],
+    is_zero_gadgets: [IsZeroGadget; 2],
 }
 
 impl<F: FieldExt> MptUpdateLookup<F> for MptUpdateConfig<F> {
@@ -153,6 +157,10 @@ impl<F: FieldExt> MptUpdateConfig<F> {
 
         let [other_key, other_key_hash, other_leaf_data_hash, other_leaf_hash] =
             cb.advice_columns(cs);
+
+        let intermediate_values = cb.advice_columns(cs);
+        let is_zero_values = cb.advice_columns(cs);
+        let is_zero_gadgets = is_zero_values.map(|column| IsZeroGadget::configure(cs, cb, column));
 
         let segment_type = OneHot::configure(cs, cb);
         let path_type = OneHot::configure(cs, cb);
@@ -220,6 +228,9 @@ impl<F: FieldExt> MptUpdateConfig<F> {
             key_equals_other_key,
             old_hash_is_zero,
             new_hash_is_zero,
+            intermediate_values,
+            is_zero_values,
+            is_zero_gadgets,
             // old_hash_is_zero_account_hash,
             // new_hash_is_zero_account_hash,
         };
@@ -644,6 +655,9 @@ impl<F: FieldExt> MptUpdateConfig<F> {
         old: &StorageLeaf,
         new: &StorageLeaf,
     ) -> usize {
+        // this should happen in storage root, which is an accountleaf
+        // assign_word(region, old.storage_key().unwrap(), &self.upper_128_bits);
+        //
         self.segment_type
             .assign(region, offset, SegmentType::StorageLeaf0);
         self.direction.assign(region, offset, true);
@@ -920,6 +934,9 @@ fn configure_nonce<F: FieldExt>(
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
             SegmentType::Start | SegmentType::AccountTrie => {}
             SegmentType::AccountLeaf0 => {
+                // you actually need to verify this in the start row?
+                // you need to verify that address.hash() = key.current in the start row.
+                // after this it never changes so life is great.
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
 
                 // this should hold for all MPTProofType's
@@ -928,6 +945,7 @@ fn configure_nonce<F: FieldExt>(
                     * (1 << 32)
                     * (1 << 32)
                     * (1 << 32);
+
                 cb.add_lookup(
                     "key = h(address_high, address_low)",
                     [
