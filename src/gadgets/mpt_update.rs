@@ -77,7 +77,6 @@ struct MptUpdateConfig<F: FieldExt> {
     old_value: AdviceColumn, // nonce and codesize are not rlc'ed the others are.
     new_value: AdviceColumn, //
     proof_type: OneHot<MPTProofType>,
-    address: AdviceColumn,
     storage_key_rlc: AdviceColumn,
 
     segment_type: OneHot<SegmentType>,
@@ -124,7 +123,7 @@ impl<F: FieldExt> MptUpdateLookup<F> for MptUpdateConfig<F> {
         let proof_type = self.proof_type.current();
         let old_value = self.old_value.current() * is_start();
         let new_value = self.new_value.current() * is_start();
-        let address = self.address.current() * is_start();
+        let address = self.intermediate_values[0].current() * is_start();
         let storage_key_rlc = self.storage_key_rlc.current() * is_start();
 
         [
@@ -158,7 +157,7 @@ impl<F: FieldExt> MptUpdateConfig<F> {
         let [other_key, other_key_hash, other_leaf_data_hash, other_leaf_hash] =
             cb.advice_columns(cs);
 
-        let intermediate_values = cb.advice_columns(cs);
+        let intermediate_values: [AdviceColumn; 10] = cb.advice_columns(cs);
         let is_zero_values = cb.advice_columns(cs);
         let is_zero_gadgets = is_zero_values.map(|column| IsZeroGadget::configure(cs, cb, column));
 
@@ -207,6 +206,21 @@ impl<F: FieldExt> MptUpdateConfig<F> {
         let key_equals_other_key =
             IsEqualGadget::configure(cs, cb, key.current(), other_key.current());
 
+        cb.condition(segment_type.current_matches(&[SegmentType::Start]), |cb| {
+            let [address, address_high, ..] = intermediate_values;
+            // address  = address_high + address_low
+            // address_high 128 bits
+            let address_low: Query<F> = (address.current() - address_high.current() * (1 << 32))
+                * (1 << 32)
+                * (1 << 32)
+                * (1 << 32);
+            cb.add_lookup(
+                "account mpt key = h(address_high, address_low)",
+                [address_high.current(), address_low, key.current()],
+                poseidon.lookup(),
+            );
+        });
+
         let config = Self {
             key,
             old_hash,
@@ -214,7 +228,6 @@ impl<F: FieldExt> MptUpdateConfig<F> {
             proof_type,
             old_value,
             new_value,
-            address,
             storage_key_rlc,
             segment_type,
             path_type,
@@ -305,14 +318,12 @@ impl<F: FieldExt> MptUpdateConfig<F> {
         let mut offset = 0;
         for proof in proofs {
             let proof_type = MPTProofType::from(proof.claim);
-            let address = address_to_fr(proof.claim.address);
             let storage_key = rlc(&u256_to_big_endian(&proof.claim.storage_key()), randomness);
             let old_value = proof.claim.old_value_assignment(randomness);
             let new_value = proof.claim.new_value_assignment(randomness);
 
             for i in 0..proof.n_rows() {
                 self.proof_type.assign(region, offset + i, proof_type);
-                self.address.assign(region, offset + i, address);
                 self.storage_key_rlc.assign(region, offset + i, storage_key);
                 self.old_value.assign(region, offset + i, old_value);
                 self.new_value.assign(region, offset + i, new_value);
@@ -356,8 +367,18 @@ impl<F: FieldExt> MptUpdateConfig<F> {
             //     proof.claim.new_root,
             //     *ZERO_ACCOUNT_HASH,
             // );
+            // need to assign key
+
+            self.key.assign(region, offset, key);
+            self.other_key.assign(region, offset, other_key);
             self.key_equals_other_key
-                .assign(region, offset, Fr::zero(), Fr::zero());
+                .assign(region, offset, key, other_key);
+            self.intermediate_values[0].assign(region, offset, address_to_fr(proof.claim.address));
+            self.intermediate_values[1].assign(
+                region,
+                offset,
+                Fr::from_u128(address_high(proof.claim.address)),
+            );
 
             offset += 1;
 
@@ -541,11 +562,6 @@ impl<F: FieldExt> MptUpdateConfig<F> {
                     _ => {}
                 };
             }
-            self.upper_128_bits.assign(
-                region,
-                offset,
-                Fr::from_u128(address_high(proof.claim.address)),
-            );
             match proof.claim.kind {
                 ClaimKind::CodeHash { old, new } => {
                     let assign = |region: &mut Region<'_, Fr>, value, column: AdviceColumn| {
@@ -934,38 +950,7 @@ fn configure_nonce<F: FieldExt>(
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
             SegmentType::Start | SegmentType::AccountTrie => {}
             SegmentType::AccountLeaf0 => {
-                // you actually need to verify this in the start row?
-                // you need to verify that address.hash() = key.current in the start row.
-                // after this it never changes so life is great.
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
-
-                // this should hold for all MPTProofType's
-                let address_low: Query<F> = (config.address.current()
-                    - config.upper_128_bits.current() * (1 << 32))
-                    * (1 << 32)
-                    * (1 << 32)
-                    * (1 << 32);
-
-                cb.add_lookup(
-                    "key = h(address_high, address_low)",
-                    [
-                        config.upper_128_bits.current(),
-                        address_low,
-                        config.key.previous(),
-                    ],
-                    poseidon.lookup(),
-                );
-                cb.add_lookup(
-                    "sibling = h(1, key)",
-                    [
-                        Query::one(),
-                        // this could be Start, which could have key = 0. Do we need to special case that?
-                        // We could also just assign a non-zero key here....
-                        config.key.previous(),
-                        config.sibling.current(),
-                    ],
-                    poseidon.lookup(),
-                );
             }
             SegmentType::AccountLeaf1 => {
                 cb.assert_zero("direction is 0", config.direction.current());
@@ -1060,21 +1045,6 @@ fn configure_code_size<F: FieldExt>(
             SegmentType::AccountLeaf0 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
 
-                // this should hold for all MPTProofType's
-                let address_low: Query<F> = (config.address.current()
-                    - config.upper_128_bits.current() * (1 << 32))
-                    * (1 << 32)
-                    * (1 << 32)
-                    * (1 << 32);
-                cb.add_lookup(
-                    "key = h(address_high, address_low)",
-                    [
-                        config.upper_128_bits.current(),
-                        address_low,
-                        config.key.previous(),
-                    ],
-                    poseidon.lookup(),
-                );
                 cb.add_lookup(
                     "sibling = h(1, key)",
                     [
@@ -1180,21 +1150,6 @@ fn configure_balance<F: FieldExt>(
             SegmentType::AccountLeaf0 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
 
-                // this should hold for all MPTProofType's
-                let address_low: Query<F> = (config.address.current()
-                    - config.upper_128_bits.current() * (1 << 32))
-                    * (1 << 32)
-                    * (1 << 32)
-                    * (1 << 32);
-                cb.add_lookup(
-                    "key = h(address_high, address_low)",
-                    [
-                        config.upper_128_bits.current(),
-                        address_low,
-                        config.key.previous(),
-                    ],
-                    poseidon.lookup(),
-                );
                 cb.add_lookup(
                     "sibling = h(1, key)",
                     [
@@ -1267,21 +1222,6 @@ fn configure_poseidon_code_hash<F: FieldExt>(
             SegmentType::AccountLeaf0 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
 
-                // this should hold for all MPTProofType's
-                let address_low: Query<F> = (config.address.current()
-                    - config.upper_128_bits.current() * (1 << 32))
-                    * (1 << 32)
-                    * (1 << 32)
-                    * (1 << 32);
-                cb.add_lookup(
-                    "key = h(address_high, address_low)",
-                    [
-                        config.upper_128_bits.current(),
-                        address_low,
-                        config.key.previous(),
-                    ],
-                    poseidon.lookup(),
-                );
                 cb.add_lookup(
                     "sibling = h(1, key)",
                     [
@@ -1350,21 +1290,6 @@ fn configure_keccak_code_hash<F: FieldExt>(
             SegmentType::AccountLeaf0 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
 
-                // this should hold for all MPTProofType's
-                let address_low: Query<F> = (config.address.current()
-                    - config.upper_128_bits.current() * (1 << 32))
-                    * (1 << 32)
-                    * (1 << 32)
-                    * (1 << 32);
-                cb.add_lookup(
-                    "key = h(address_high, address_low)",
-                    [
-                        config.upper_128_bits.current(),
-                        address_low,
-                        config.key.previous(),
-                    ],
-                    poseidon.lookup(),
-                );
                 cb.add_lookup(
                     "sibling = h(1, key)",
                     [
@@ -1498,21 +1423,6 @@ fn configure_storage<F: FieldExt>(
             SegmentType::AccountLeaf0 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
 
-                // this should hold for all MPTProofType's
-                let address_low: Query<F> = (config.address.current()
-                    - config.upper_128_bits.current() * (1 << 32))
-                    * (1 << 32)
-                    * (1 << 32)
-                    * (1 << 32);
-                cb.add_lookup(
-                    "key = h(address_high, address_low)",
-                    [
-                        config.upper_128_bits.current(),
-                        address_low,
-                        config.key.previous(),
-                    ],
-                    poseidon.lookup(),
-                );
                 cb.add_lookup(
                     "sibling = h(1, key)",
                     [
@@ -1756,12 +1666,6 @@ fn address_low(a: Address) -> u128 {
     u128::from(u32::from_be_bytes(low_bytes)) << 96
 }
 
-fn hash_address(a: Address) -> Fr {
-    hash(
-        Fr::from_u128(address_high(a)),
-        Fr::from_u128(address_low(a)),
-    )
-}
 
 #[cfg(test)]
 mod test {
