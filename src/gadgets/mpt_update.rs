@@ -70,7 +70,7 @@ pub trait MptUpdateLookup<F: FieldExt> {
 //  - this means you go from Common, AccountTrie -> Extension, AccountLeaf0
 
 #[derive(Clone)]
-struct MptUpdateConfig<F: FieldExt> {
+struct MptUpdateConfig {
     // Lookup columns
     old_hash: AdviceColumn,
     new_hash: AdviceColumn,
@@ -97,7 +97,6 @@ struct MptUpdateConfig<F: FieldExt> {
     // // These two are needed to prove that a zero account is not in from the MPT.
     // old_hash_is_zero_account_hash: IsEqualGadget<F>,
     // new_hash_is_zero_account_hash: IsEqualGadget<F>,
-    key_equals_other_key: IsEqualGadget<F>,
     direction: AdviceColumn, // this actually must be binary because of a KeyBitLookup
 
     sibling: AdviceColumn,
@@ -115,7 +114,7 @@ struct MptUpdateConfig<F: FieldExt> {
     is_zero_gadgets: [IsZeroGadget; 2],
 }
 
-impl<F: FieldExt> MptUpdateLookup<F> for MptUpdateConfig<F> {
+impl<F: FieldExt> MptUpdateLookup<F> for MptUpdateConfig {
     fn lookup(&self) -> [Query<F>; 7] {
         let is_start = || self.segment_type.current_matches(&[SegmentType::Start]);
         let old_root = self.old_hash.current() * is_start();
@@ -138,8 +137,8 @@ impl<F: FieldExt> MptUpdateLookup<F> for MptUpdateConfig<F> {
     }
 }
 
-impl<F: FieldExt> MptUpdateConfig<F> {
-    fn configure(
+impl MptUpdateConfig {
+    fn configure<F: FieldExt>(
         cs: &mut ConstraintSystem<F>,
         cb: &mut ConstraintBuilder<F>,
         poseidon: &impl PoseidonLookup,
@@ -198,14 +197,6 @@ impl<F: FieldExt> MptUpdateConfig<F> {
         let old_hash_is_zero = IsZeroGadget::configure(cs, cb, old_hash);
         let new_hash_is_zero = IsZeroGadget::configure(cs, cb, new_hash);
 
-        // let old_hash_is_zero_account_hash =
-        //     IsEqualGadget::configure(cs, cb, old_hash.current(), Query::zero()); // problem is here because you need to construct a query over Fr.
-        // let new_hash_is_zero_account_hash =
-        //     IsEqualGadget::configure(cs, cb, new_hash.current(), Query::zero());
-
-        let key_equals_other_key =
-            IsEqualGadget::configure(cs, cb, key.current(), other_key.current());
-
         cb.condition(segment_type.current_matches(&[SegmentType::Start]), |cb| {
             let [address, address_high, ..] = intermediate_values;
             // address  = address_high + address_low
@@ -238,7 +229,6 @@ impl<F: FieldExt> MptUpdateConfig<F> {
             direction,
             sibling,
             upper_128_bits,
-            key_equals_other_key,
             old_hash_is_zero,
             new_hash_is_zero,
             intermediate_values,
@@ -371,8 +361,7 @@ impl<F: FieldExt> MptUpdateConfig<F> {
 
             self.key.assign(region, offset, key);
             self.other_key.assign(region, offset, other_key);
-            self.key_equals_other_key
-                .assign(region, offset, key, other_key);
+
             self.intermediate_values[0].assign(region, offset, address_to_fr(proof.claim.address));
             self.intermediate_values[1].assign(
                 region,
@@ -426,11 +415,8 @@ impl<F: FieldExt> MptUpdateConfig<F> {
                 // );
                 self.direction.assign(region, offset, *direction);
 
-                let key = account_key(proof.claim.address);
                 self.key.assign(region, offset, key);
                 self.other_key.assign(region, offset, other_key);
-                self.key_equals_other_key
-                    .assign(region, offset, key, other_key);
 
                 match path_type {
                     PathType::Start => {}
@@ -550,8 +536,8 @@ impl<F: FieldExt> MptUpdateConfig<F> {
 
                 self.key.assign(region, offset + i, key);
                 self.other_key.assign(region, offset + i, other_key);
-                self.key_equals_other_key
-                    .assign(region, offset + i, key, other_key);
+                self.is_zero_values[0].assign(region, offset, key - other_key);
+                self.is_zero_gadgets[0].assign(region, offset, key - other_key);
 
                 match segment_type {
                     SegmentType::AccountLeaf0 => {
@@ -648,8 +634,6 @@ impl<F: FieldExt> MptUpdateConfig<F> {
                         .assign(region, offset + i, SegmentType::StorageTrie);
                     self.key.assign(region, offset + i, *key);
                     self.other_key.assign(region, offset + i, other_key);
-                    self.key_equals_other_key
-                        .assign(region, offset + i, *key, other_key);
                 }
                 let n_leaf_rows = self.assign_storage_leaf_row(
                     region,
@@ -690,8 +674,6 @@ impl<F: FieldExt> MptUpdateConfig<F> {
         let old_key = old.key();
         let other_key = if key != old_key { old_key } else { new.key() };
         self.other_key.assign(region, offset, other_key);
-        self.key_equals_other_key
-            .assign(region, offset, key, other_key);
 
         let assign_word = |region: &mut Region<'_, Fr>, word: U256, column: &AdviceColumn| {
             let (high, low) = u256_hi_lo(&word);
@@ -711,22 +693,22 @@ impl<F: FieldExt> MptUpdateConfig<F> {
     }
 }
 
-fn old_left<F: FieldExt>(config: &MptUpdateConfig<F>) -> Query<F> {
+fn old_left<F: FieldExt>(config: &MptUpdateConfig) -> Query<F> {
     config.direction.current() * config.sibling.current()
         + (Query::one() - config.direction.current()) * config.old_hash.current()
 }
 
-fn old_right<F: FieldExt>(config: &MptUpdateConfig<F>) -> Query<F> {
+fn old_right<F: FieldExt>(config: &MptUpdateConfig) -> Query<F> {
     config.direction.current() * config.old_hash.current()
         + (Query::one() - config.direction.current()) * config.sibling.current()
 }
 
-fn new_left<F: FieldExt>(config: &MptUpdateConfig<F>) -> Query<F> {
+fn new_left<F: FieldExt>(config: &MptUpdateConfig) -> Query<F> {
     config.direction.current() * config.sibling.current()
         + (Query::one() - config.direction.current()) * config.new_hash.current()
 }
 
-fn new_right<F: FieldExt>(config: &MptUpdateConfig<F>) -> Query<F> {
+fn new_right<F: FieldExt>(config: &MptUpdateConfig) -> Query<F> {
     config.direction.current() * config.new_hash.current()
         + (Query::one() - config.direction.current()) * config.sibling.current()
 }
@@ -740,7 +722,7 @@ fn address_to_fr(a: Address) -> Fr {
 
 fn configure_common_path<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
-    config: &MptUpdateConfig<F>,
+    config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
 ) {
     let is_non_existing_type1 = config.path_type.next_matches(&[PathType::Start]).and(
@@ -818,7 +800,7 @@ fn configure_common_path<F: FieldExt>(
 
 fn configure_extension_old<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
-    config: &MptUpdateConfig<F>,
+    config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
 ) {
     // TODO: add these once you create the test json.
@@ -858,7 +840,7 @@ fn configure_extension_old<F: FieldExt>(
 
 fn configure_extension_new<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
-    config: &MptUpdateConfig<F>,
+    config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
 ) {
     cb.assert_zero(
@@ -916,7 +898,15 @@ fn configure_extension_new<F: FieldExt>(
                 ],
                 poseidon.lookup(),
             );
-            let old_is_type_1 = !config.key_equals_other_key.current();
+
+            let key_minus_other_key = config.is_zero_values[0];
+            cb.assert_equal(
+                "key_minus_other_key = key - other key",
+                key_minus_other_key.current(),
+                config.key.current() - config.other_key.current(),
+            );
+            let key_equals_other_key = config.is_zero_gadgets[0];
+            let old_is_type_1 = !key_equals_other_key.current();
             let old_is_type_2 = config.old_hash_is_zero.current();
 
             cb.assert_equal(
@@ -942,7 +932,7 @@ fn configure_extension_new<F: FieldExt>(
 
 fn configure_nonce<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
-    config: &MptUpdateConfig<F>,
+    config: &MptUpdateConfig,
     bytes: &impl BytesLookup,
     poseidon: &impl PoseidonLookup,
 ) {
@@ -1035,7 +1025,7 @@ fn configure_nonce<F: FieldExt>(
 
 fn configure_code_size<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
-    config: &MptUpdateConfig<F>,
+    config: &MptUpdateConfig,
     bytes: &impl BytesLookup,
     poseidon: &impl PoseidonLookup,
 ) {
@@ -1140,7 +1130,7 @@ fn configure_code_size<F: FieldExt>(
 
 fn configure_balance<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
-    config: &MptUpdateConfig<F>,
+    config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
     rlc: &impl RlcLookup,
 ) {
@@ -1213,7 +1203,7 @@ fn configure_balance<F: FieldExt>(
 
 fn configure_poseidon_code_hash<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
-    config: &MptUpdateConfig<F>,
+    config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
 ) {
     for variant in SegmentType::iter() {
@@ -1279,7 +1269,7 @@ fn configure_poseidon_code_hash<F: FieldExt>(
 
 fn configure_keccak_code_hash<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
-    config: &MptUpdateConfig<F>,
+    config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
     bytes: &impl BytesLookup,
     rlc: &impl RlcLookup,
@@ -1412,7 +1402,7 @@ fn configure_keccak_code_hash<F: FieldExt>(
 
 fn configure_storage<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
-    config: &MptUpdateConfig<F>,
+    config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
     bytes: &impl BytesLookup,
     rlc: &impl RlcLookup,
@@ -1533,7 +1523,7 @@ fn configure_storage<F: FieldExt>(
 
 fn configure_empty_account<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
-    config: &MptUpdateConfig<F>,
+    config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
 ) {
     for variant in SegmentType::iter() {
@@ -1574,32 +1564,23 @@ fn configure_empty_account<F: FieldExt>(
 }
 fn configure_non_existing_type1<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
-    config: &MptUpdateConfig<F>,
+    config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
 ) {
     configure_common_non_existing(cb, config);
 
     cb.assert_zero("direction is 0", config.direction.current());
 
-    // this should hold for all MPTProofType's
-    let address_low: Query<F> = (config.address.current()
-        - config.upper_128_bits.current() * (1 << 32))
-        * (1 << 32)
-        * (1 << 32)
-        * (1 << 32);
-    cb.add_lookup(
-        "key = h(address_high, address_low)",
-        [
-            config.upper_128_bits.current(),
-            address_low,
-            config.key.previous(),
-        ],
-        poseidon.lookup(),
+    let key_minus_other_key = config.is_zero_values[0];
+    cb.assert_equal(
+                "key_minus_other_key = key - other key",
+                key_minus_other_key.current(),
+                config.key.current() - config.other_key.current(),
     );
-
-    cb.assert_zero(
+    let key_equals_other_key = config.is_zero_gadgets[0];
+    cb.assert(
         "key != other_key for type 1 non-existence",
-        config.key_equals_other_key.clone().current().0,
+        !key_equals_other_key.current()
     );
 
     cb.add_lookup(
@@ -1615,7 +1596,7 @@ fn configure_non_existing_type1<F: FieldExt>(
 
 fn configure_non_existing_type2<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
-    config: &MptUpdateConfig<F>,
+    config: &MptUpdateConfig,
 ) {
     configure_common_non_existing(cb, config);
 
@@ -1632,7 +1613,7 @@ fn configure_non_existing_type2<F: FieldExt>(
 
 fn configure_common_non_existing<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
-    config: &MptUpdateConfig<F>,
+    config: &MptUpdateConfig,
 ) {
     cb.assert(
         "proof type is account does not exist",
@@ -1645,16 +1626,8 @@ fn configure_common_non_existing<F: FieldExt>(
     cb.assert_zero("new value is 0", config.new_value.current());
 }
 
-fn configure_self_destruct<F: FieldExt>(
-    cb: &mut ConstraintBuilder<F>,
-    config: &MptUpdateConfig<F>,
-) {
-}
-fn configure_empty_storage<F: FieldExt>(
-    cb: &mut ConstraintBuilder<F>,
-    config: &MptUpdateConfig<F>,
-) {
-}
+fn configure_self_destruct<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {}
+fn configure_empty_storage<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {}
 
 fn address_high(a: Address) -> u128 {
     let high_bytes: [u8; 16] = a.0[..16].try_into().unwrap();
@@ -1665,7 +1638,6 @@ fn address_low(a: Address) -> u128 {
     let low_bytes: [u8; 4] = a.0[16..].try_into().unwrap();
     u128::from(u32::from_be_bytes(low_bytes)) << 96
 }
-
 
 #[cfg(test)]
 mod test {
@@ -1920,7 +1892,7 @@ mod test {
     impl Circuit<Fr> for TestCircuit {
         type Config = (
             SelectorColumn,
-            MptUpdateConfig<Fr>,
+            MptUpdateConfig,
             PoseidonConfig,
             CanonicalRepresentationConfig,
             KeyBitConfig,
