@@ -534,11 +534,6 @@ impl MptUpdateConfig {
 
                 self.direction.assign(region, offset + i, direction);
 
-                self.key.assign(region, offset + i, key);
-                self.other_key.assign(region, offset + i, other_key);
-                self.is_zero_values[0].assign(region, offset, key - other_key);
-                self.is_zero_gadgets[0].assign(region, offset, key - other_key);
-
                 match segment_type {
                     SegmentType::AccountLeaf0 => {
                         self.other_key_hash.assign(region, offset, other_key_hash);
@@ -548,6 +543,10 @@ impl MptUpdateConfig {
                     _ => {}
                 };
             }
+            self.key.assign(region, offset, key);
+            self.other_key.assign(region, offset, other_key);
+            self.is_zero_values[0].assign(region, offset, key - other_key);
+            self.is_zero_gadgets[0].assign(region, offset, key - other_key);
             match proof.claim.kind {
                 ClaimKind::CodeHash { old, new } => {
                     let assign = |region: &mut Region<'_, Fr>, value, column: AdviceColumn| {
