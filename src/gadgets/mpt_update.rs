@@ -9,6 +9,7 @@ use super::{
     key_bit::KeyBitLookup,
     one_hot::OneHot,
     poseidon::PoseidonLookup,
+    rlc_randomness::RlcRandomness,
     RANDOMNESS,
 };
 use crate::{
@@ -137,6 +138,7 @@ impl MptUpdateConfig {
         key_bit: &impl KeyBitLookup,
         rlc: &impl RlcLookup,
         bytes: &impl BytesLookup,
+        rlc_randomness: &RlcRandomness,
     ) -> Self {
         let ([], [], [old_hash, new_hash]) = cb.build_columns(cs);
 
@@ -1743,6 +1745,7 @@ mod test {
             KeyBitConfig,
             ByteBitGadget,
             ByteRepresentationConfig,
+            RlcRandomness,
         );
         type FloorPlanner = SimpleFloorPlanner;
 
@@ -1753,10 +1756,11 @@ mod test {
         fn configure(cs: &mut ConstraintSystem<Fr>) -> Self::Config {
             let selector = SelectorColumn(cs.fixed_column());
             let mut cb = ConstraintBuilder::new(selector);
+            let rlc_randomness = RlcRandomness::configure(cs);
 
             let poseidon = PoseidonTable::configure(cs, &mut cb, 4096);
             let byte_bit = ByteBitGadget::configure(cs, &mut cb);
-            let byte_representation = ByteRepresentationConfig::configure(cs, &mut cb, &byte_bit);
+            let byte_representation = ByteRepresentationConfig::configure(cs, &mut cb, &byte_bit, &rlc_randomness);
             let canonical_representation =
                 CanonicalRepresentationConfig::configure(cs, &mut cb, &byte_bit);
             let key_bit = KeyBitConfig::configure(
@@ -1775,6 +1779,7 @@ mod test {
                 &key_bit,
                 &byte_representation,
                 &byte_representation,
+                &rlc_randomness,
             );
 
             cb.build(cs);
@@ -1786,6 +1791,7 @@ mod test {
                 key_bit,
                 byte_bit,
                 byte_representation,
+                rlc_randomness,
             )
         }
 
@@ -1802,9 +1808,11 @@ mod test {
                 key_bit,
                 byte_bit,
                 byte_representation,
+                rlc_randomness,
             ) = config;
 
             let (u64s, u128s, frs) = self.byte_representations();
+            let randomness = rlc_randomness.value(&layouter);
 
             layouter.assign_region(
                 || "",
@@ -1817,7 +1825,7 @@ mod test {
                     canonical_representation.assign(&mut region, &self.keys());
                     key_bit.assign(&mut region, &self.key_bit_lookups());
                     byte_bit.assign(&mut region);
-                    byte_representation.assign(&mut region, &u64s, &u128s, &frs);
+                    byte_representation.assign(&mut region, &u64s, &u128s, &frs, randomness);
                     Ok(())
                 },
             )

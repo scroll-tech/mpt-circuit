@@ -101,4 +101,16 @@ impl AdviceColumn {
             )
             .expect("failed assign_advice");
     }
+
+    // TODO: first/second phase advice columns?
+    pub fn assign_second_phase<F: FieldExt>(
+        &self,
+        region: &mut Region<'_, F>,
+        offset: usize,
+        value: Value<F>,
+    ) {
+        region
+            .assign_advice(|| "second phase advice", self.0, offset, || value)
+            .expect("failed assign_advice");
+    }
 }
