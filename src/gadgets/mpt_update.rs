@@ -1512,14 +1512,14 @@ fn configure_non_existing_type1<F: FieldExt>(
 
     let key_minus_other_key = config.is_zero_values[0];
     cb.assert_equal(
-                "key_minus_other_key = key - other key",
-                key_minus_other_key.current(),
-                config.key.current() - config.other_key.current(),
+        "key_minus_other_key = key - other key",
+        key_minus_other_key.current(),
+        config.key.current() - config.other_key.current(),
     );
     let key_equals_other_key = config.is_zero_gadgets[0];
     cb.assert(
         "key != other_key for type 1 non-existence",
-        !key_equals_other_key.current()
+        !key_equals_other_key.current(),
     );
 
     cb.add_lookup(
@@ -1539,14 +1539,11 @@ fn configure_non_existing_type2<F: FieldExt>(
 ) {
     configure_common_non_existing(cb, config);
 
-    cb.assert_zero(
-        "both old hash and new hash are zero for type 2 non-existence",
-        Query::one()
-            - config
-                .old_hash_is_zero
-                .current()
-                .and(config.new_hash_is_zero.current())
-                .0,
+    let [old_hash, new_hash] = config.is_zero_values;
+    let [old_hash_is_zero, new_hash_is_zero] = config.is_zero_gadgets;
+    cb.assert(
+        "old hash and new hash are both zero for type 2 non-existence",
+        old_hash_is_zero.current().and(new_hash_is_zero.current()),
     );
 }
 
