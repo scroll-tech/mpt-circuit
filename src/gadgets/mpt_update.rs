@@ -5,7 +5,6 @@ use segment::SegmentType;
 
 use super::{
     byte_representation::{BytesLookup, RlcLookup},
-    is_equal::IsEqualGadget,
     is_zero::IsZeroGadget,
     key_bit::KeyBitLookup,
     one_hot::OneHot,
@@ -20,7 +19,7 @@ use crate::{
         trie::TrieRows,
         ClaimKind, Proof,
     },
-    util::{rlc, storage_key_hash, u256_hi_lo, u256_to_big_endian}, // rlc is clobbered by rlc in configure....
+    util::{rlc, u256_hi_lo, u256_to_big_endian}, // rlc is clobbered by rlc in configure....
     MPTProofType,
 };
 use ethers_core::{
@@ -195,10 +194,10 @@ impl MptUpdateConfig {
                 * (1 << 32)
                 * (1 << 32)
                 * (1 << 32);
-            cb.add_lookup(
+            cb.poseidon_lookup(
                 "account mpt key = h(address_high, address_low)",
                 [address_high.current(), address_low, key.current()],
-                poseidon.lookup(),
+                poseidon,
             );
         });
 
@@ -660,11 +659,11 @@ fn configure_common_path<F: FieldExt>(
     poseidon: &impl PoseidonLookup,
 ) {
     cb.condition(
-        config.path_type.current_matches(&[PathType::Common, PathType::ExtensionOld])
-        .and(
-            !config.segment_type.current_matches(&[SegmentType::Start])
-        ), 
-        |cb|{
+        config
+            .path_type
+            .current_matches(&[PathType::Common, PathType::ExtensionOld])
+            .and(!config.segment_type.current_matches(&[SegmentType::Start])),
+        |cb| {
             cb.poseidon_lookup(
                 "poseidon hash correct for old common path",
                 [
@@ -673,14 +672,15 @@ fn configure_common_path<F: FieldExt>(
                     config.old_hash.previous(),
                 ],
                 poseidon,
-            )  
-        });
-     cb.condition(
-        config.path_type.current_matches(&[PathType::Common, PathType::ExtensionNew])
-        .and(
-            !config.segment_type.current_matches(&[SegmentType::Start])
-        ), 
-        |cb|{
+            )
+        },
+    );
+    cb.condition(
+        config
+            .path_type
+            .current_matches(&[PathType::Common, PathType::ExtensionNew])
+            .and(!config.segment_type.current_matches(&[SegmentType::Start])),
+        |cb| {
             cb.poseidon_lookup(
                 "poseidon hash correct for new common path",
                 [
@@ -690,8 +690,9 @@ fn configure_common_path<F: FieldExt>(
                 ],
                 poseidon,
             )
-        });
-  
+        },
+    );
+
     let is_non_existing_type1 = config.path_type.next_matches(&[PathType::Start]).and(
         config
             .segment_type
@@ -736,21 +737,6 @@ fn configure_common_path<F: FieldExt>(
             .segment_type
             .current_matches(&[SegmentType::AccountLeaf0]),
         |cb| {
-
-            let address_low: Query<F> = (config.address.current()
-                - config.upper_128_bits.current() * (1 << 32))
-                * (1 << 32)
-                * (1 << 32)
-                * (1 << 32);
-            cb.poseidon_lookup(
-                "key = h(address_high, address_low)",
-                [
-                    config.upper_128_bits.current(),
-                    address_low,
-                    config.key.previous(),
-                ],
-                poseidon,
-            );
             cb.poseidon_lookup(
                 "sibling = h(1, key)",
                 [
@@ -773,7 +759,7 @@ fn configure_common_path<F: FieldExt>(
                 poseidon,
             );
         },
-    );    
+    );
     cb.condition(
         config
             .path_type
@@ -1298,7 +1284,7 @@ fn configure_keccak_code_hash<F: FieldExt>(
 
                         let [new_high, new_low] =
                             [-1, 0].map(|i| config.other_leaf_data_hash.rotation(i));
-                        cb.add_lookup(
+                        cb.poseidon_lookup(
                             "new hash = poseidon(high, low)",
                             [new_high.clone(), new_low.clone(), config.new_hash.current()],
                             poseidon,
@@ -1421,7 +1407,7 @@ fn configure_storage<F: FieldExt>(
                 cb.poseidon_lookup(
                     "sibling = h(1, storage_key_hash)",
                     [Query::one(), config.key.current(), config.sibling.current()],
-                    poseidon.lookup(),
+                    poseidon,
                 );
 
                 // need to do something there for config.other_key.current()
@@ -1519,14 +1505,14 @@ fn configure_non_existing_type1<F: FieldExt>(
         !key_equals_other_key.current(),
     );
 
-    cb.add_lookup(
+    cb.poseidon_lookup(
         "other_key_hash = h(1, other_key)",
         [
             Query::one(),
             config.other_key.previous(),
             config.other_key_hash.current(),
         ],
-        poseidon.lookup(),
+        poseidon,
     );
 }
 
@@ -1580,7 +1566,7 @@ mod test {
         poseidon::PoseidonTable,
     };
     use super::*;
-    use crate::{constraint_builder::SelectorColumn, serde::SMTTrace};
+    use crate::{constraint_builder::SelectorColumn, serde::SMTTrace, util::storage_key_hash};
     use ethers_core::types::U256;
     use halo2_proofs::{
         circuit::{Layouter, SimpleFloorPlanner},
@@ -1825,8 +1811,8 @@ mod test {
     impl Circuit<Fr> for TestCircuit {
         type Config = (
             SelectorColumn,
-            PoseidonTable,
             MptUpdateConfig,
+            PoseidonTable,
             CanonicalRepresentationConfig,
             KeyBitConfig,
             ByteBitGadget,

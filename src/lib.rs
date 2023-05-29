@@ -720,8 +720,7 @@ impl<Fp: Hashable> Circuit<Fp> for HashCircuit<Fp> {
 
     fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
         let hash_tbl = [0; 5].map(|_| meta.advice_column());
-        let q_enable = meta.fixed_column();
-        hash::PoseidonHashConfig::configure_sub(meta, (q_enable, hash_tbl), hash_circuit::DEFAULT_STEP)
+        hash::PoseidonHashConfig::configure_sub(meta, hash_tbl, hash_circuit::DEFAULT_STEP)
     }
 
     fn synthesize(

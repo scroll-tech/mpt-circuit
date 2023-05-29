@@ -1,4 +1,4 @@
-use crate::constraint_builder::{FixedColumn, AdviceColumn, ConstraintBuilder, Query};
+use crate::constraint_builder::{AdviceColumn, ConstraintBuilder, FixedColumn, Query};
 use crate::util::hash as poseidon_hash;
 use halo2_proofs::{
     arithmetic::{Field, FieldExt},
@@ -13,11 +13,12 @@ pub trait PoseidonLookup {
 }
 
 impl<F: FieldExt> ConstraintBuilder<F> {
-    pub fn poseidon_lookup(&mut self, 
-        name: &'static str, 
-        queries: [Query<F>; 3], 
-        poseidon : &impl PoseidonLookup
-    ){
+    pub fn poseidon_lookup(
+        &mut self,
+        name: &'static str,
+        queries: [Query<F>; 3],
+        poseidon: &impl PoseidonLookup,
+    ) {
         let extended_queries = [
             Query::one(),
             queries[2].clone(),
@@ -29,7 +30,8 @@ impl<F: FieldExt> ConstraintBuilder<F> {
 
         let (q_enable, table_cols) = poseidon.lookup();
 
-        self.add_lookup(name, 
+        self.add_lookup(
+            name,
             extended_queries,
             [
                 q_enable.current(),
@@ -38,7 +40,7 @@ impl<F: FieldExt> ConstraintBuilder<F> {
                 table_cols[2].current(),
                 table_cols[3].current(),
                 table_cols[4].current(),
-            ]
+            ],
         )
     }
 }
@@ -61,16 +63,24 @@ impl PoseidonTable {
         size: usize,
     ) -> Self {
         let [left, right, hash, control, head_mark] = cb.advice_columns(cs);
-        Self { left, right, hash, control, head_mark,
+        Self {
+            left,
+            right,
+            hash,
+            control,
+            head_mark,
             q_enable: FixedColumn(cs.fixed_column()),
             size,
         }
     }
 
     pub fn dev_load(&self, region: &mut Region<'_, Fr>, hash_traces: &[(Fr, Fr, Fr)]) {
-
-        assert!(self.size >= hash_traces.len(), 
-            "too many traces ({}), limit is {}", hash_traces.len(), self.size);
+        assert!(
+            self.size >= hash_traces.len(),
+            "too many traces ({}), limit is {}",
+            hash_traces.len(),
+            self.size
+        );
 
         for (offset, hash_trace) in hash_traces.iter().enumerate() {
             assert!(
@@ -93,7 +103,7 @@ impl PoseidonTable {
             self.q_enable.assign(region, offset, Fr::one());
         }
 
-        for offset in hash_traces.len()..self.size{
+        for offset in hash_traces.len()..self.size {
             self.q_enable.assign(region, offset, Fr::one());
         }
 
@@ -102,7 +112,6 @@ impl PoseidonTable {
         for col in cols {
             col.assign(region, self.size, Fr::zero());
         }
-
     }
 }
 
@@ -116,7 +125,7 @@ impl PoseidonLookup for PoseidonTable {
                 self.right,
                 self.control,
                 self.head_mark,
-            ],                
+            ],
         )
     }
 }
