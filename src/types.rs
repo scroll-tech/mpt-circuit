@@ -11,6 +11,7 @@ use crate::{
     Hashable, MPTProofType,
 };
 
+mod account;
 pub mod storage;
 pub mod trie;
 use storage::StorageProof;
@@ -75,6 +76,7 @@ impl Claim {
                 &u256_to_big_endian(&old_value.unwrap_or_default()),
                 randomness,
             ),
+            ClaimKind::IsEmpty(_) => Fr::zero(),
             _ => unimplemented!("{:?}", self),
         }
     }
@@ -92,6 +94,7 @@ impl Claim {
                 &u256_to_big_endian(&new_value.unwrap_or_default()),
                 randomness,
             ),
+            ClaimKind::IsEmpty(_) => Fr::zero(),
             _ => unimplemented!(),
         }
     }
@@ -165,6 +168,7 @@ impl Proof {
                 ClaimKind::PoseidonCodeHash { .. } => 2,
                 ClaimKind::CodeHash { .. } => 4,
                 ClaimKind::Storage { .. } => 4,
+                ClaimKind::IsEmpty(_) => 1,
                 _ => unimplemented!("{:?}", self.claim),
             }
             + self.storage.n_rows()
@@ -299,11 +303,11 @@ impl From<(MPTProofType, SMTTrace)> for Proof {
 
         let [old_account, new_account] = trace.account_update;
         let old_account_hash_traces = match old_account.clone() {
-            None => empty_account_hash_traces(),
+            None => empty_account_hash_traces(leafs[0]),
             Some(account) => account_hash_traces(claim.address, account, storage.old_root()),
         };
         let new_account_hash_traces = match new_account.clone() {
-            None => empty_account_hash_traces(),
+            None => empty_account_hash_traces(leafs[1]),
             Some(account) => account_hash_traces(claim.address, account, storage.new_root()),
         };
 
@@ -311,15 +315,22 @@ impl From<(MPTProofType, SMTTrace)> for Proof {
             // The account_key(address) if the account exists
             // else: path.leaf.sibling if it's a type 1 non-existence proof
             // otherwise account_key(address) if it's a type 2 non-existence proof
-            let key = path
-                .leaf
-                .map_or_else(|| account_key(claim.address), |leaf| fr(leaf.sibling)); // this is wrong....
-                                                                                      // data hash is 0 for type 2 and leaf value for types 0 and 1.
+            let (key, key_hash) = path.leaf.map_or_else(
+                || {
+                    let k = account_key(claim.address);
+                    (k, hash(Fr::one(), k))
+                },
+                |l| {
+                    let k = fr(l.sibling);
+                    (k, hash(Fr::one(), k))
+                },
+            );
+
             let leaf_data_hash = path.leaf.map(|leaf| fr(leaf.value));
-            // dbg!()
+
             Path {
                 key,
-                key_hash: hash(Fr::one(), key),
+                key_hash,
                 leaf_data_hash,
             }
         });
@@ -454,9 +465,16 @@ fn get_internal_hash_traces(
     address_hash_traces
 }
 
-fn empty_account_hash_traces() -> [[Fr; 3]; 7] {
-    // TODO: fix this with what they should be!!!!!
-    [[Fr::zero(); 3]; 7]
+fn empty_account_hash_traces(leaf: Option<LeafNode>) -> [[Fr; 3]; 7] {
+    let mut account_hash_traces = [[Fr::zero(); 3]; 7];
+
+    if let Some(l) = leaf {
+        let h5 = hash(Fr::one(), l.key);
+        account_hash_traces[5] = [Fr::one(), l.key, h5];
+        account_hash_traces[6] = [h5, l.value_hash, hash(h5, l.value_hash)];
+    }
+
+    account_hash_traces
 }
 
 fn storage_key_value_hash_traces(key: U256, value: U256) -> [[Fr; 3]; 3] {
@@ -525,6 +543,10 @@ impl Proof {
                 let old_storage_root = old_account_hash_traces[1][0];
                 Some(vec![old_account_hash, old_h4, old_h2, old_storage_root])
             }
+            ClaimKind::IsEmpty(_) => self.leafs[0].map(|_| {
+                let old_account_hash = old_account_hash_traces[6][1];
+                vec![old_account_hash]
+            }),
             _ => unimplemented!(),
         }
     }
@@ -565,6 +587,10 @@ impl Proof {
                 let new_storage_root = new_account_hash_traces[1][0];
                 Some(vec![new_account_hash, new_h4, new_h2, new_storage_root])
             }
+            ClaimKind::IsEmpty(_) => self.leafs[1].map(|_| {
+                let new_account_hash = new_account_hash_traces[6][1];
+                vec![new_account_hash]
+            }),
             _ => unimplemented!(),
         }
     }
@@ -649,6 +675,14 @@ impl Proof {
                     keccak_codehash_hash,
                 ]
             }
+            ClaimKind::IsEmpty(_) => match self.leafs {
+                [Some(_), _] => vec![self.old_account_hash_traces[6][1]],
+                [None, Some(_)] => {
+                    // Wrong proof
+                    vec![self.new_account_hash_traces[6][1]]
+                }
+                [None, None] => vec![],
+            },
             _ => unimplemented!(),
         }
     }
