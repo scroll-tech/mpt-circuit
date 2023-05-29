@@ -10,7 +10,6 @@ use super::{
     one_hot::OneHot,
     poseidon::PoseidonLookup,
     rlc_randomness::RlcRandomness,
-    RANDOMNESS,
 };
 use crate::{
     constraint_builder::{AdviceColumn, ConstraintBuilder, Query},
@@ -29,7 +28,7 @@ use ethers_core::{
 };
 use halo2_proofs::{
     arithmetic::{Field, FieldExt},
-    circuit::Region,
+    circuit::{Region, Value},
     halo2curves::bn256::Fr,
     plonk::ConstraintSystem,
 };
@@ -282,11 +281,16 @@ impl MptUpdateConfig {
                 MPTProofType::PoseidonCodeHashExists => {
                     configure_poseidon_code_hash(cb, &config, poseidon)
                 }
-                MPTProofType::CodeHashExists => {
-                    configure_keccak_code_hash(cb, &config, poseidon, bytes, rlc)
-                }
+                MPTProofType::CodeHashExists => configure_keccak_code_hash(
+                    cb,
+                    &config,
+                    poseidon,
+                    bytes,
+                    rlc,
+                    rlc_randomness.query(),
+                ),
                 MPTProofType::StorageChanged => {
-                    configure_storage(cb, &config, poseidon, bytes, rlc)
+                    configure_storage(cb, &config, poseidon, bytes, rlc, rlc_randomness.query())
                 }
                 MPTProofType::AccountDoesNotExist => configure_empty_account(cb, &config, poseidon),
                 _ => cb.assert_unreachable("unimplemented!"),
@@ -300,21 +304,23 @@ impl MptUpdateConfig {
         config
     }
 
-    fn assign(&self, region: &mut Region<'_, Fr>, proofs: &[Proof]) {
-        let randomness = Fr::from(RANDOMNESS);
-
+    fn assign(&self, region: &mut Region<'_, Fr>, proofs: &[Proof], randomness: Value<Fr>) {
         let mut offset = 0;
         for proof in proofs {
             let proof_type = MPTProofType::from(proof.claim);
-            let storage_key = rlc(&u256_to_big_endian(&proof.claim.storage_key()), randomness);
-            let old_value = proof.claim.old_value_assignment(randomness);
-            let new_value = proof.claim.new_value_assignment(randomness);
+            let storage_key =
+                randomness.map(|r| rlc(&u256_to_big_endian(&proof.claim.storage_key()), r));
+            let old_value = randomness.map(|r| proof.claim.old_value_assignment(r));
+            let new_value = randomness.map(|r| proof.claim.new_value_assignment(r));
 
             for i in 0..proof.n_rows() {
                 self.proof_type.assign(region, offset + i, proof_type);
-                self.storage_key_rlc.assign(region, offset + i, storage_key);
-                self.old_value.assign(region, offset + i, old_value);
-                self.new_value.assign(region, offset + i, new_value);
+                self.storage_key_rlc
+                    .assign_second_phase(region, offset + i, storage_key);
+                self.old_value
+                    .assign_second_phase(region, offset + i, old_value);
+                self.new_value
+                    .assign_second_phase(region, offset + i, new_value);
             }
 
             let key = account_key(proof.claim.address);
@@ -517,10 +523,10 @@ impl MptUpdateConfig {
                         let (high, low) = u256_hi_lo(&value);
                         column.assign(region, offset + 2, Fr::from_u128(high));
                         column.assign(region, offset + 3, Fr::from_u128(low));
-                        let rlc_high = rlc(&high.to_be_bytes(), randomness);
-                        let rlc_low = rlc(&low.to_be_bytes(), randomness);
-                        column.assign(region, offset, rlc_high);
-                        column.assign(region, offset + 1, rlc_low);
+                        let rlc_high = randomness.map(|r| rlc(&high.to_be_bytes(), r));
+                        let rlc_low = randomness.map(|r| rlc(&low.to_be_bytes(), r));
+                        column.assign_second_phase(region, offset, rlc_high);
+                        column.assign_second_phase(region, offset + 1, rlc_low);
                     };
                     if let Some(value) = old {
                         assign(region, value, self.other_key_hash);
@@ -532,7 +538,7 @@ impl MptUpdateConfig {
                 _ => (),
             }
 
-            self.assign_storage(region, next_offset, &proof.storage);
+            self.assign_storage(region, next_offset, &proof.storage, randomness);
         }
     }
 
@@ -565,6 +571,7 @@ impl MptUpdateConfig {
         region: &mut Region<'_, Fr>,
         offset: usize,
         storage: &StorageProof,
+        randomness: Value<Fr>,
     ) -> usize {
         match storage {
             StorageProof::Root(_) => 0,
@@ -597,6 +604,7 @@ impl MptUpdateConfig {
                     *key,
                     old_leaf,
                     new_leaf,
+                    randomness,
                 );
                 n_trie_rows + n_leaf_rows
             }
@@ -610,6 +618,7 @@ impl MptUpdateConfig {
         key: Fr,
         old: &StorageLeaf,
         new: &StorageLeaf,
+        randomness: Value<Fr>,
     ) -> usize {
         // this should happen in storage root, which is an accountleaf
         // assign_word(region, old.storage_key().unwrap(), &self.upper_128_bits);
@@ -631,12 +640,12 @@ impl MptUpdateConfig {
 
         let assign_word = |region: &mut Region<'_, Fr>, word: U256, column: &AdviceColumn| {
             let (high, low) = u256_hi_lo(&word);
-            let rlc_high = rlc(&high.to_be_bytes(), Fr::from(RANDOMNESS));
-            let rlc_low = rlc(&low.to_be_bytes(), Fr::from(RANDOMNESS));
+            let rlc_high = randomness.map(|r| rlc(&high.to_be_bytes(), r));
+            let rlc_low = randomness.map(|r| rlc(&low.to_be_bytes(), r));
             column.assign(region, offset, Fr::from_u128(high));
             column.assign(region, offset - 1, Fr::from_u128(low));
-            column.assign(region, offset - 2, rlc_high);
-            column.assign(region, offset - 3, rlc_low);
+            column.assign_second_phase(region, offset - 2, rlc_high);
+            column.assign_second_phase(region, offset - 3, rlc_low);
         };
 
         dbg!(new, old);
@@ -1162,6 +1171,7 @@ fn configure_keccak_code_hash<F: FieldExt>(
     poseidon: &impl PoseidonLookup,
     bytes: &impl BytesLookup,
     rlc: &impl RlcLookup,
+    randomness: Query<F>,
 ) {
     for variant in SegmentType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
@@ -1218,7 +1228,7 @@ fn configure_keccak_code_hash<F: FieldExt>(
                         );
 
                         let randomness_raised_to_16 =
-                            Query::from(RANDOMNESS).square().square().square().square();
+                            randomness.clone().square().square().square().square();
                         cb.assert_equal(
                             "old value is rlc(old_high) * randomness ^ 16 + rlc(old_low)",
                             config.old_value.current(),
@@ -1283,6 +1293,7 @@ fn configure_storage<F: FieldExt>(
     poseidon: &impl PoseidonLookup,
     bytes: &impl BytesLookup,
     rlc: &impl RlcLookup,
+    randomness: Query<F>,
 ) {
     for variant in SegmentType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
@@ -1307,7 +1318,7 @@ fn configure_storage<F: FieldExt>(
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
 
                 let randomness_raised_to_16 =
-                    Query::from(RANDOMNESS).square().square().square().square();
+                    randomness.clone().square().square().square().square();
                 let configure_word = |cb: &mut ConstraintBuilder<F>,
                                       high: Query<F>,
                                       low: Query<F>,
@@ -1760,7 +1771,8 @@ mod test {
 
             let poseidon = PoseidonTable::configure(cs, &mut cb, 4096);
             let byte_bit = ByteBitGadget::configure(cs, &mut cb);
-            let byte_representation = ByteRepresentationConfig::configure(cs, &mut cb, &byte_bit, &rlc_randomness);
+            let byte_representation =
+                ByteRepresentationConfig::configure(cs, &mut cb, &byte_bit, &rlc_randomness);
             let canonical_representation =
                 CanonicalRepresentationConfig::configure(cs, &mut cb, &byte_bit);
             let key_bit = KeyBitConfig::configure(
@@ -1820,7 +1832,7 @@ mod test {
                     for offset in 0..1024 {
                         selector.enable(&mut region, offset);
                     }
-                    mpt_update.assign(&mut region, &self.proofs);
+                    mpt_update.assign(&mut region, &self.proofs, randomness);
                     poseidon.dev_load(&mut region, &self.hash_traces());
                     canonical_representation.assign(&mut region, &self.keys());
                     key_bit.assign(&mut region, &self.key_bit_lookups());
