@@ -201,6 +201,17 @@ impl MptUpdateConfig {
             );
         });
 
+        cb.condition(
+            segment_type.current_matches(&[SegmentType::AccountLeaf0]),
+            |cb| {
+                cb.poseidon_lookup(
+                    "sibling = h(1, key)",
+                    [Query::one(), key.current(), sibling.current()],
+                    poseidon,
+                );
+            },
+        );
+
         let config = Self {
             key,
             old_hash,
@@ -407,6 +418,24 @@ impl MptUpdateConfig {
                 offset += 1;
             }
 
+            let (final_old_hash, final_new_hash) = match proof.address_hash_traces.first() {
+                None => (Fr::zero(), Fr::zero()),
+                Some((_, old_hash, new_hash, _, _, _)) => (*old_hash, *new_hash),
+            };
+
+            if let MPTProofType::AccountDoesNotExist = proof_type {
+                offset -= 1;
+                self.is_zero_values[0].assign(region, offset, key - other_key);
+                self.is_zero_gadgets[0].assign(region, offset, key - other_key);
+                dbg!(final_old_hash, final_new_hash);
+                self.is_zero_values[1].assign(region, offset, final_old_hash);
+                self.is_zero_gadgets[1].assign(region, offset, final_old_hash);
+
+                self.intermediate_values[0].assign(region, offset, other_key_hash);
+                self.intermediate_values[1].assign(region, offset, other_leaf_data_hash);
+                continue; // we don't need to assign any leaf rows for empty accounts
+            }
+
             let segment_types = vec![
                 SegmentType::AccountLeaf0,
                 SegmentType::AccountLeaf1,
@@ -414,14 +443,7 @@ impl MptUpdateConfig {
                 SegmentType::AccountLeaf3,
                 SegmentType::AccountLeaf4,
             ];
-            // Need to figure out the path type for the account leaf rows
-            // this is either a leaf hash or 0 (hash of empty node).
-            let (final_old_hash, final_new_hash) = match proof.address_hash_traces.first() {
-                None => continue, // entire mpt is empty, so no leaf rows to assign.
-                Some((_, final_old_hash, final_new_hash, _, _, _)) => {
-                    (final_old_hash, final_new_hash)
-                }
-            };
+
             path_type = match path_type {
                 PathType::Common => {
                     // need to check for type 2 non-existence proof
@@ -429,9 +451,7 @@ impl MptUpdateConfig {
                         final_old_hash.is_zero_vartime(),
                         final_new_hash.is_zero_vartime(),
                     ) {
-                        (true, true) => {
-                            continue;
-                        } // type 2 account non-existence proof. we don't need to assign any leaf rows.
+                        (true, true) => unreachable!("proof type must be AccountDoesNotExist"),
                         (true, false) => PathType::ExtensionNew,
                         (false, true) => PathType::ExtensionOld,
                         (false, false) => PathType::Common,
@@ -449,17 +469,16 @@ impl MptUpdateConfig {
                 MPTProofType::PoseidonCodeHashExists => vec![true, true],
                 MPTProofType::CodeHashExists => vec![true, false, true, true],
                 MPTProofType::StorageChanged => vec![true, false, true, false],
-                MPTProofType::AccountDoesNotExist => vec![false],
                 _ => unimplemented!(),
             };
             let next_offset = offset + directions.len();
 
             let old_hashes = proof
                 .old_account_leaf_hashes()
-                .unwrap_or_else(|| vec![*final_old_hash; 4]);
+                .unwrap_or_else(|| vec![final_old_hash; 4]);
             let new_hashes = proof
                 .new_account_leaf_hashes()
-                .unwrap_or_else(|| vec![*final_new_hash; 4]);
+                .unwrap_or_else(|| vec![final_new_hash; 4]);
             let siblings = proof.account_leaf_siblings();
 
             for (i, (segment_type, sibling, old_hash, new_hash, direction)) in
@@ -618,7 +637,12 @@ impl MptUpdateConfig {
             column.assign(region, offset - 3, rlc_low);
         };
 
-        assign_word(region, old.storage_key().unwrap(), &self.upper_128_bits);
+        dbg!(new, old);
+        assign_word(
+            region,
+            old.storage_key().or(new.storage_key()).unwrap(),
+            &self.upper_128_bits,
+        );
         assign_word(region, old.value(), &self.other_key_hash);
         assign_word(region, new.value(), &self.other_leaf_data_hash);
 
@@ -658,108 +682,25 @@ fn configure_common_path<F: FieldExt>(
     config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
 ) {
-    cb.condition(
-        config
-            .path_type
-            .current_matches(&[PathType::Common, PathType::ExtensionOld])
-            .and(!config.segment_type.current_matches(&[SegmentType::Start])),
-        |cb| {
-            cb.poseidon_lookup(
-                "poseidon hash correct for old common path",
-                [
-                    old_left(config),
-                    old_right(config),
-                    config.old_hash.previous(),
-                ],
-                poseidon,
-            )
-        },
+    cb.poseidon_lookup(
+        "poseidon hash correct for old common path",
+        [
+            old_left(config),
+            old_right(config),
+            config.old_hash.previous(),
+        ],
+        poseidon,
     );
-    cb.condition(
-        config
-            .path_type
-            .current_matches(&[PathType::Common, PathType::ExtensionNew])
-            .and(!config.segment_type.current_matches(&[SegmentType::Start])),
-        |cb| {
-            cb.poseidon_lookup(
-                "poseidon hash correct for new common path",
-                [
-                    new_left(config),
-                    new_right(config),
-                    config.new_hash.previous(),
-                ],
-                poseidon,
-            )
-        },
+    cb.poseidon_lookup(
+        "poseidon hash correct for new common path",
+        [
+            new_left(config),
+            new_right(config),
+            config.new_hash.previous(),
+        ],
+        poseidon,
     );
 
-    let is_non_existing_type1 = config.path_type.next_matches(&[PathType::Start]).and(
-        config
-            .segment_type
-            .current_matches(&[SegmentType::AccountLeaf0]),
-    );
-    let is_non_existing_type2 = config.path_type.next_matches(&[PathType::Start]).and(
-        config
-            .segment_type
-            .current_matches(&[SegmentType::AccountTrie]),
-    );
-    cb.condition(is_non_existing_type1.clone(), |cb| {
-        configure_non_existing_type1(cb, config, poseidon)
-    });
-    cb.condition(is_non_existing_type2, |cb| {
-        configure_non_existing_type2(cb, config)
-    });
-
-    // TODO: cannot poseidon lookup for AccountLeaf0 here.
-    cb.condition(!is_non_existing_type1, |cb| {
-        cb.poseidon_lookup(
-            "poseidon hash correct for old common path",
-            [
-                old_left(config),
-                old_right(config),
-                config.old_hash.previous(),
-            ],
-            poseidon,
-        );
-        cb.poseidon_lookup(
-            "poseidon hash correct for new common path",
-            [
-                new_left(config),
-                new_right(config),
-                config.new_hash.previous(),
-            ],
-            poseidon,
-        );
-    });
-
-    cb.condition(
-        config
-            .segment_type
-            .current_matches(&[SegmentType::AccountLeaf0]),
-        |cb| {
-            cb.poseidon_lookup(
-                "sibling = h(1, key)",
-                [
-                    Query::one(),
-                    // this could be Start, which could have key = 0. Do we need to special case that?
-                    // We could also just assign a non-zero key here....
-                    config.key.previous(),
-                    config.sibling.current(),
-                ],
-                poseidon,
-            );
-
-            cb.poseidon_lookup(
-                "other_key_hash = h(1, other_key)",
-                [
-                    Query::one(),
-                    config.other_key.current(),
-                    config.other_key_hash.current(),
-                ],
-                poseidon,
-            );
-        },
-    );
     cb.condition(
         config
             .path_type
@@ -1448,34 +1389,70 @@ fn configure_empty_account<F: FieldExt>(
     config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
 ) {
+    cb.assert_zero("old value is 0", config.old_value.current());
+    cb.assert_zero("new value is 0", config.new_value.current());
+    cb.assert_equal(
+        "hash doesn't change for empty account",
+        config.old_hash.current(),
+        config.new_hash.current(),
+    );
     for variant in SegmentType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
-            SegmentType::Start => {}
-            SegmentType::AccountTrie => {
-                // Check if next path is start for type 2 non-existence.
-                cb.condition(config.path_type.next_matches(&[PathType::Start]), |cb| {
-                    configure_non_existing_type2(cb, config)
+            SegmentType::Start | SegmentType::AccountTrie => {
+                let is_final_segment = config.segment_type.next_matches(&[SegmentType::Start]);
+                cb.condition(is_final_segment, |cb| {
+                    let [key_minus_other_key, hash] = config.is_zero_values;
+                    let [key_equals_other_key, hash_is_zero] = config.is_zero_gadgets;
+                    cb.assert_equal(
+                        "key_minus_other_key = key - other key",
+                        key_minus_other_key.current(),
+                        config.key.current() - config.other_key.current(),
+                    );
+                    cb.assert_equal(
+                        "hash == old_hash (== current_hash)",
+                        config.old_hash.current(),
+                        hash.current(),
+                    );
+                    let is_type_1 = !key_equals_other_key.current();
+                    let is_type_2 = hash_is_zero.current();
+                    cb.assert_equal(
+                        "Empty account is either type 1 xor type 2",
+                        Query::one(),
+                        Query::from(is_type_1.clone()) + Query::from(is_type_2),
+                    );
+
+                    cb.condition(is_type_1, |cb| {
+                        let [other_key_hash, other_leaf_data_hash, ..] = config.intermediate_values;
+                        cb.poseidon_lookup(
+                            "other_key_hash == h(1, other_key)",
+                            [
+                                Query::one(),
+                                config.other_key.current(),
+                                other_key_hash.current(),
+                            ],
+                            poseidon,
+                        );
+                        cb.poseidon_lookup(
+                            "old_hash == new_hash = h(key_hash, other_leaf_data_hash)",
+                            [
+                                other_key_hash.current(),
+                                other_leaf_data_hash.current(),
+                                config.old_hash.current(),
+                            ],
+                            poseidon,
+                        );
+                    });
                 });
             }
-            SegmentType::AccountLeaf0 => {
-                cb.assert(
-                    "current path type is common and next is start",
-                    config
-                        .path_type
-                        .current_matches(&[PathType::Common])
-                        .and(config.path_type.next_matches(&[PathType::Start])),
-                );
-
-                configure_non_existing_type1(cb, config, poseidon);
-            }
-            SegmentType::AccountLeaf1
+            SegmentType::AccountLeaf0
+            | SegmentType::AccountLeaf1
             | SegmentType::AccountLeaf2
             | SegmentType::AccountLeaf3
             | SegmentType::AccountLeaf4
             | SegmentType::StorageTrie
             | SegmentType::StorageLeaf0
             | SegmentType::StorageLeaf1 => {
-                cb.assert_unreachable("unreachable segment type for empty accounts")
+                cb.assert_unreachable("unreachable segment type for empty account")
             }
         };
         cb.condition(
@@ -1483,66 +1460,6 @@ fn configure_empty_account<F: FieldExt>(
             conditional_constraints,
         );
     }
-}
-fn configure_non_existing_type1<F: FieldExt>(
-    cb: &mut ConstraintBuilder<F>,
-    config: &MptUpdateConfig,
-    poseidon: &impl PoseidonLookup,
-) {
-    configure_common_non_existing(cb, config);
-
-    cb.assert_zero("direction is 0", config.direction.current());
-
-    let key_minus_other_key = config.is_zero_values[0];
-    cb.assert_equal(
-        "key_minus_other_key = key - other key",
-        key_minus_other_key.current(),
-        config.key.current() - config.other_key.current(),
-    );
-    let key_equals_other_key = config.is_zero_gadgets[0];
-    cb.assert(
-        "key != other_key for type 1 non-existence",
-        !key_equals_other_key.current(),
-    );
-
-    cb.poseidon_lookup(
-        "other_key_hash = h(1, other_key)",
-        [
-            Query::one(),
-            config.other_key.previous(),
-            config.other_key_hash.current(),
-        ],
-        poseidon,
-    );
-}
-
-fn configure_non_existing_type2<F: FieldExt>(
-    cb: &mut ConstraintBuilder<F>,
-    config: &MptUpdateConfig,
-) {
-    configure_common_non_existing(cb, config);
-
-    let [old_hash, new_hash] = config.is_zero_values;
-    let [old_hash_is_zero, new_hash_is_zero] = config.is_zero_gadgets;
-    cb.assert(
-        "old hash and new hash are both zero for type 2 non-existence",
-        old_hash_is_zero.current().and(new_hash_is_zero.current()),
-    );
-}
-
-fn configure_common_non_existing<F: FieldExt>(
-    cb: &mut ConstraintBuilder<F>,
-    config: &MptUpdateConfig,
-) {
-    cb.assert(
-        "proof type is account does not exist",
-        config
-            .proof_type
-            .current_matches(&[MPTProofType::AccountDoesNotExist]),
-    );
-
-    cb.assert_zero("old value is 0", config.old_value.current());
-    cb.assert_zero("new value is 0", config.new_value.current());
 }
 
 fn configure_self_destruct<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {}
@@ -1621,14 +1538,23 @@ mod test {
                 );
                 hash_traces.extend(proof.storage.poseidon_lookups());
 
+                let key = account_key(proof.claim.address);
                 hash_traces.push((
                     Fr::from_u128(address_high(proof.claim.address)),
                     Fr::from_u128(address_low(proof.claim.address)),
-                    account_key(proof.claim.address),
+                    key,
                 ));
 
-                hash_traces.push((Fr::one(), proof.old.key, proof.old.key_hash));
-                hash_traces.push((Fr::one(), proof.new.key, proof.new.key_hash));
+                let other_key = if key != proof.old.key {
+                    proof.old.key
+                } else {
+                    proof.new.key
+                };
+                dbg!(key, other_key);
+                if key != other_key {
+                    dbg!("asdfasdfas");
+                    hash_traces.push((Fr::one(), other_key, hash(Fr::one(), other_key)));
+                }
 
                 if let Some(data_hash) = proof.old.leaf_data_hash {
                     hash_traces.push((
