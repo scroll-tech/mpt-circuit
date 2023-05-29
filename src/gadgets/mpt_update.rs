@@ -90,13 +90,6 @@ struct MptUpdateConfig {
     other_key_hash: AdviceColumn,
     other_leaf_data_hash: AdviceColumn,
 
-    // These two are used to verify a type 2 non-existence proof.
-    old_hash_is_zero: IsZeroGadget,
-    new_hash_is_zero: IsZeroGadget,
-
-    // // These two are needed to prove that a zero account is not in from the MPT.
-    // old_hash_is_zero_account_hash: IsEqualGadget<F>,
-    // new_hash_is_zero_account_hash: IsEqualGadget<F>,
     direction: AdviceColumn, // this actually must be binary because of a KeyBitLookup
 
     sibling: AdviceColumn,
@@ -194,9 +187,6 @@ impl MptUpdateConfig {
             cb.assert_zero("depth is 0 in non-trie segments", depth.current());
         });
 
-        let old_hash_is_zero = IsZeroGadget::configure(cs, cb, old_hash);
-        let new_hash_is_zero = IsZeroGadget::configure(cs, cb, new_hash);
-
         cb.condition(segment_type.current_matches(&[SegmentType::Start]), |cb| {
             let [address, address_high, ..] = intermediate_values;
             // address  = address_high + address_low
@@ -229,13 +219,9 @@ impl MptUpdateConfig {
             direction,
             sibling,
             upper_128_bits,
-            old_hash_is_zero,
-            new_hash_is_zero,
             intermediate_values,
             is_zero_values,
             is_zero_gadgets,
-            // old_hash_is_zero_account_hash,
-            // new_hash_is_zero_account_hash,
         };
 
         // Transitions for state machines:
@@ -338,26 +324,9 @@ impl MptUpdateConfig {
 
             // Assign start row
             self.segment_type.assign(region, offset, SegmentType::Start);
-            self.path_type.assign(region, offset, path_type);
+            self.path_type.assign(region, offset, PathType::Start);
             self.old_hash.assign(region, offset, proof.claim.old_root);
-            self.old_hash_is_zero
-                .assign(region, offset, proof.claim.old_root);
-            // self.old_hash_is_zero_account_hash.assign(
-            //     region,
-            //     offset,
-            //     proof.claim.old_root,
-            //     *ZERO_ACCOUNT_HASH,
-            // );
             self.new_hash.assign(region, offset, proof.claim.new_root);
-            self.new_hash_is_zero
-                .assign(region, offset, proof.claim.new_root);
-            // self.new_hash_is_zero_account_hash.assign(
-            //     region,
-            //     offset,
-            //     proof.claim.new_root,
-            //     *ZERO_ACCOUNT_HASH,
-            // );
-            // need to assign key
 
             self.key.assign(region, offset, key);
             self.other_key.assign(region, offset, other_key);
@@ -398,21 +367,7 @@ impl MptUpdateConfig {
 
                 self.sibling.assign(region, offset, *sibling);
                 self.old_hash.assign(region, offset, *old_hash);
-                self.old_hash_is_zero.assign(region, offset, *old_hash);
-                // self.old_hash_is_zero_account_hash.assign(
-                //     region,
-                //     offset,
-                //     *old_hash,
-                //     *ZERO_ACCOUNT_HASH,
-                // );
                 self.new_hash.assign(region, offset, *new_hash);
-                self.new_hash_is_zero.assign(region, offset, *new_hash);
-                // self.new_hash_is_zero_account_hash.assign(
-                //     region,
-                //     offset,
-                //     *new_hash,
-                //     *ZERO_ACCOUNT_HASH,
-                // );
                 self.direction.assign(region, offset, *direction);
 
                 self.key.assign(region, offset, key);
@@ -511,27 +466,16 @@ impl MptUpdateConfig {
             for (i, (segment_type, sibling, old_hash, new_hash, direction)) in
                 izip!(segment_types, siblings, old_hashes, new_hashes, directions).enumerate()
             {
+                if i == 0 {
+                    self.is_zero_values[1].assign(region, offset, old_hash);
+                    self.is_zero_gadgets[1].assign(region, offset, old_hash);
+                }
+
                 self.segment_type.assign(region, offset + i, segment_type);
                 self.path_type.assign(region, offset + i, path_type);
                 self.sibling.assign(region, offset + i, sibling);
                 self.old_hash.assign(region, offset + i, old_hash);
-                self.old_hash_is_zero.assign(region, offset + i, old_hash);
-                // self.old_hash_is_zero_account_hash.assign(
-                //     region,
-                //     offset + i,
-                //     old_hash,
-                //     *ZERO_ACCOUNT_HASH,
-                // );
-
                 self.new_hash.assign(region, offset + i, new_hash);
-                self.new_hash_is_zero.assign(region, offset + i, new_hash);
-                // self.new_hash_is_zero_account_hash.assign(
-                //     region,
-                //     offset + i,
-                //     new_hash,
-                //     *ZERO_ACCOUNT_HASH,
-                // );
-
                 self.direction.assign(region, offset + i, direction);
 
                 match segment_type {
@@ -591,13 +535,6 @@ impl MptUpdateConfig {
                 (row.direction.into(), self.direction),
             ] {
                 column.assign(region, offset, value);
-            }
-
-            for (value, gadget) in [
-                (row.old, self.old_hash_is_zero),
-                (row.new, self.new_hash_is_zero),
-            ] {
-                gadget.assign(region, offset, value);
             }
         }
         rows.len()
@@ -666,8 +603,6 @@ impl MptUpdateConfig {
         let new_hash = new.value_hash();
         self.old_hash.assign(region, offset, old_hash);
         self.new_hash.assign(region, offset, new_hash);
-        self.old_hash_is_zero.assign(region, offset, old_hash);
-        self.new_hash_is_zero.assign(region, offset, new_hash);
 
         self.key.assign(region, offset, key);
         let old_key = old.key();
@@ -898,15 +833,20 @@ fn configure_extension_new<F: FieldExt>(
                 poseidon.lookup(),
             );
 
-            let key_minus_other_key = config.is_zero_values[0];
+            let [key_minus_other_key, old_hash] = config.is_zero_values;
+            let [key_equals_other_key, old_hash_is_zero] = config.is_zero_gadgets;
             cb.assert_equal(
                 "key_minus_other_key = key - other key",
                 key_minus_other_key.current(),
                 config.key.current() - config.other_key.current(),
             );
-            let key_equals_other_key = config.is_zero_gadgets[0];
+            cb.assert_equal(
+                "is_zero_value is old_hash",
+                config.old_hash.current(),
+                old_hash.current(),
+            );
             let old_is_type_1 = !key_equals_other_key.current();
-            let old_is_type_2 = config.old_hash_is_zero.current();
+            let old_is_type_2 = old_hash_is_zero.current();
 
             cb.assert_equal(
                 "Empty old account/storage leaf is either type 1 xor type 2",
