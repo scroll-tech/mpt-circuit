@@ -5,7 +5,7 @@ use num_bigint::BigUint;
 use num_traits::identities::Zero;
 
 use crate::{
-    operation::{Account, SMTPathParse},
+    // operation::{Account, SMTPathParse},
     serde::{AccountData, HexBytes, SMTNode, SMTPath, SMTTrace},
     util::{balance_convert, rlc, u256_from_hex, u256_to_big_endian},
     Hashable, MPTProofType,
@@ -392,7 +392,7 @@ fn leaf_hash(path: SMTPath) -> Fr {
 
 fn account_hash_traces(address: Address, account: AccountData, storage_root: Fr) -> [[Fr; 3]; 7] {
     // h5 is sibling of node?
-    let real_account: Account<Fr> = (&account, storage_root).try_into().unwrap();
+    // let real_account: Account<Fr> = (&account, storage_root).try_into().unwrap();
 
     let (codehash_hi, codehash_lo) = hi_lo(account.code_hash);
     let h1 = hash(codehash_hi, codehash_lo);
@@ -421,7 +421,7 @@ fn account_hash_traces(address: Address, account: AccountData, storage_root: Fr)
     account_hash_traces[6] = [h5, account_hash, hash(h5, account_hash)];
 
     // h4 is value of node?
-    assert_eq!(real_account.account_hash(), account_hash);
+    // assert_eq!(real_account.account_hash(), account_hash);
 
     account_hash_traces
 }
@@ -842,10 +842,10 @@ fn check_hash_traces_new(traces: &[(bool, Fr, Fr, Fr, bool, bool)]) {
 }
 
 fn path_root(path: SMTPath) -> Fr {
-    let parse: SMTPathParse<Fr> = SMTPathParse::try_from(&path).unwrap();
-    for (a, b, c) in parse.0.hash_traces {
-        assert_eq!(hash(a, b), c)
-    }
+    // let parse: SMTPathParse<Fr> = SMTPathParse::try_from(&path).unwrap();
+    // for (a, b, c) in parse.0.hash_traces {
+    //     assert_eq!(hash(a, b), c)
+    // }
 
     let account_hash = if let Some(node) = path.clone().leaf {
         hash(hash(Fr::one(), fr(node.sibling)), fr(node.value))

@@ -1,11 +1,11 @@
-use crate::operation::{AccountOp, KeyValue};
+// use crate::operation::{AccountOp, KeyValue};
 use crate::types::{Claim, ClaimKind};
-use halo2_proofs::{
-    arithmetic::{Field, FieldExt},
-    circuit::{Layouter, Value},
-    plonk::{Advice, Column, ConstraintSystem, Error, Expression, Selector, VirtualCells},
-    poly::Rotation,
-};
+// use halo2_proofs::{
+//     arithmetic::{Field, FieldExt},
+//     circuit::{Layouter, Value},
+//     plonk::{Advice, Column, ConstraintSystem, Error, Expression, Selector, VirtualCells},
+//     poly::Rotation,
+// };
 use strum_macros::EnumIter;
 
 /// The defination is greped from state-circuit
