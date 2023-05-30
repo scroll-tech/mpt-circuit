@@ -1,10 +1,10 @@
 // use halo2_mpt_circuits::operation::AccountOp;
-use halo2_mpt_circuits::serde::*;
-pub use halo2_proofs::halo2curves::bn256::Fr as Fp;
+// use halo2_mpt_circuits::serde::*;
+// pub use halo2_proofs::halo2curves::bn256::Fr as Fp;
 
-const SMT_TRACE_EXAMPLE: &str = include_str!("./dual_code_hash/trace_1.json");
-const TEST_TRACE1: &str = include_str!("./dual_code_hash/traces_1.json");
-const TEST_TRACE2: &str = include_str!("./dual_code_hash/traces_1.json");
+// const SMT_TRACE_EXAMPLE: &str = include_str!("./dual_code_hash/trace_1.json");
+// const TEST_TRACE1: &str = include_str!("./dual_code_hash/traces_1.json");
+// const TEST_TRACE2: &str = include_str!("./dual_code_hash/traces_1.json");
 
 #[test]
 fn trace_parse_object() {

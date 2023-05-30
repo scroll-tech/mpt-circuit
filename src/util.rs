@@ -1,9 +1,9 @@
 use crate::serde::HexBytes;
-use crate::Hashable;
 use ethers_core::k256::elliptic_curve::PrimeField;
 use ethers_core::types::U256;
 use halo2_proofs::arithmetic::FieldExt;
 use halo2_proofs::halo2curves::bn256::Fr;
+use hash_circuit::hash::Hashable;
 use num_bigint::BigUint;
 
 pub(crate) fn fr(x: HexBytes<32>) -> Fr {

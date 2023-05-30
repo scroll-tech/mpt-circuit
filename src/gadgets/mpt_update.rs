@@ -49,7 +49,7 @@ pub trait MptUpdateLookup<F: FieldExt> {
 // empty storage proofs?
 
 #[derive(Clone)]
-struct MptUpdateConfig {
+pub struct MptUpdateConfig {
     old_hash: AdviceColumn,
     new_hash: AdviceColumn,
     old_value: SecondPhaseAdviceColumn,
@@ -96,7 +96,7 @@ impl<F: FieldExt> MptUpdateLookup<F> for MptUpdateConfig {
 }
 
 impl MptUpdateConfig {
-    fn configure<F: FieldExt>(
+    pub fn configure<F: FieldExt>(
         cs: &mut ConstraintSystem<F>,
         cb: &mut ConstraintBuilder<F>,
         poseidon: &impl PoseidonLookup,

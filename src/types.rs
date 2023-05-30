@@ -1,5 +1,6 @@
 use ethers_core::types::{Address, U256};
 use halo2_proofs::{arithmetic::FieldExt, halo2curves::bn256::Fr};
+use hash_circuit::hash::Hashable;
 use itertools::{EitherOrBoth, Itertools};
 use num_bigint::BigUint;
 use num_traits::identities::Zero;
@@ -8,7 +9,7 @@ use crate::{
     // operation::{Account, SMTPathParse},
     serde::{AccountData, HexBytes, SMTNode, SMTPath, SMTTrace},
     util::{balance_convert, rlc, u256_from_hex, u256_to_big_endian},
-    Hashable, MPTProofType,
+    MPTProofType,
 };
 
 mod account;

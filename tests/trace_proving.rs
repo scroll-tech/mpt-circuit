@@ -1,23 +1,23 @@
-use halo2_proofs::dev::MockProver;
-use halo2_proofs::halo2curves::bn256::{Bn256, Fr as Fp, G1Affine};
-use halo2_proofs::plonk::{create_proof, keygen_pk, keygen_vk, verify_proof};
-use halo2_proofs::poly::commitment::ParamsProver;
-use halo2_proofs::poly::kzg::commitment::{
-    KZGCommitmentScheme, ParamsKZG as Params, ParamsVerifierKZG as ParamsVerifier,
-};
-use halo2_proofs::poly::kzg::multiopen::{ProverSHPLONK, VerifierSHPLONK};
-use halo2_proofs::poly::kzg::strategy::SingleStrategy;
-use halo2_proofs::transcript::{
-    Blake2bRead, Blake2bWrite, Challenge255, PoseidonRead, PoseidonWrite, TranscriptRead,
-    TranscriptReadBuffer, TranscriptWriterBuffer,
-};
-use halo2_proofs::SerdeFormat;
-use rand::SeedableRng;
-use rand_chacha::ChaCha8Rng;
+// use halo2_proofs::dev::MockProver;
+// use halo2_proofs::halo2curves::bn256::{Bn256, Fr as Fp, G1Affine};
+// use halo2_proofs::plonk::{create_proof, keygen_pk, keygen_vk, verify_proof};
+// use halo2_proofs::poly::commitment::ParamsProver;
+// use halo2_proofs::poly::kzg::commitment::{
+//     KZGCommitmentScheme, ParamsKZG as Params, ParamsVerifierKZG as ParamsVerifier,
+// };
+// use halo2_proofs::poly::kzg::multiopen::{ProverSHPLONK, VerifierSHPLONK};
+// use halo2_proofs::poly::kzg::strategy::SingleStrategy;
+// use halo2_proofs::transcript::{
+//     Blake2bRead, Blake2bWrite, Challenge255, PoseidonRead, PoseidonWrite, TranscriptRead,
+//     TranscriptReadBuffer, TranscriptWriterBuffer,
+// };
+// use halo2_proofs::SerdeFormat;
+// use rand::SeedableRng;
+// use rand_chacha::ChaCha8Rng;
 
-const TEST_TRACE: &str = include_str!("./dual_code_hash/traces_1.json");
-const TEST_TRACE_SMALL: &str = include_str!("./dual_code_hash/traces_1.json");
-const TEST_TRACE_READONLY: &str = include_str!("./dual_code_hash/traces_1.json");
+// const TEST_TRACE: &str = include_str!("./dual_code_hash/traces_1.json");
+// const TEST_TRACE_SMALL: &str = include_str!("./dual_code_hash/traces_1.json");
+// const TEST_TRACE_READONLY: &str = include_str!("./dual_code_hash/traces_1.json");
 
 #[test]
 fn trace_read_only() {

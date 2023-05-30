@@ -1,6 +1,5 @@
 //! deserialize data for operations
 //!
-use super::HashType;
 use num_bigint::BigUint;
 use serde::{
     de::{Deserializer, Error},
@@ -8,6 +7,23 @@ use serde::{
     Deserialize, Serialize,
 };
 use std::fmt::{Debug, Display, Formatter};
+
+/// Indicate the operation type of a row in MPT circuit
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HashType {
+    /// Marking the start of node
+    Start = 0,
+    /// Empty node
+    Empty,
+    /// middle node
+    Middle,
+    /// leaf node which is extended to middle in insert
+    LeafExt,
+    /// leaf node which is extended to middle in insert, which is the last node in new path
+    LeafExtFinal,
+    /// leaf node
+    Leaf,
+}
 
 impl<'de> Deserialize<'de> for HashType {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>

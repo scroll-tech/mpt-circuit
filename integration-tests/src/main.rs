@@ -1,16 +1,16 @@
-use halo2_mpt_circuits::{serde::SMTTrace};
-use halo2_proofs::dev::MockProver;
-pub use halo2_proofs::halo2curves::bn256::Fr as Fp;
-use std::fs::File;
-use std::io::Read;
+// use halo2_mpt_circuits::serde::SMTTrace;
+// use halo2_proofs::dev::MockProver;
+// pub use halo2_proofs::halo2curves::bn256::Fr as Fp;
+// use std::fs::File;
+// use std::io::Read;
 
-use serde::Deserialize;
+// use serde::Deserialize;
 
-#[derive(Deserialize, Default)]
-pub struct BlockResult {
-    #[serde(rename = "mptwitness", default)]
-    pub mpt_witness: Vec<SMTTrace>,
-}
+// #[derive(Deserialize, Default)]
+// pub struct BlockResult {
+//     #[serde(rename = "mptwitness", default)]
+//     pub mpt_witness: Vec<SMTTrace>,
+// }
 
 fn main() {
     // let mut buffer = Vec::new();
