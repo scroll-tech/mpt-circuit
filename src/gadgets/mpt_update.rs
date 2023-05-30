@@ -1,9 +1,9 @@
-mod configure;
 mod path;
 mod segment;
-use configure::configure_word_rlc;
+mod word_rlc;
 pub use path::PathType;
 use segment::SegmentType;
+use word_rlc::{assign as assign_word_rlc, configure as configure_word_rlc};
 
 use super::{
     byte_representation::{BytesLookup, RlcLookup},
@@ -528,10 +528,8 @@ impl MptUpdateConfig {
                             region,
                             offset + 3,
                             value,
-                            old_high,
-                            old_low,
-                            old_rlc_high,
-                            old_rlc_low,
+                            [old_high, old_low],
+                            [old_rlc_high, old_rlc_low],
                             randomness,
                         );
                     }
@@ -540,10 +538,8 @@ impl MptUpdateConfig {
                             region,
                             offset + 3,
                             value,
-                            new_high,
-                            new_low,
-                            new_rlc_high,
-                            new_rlc_low,
+                            [new_high, new_low],
+                            [new_rlc_high, new_rlc_low],
                             randomness,
                         );
                     }
@@ -633,9 +629,6 @@ impl MptUpdateConfig {
         new: &StorageLeaf,
         randomness: Value<Fr>,
     ) -> usize {
-        // this should happen in storage root, which is an accountleaf
-        // assign_word(region, old.storage_key().unwrap(), &self.upper_128_bits);
-        //
         self.segment_type
             .assign(region, offset, SegmentType::StorageLeaf0);
         self.direction.assign(region, offset, true);
@@ -660,60 +653,29 @@ impl MptUpdateConfig {
             region,
             offset,
             old.storage_key().or(new.storage_key()).unwrap(),
-            key_high,
-            key_low,
-            rlc_key_high,
-            rlc_key_low,
+            [key_high, key_low],
+            [rlc_key_high, rlc_key_low],
             randomness,
         );
         assign_word_rlc(
             region,
             offset,
             old.value(),
-            old_high,
-            old_low,
-            old_rlc_high,
-            old_rlc_low,
+            [old_high, old_low],
+            [old_rlc_high, old_rlc_low],
             randomness,
         );
         assign_word_rlc(
             region,
             offset,
             new.value(),
-            new_high,
-            new_low,
-            new_rlc_high,
-            new_rlc_low,
+            [new_high, new_low],
+            [new_rlc_high, new_rlc_low],
             randomness,
         );
 
         1
     }
-}
-
-fn assign_word_rlc(
-    region: &mut Region<'_, Fr>,
-    offset: usize,
-    word: U256,
-    high_column: AdviceColumn,
-    low_column: AdviceColumn,
-    rlc_high: SecondPhaseAdviceColumn,
-    rlc_low: SecondPhaseAdviceColumn,
-    randomness: Value<Fr>,
-) {
-    let (high, low) = u256_hi_lo(&word);
-    high_column.assign(region, offset, Fr::from_u128(high));
-    low_column.assign(region, offset, Fr::from_u128(low));
-    rlc_high.assign(
-        region,
-        offset,
-        randomness.map(|r| rlc(&high.to_be_bytes(), r)),
-    );
-    rlc_low.assign(
-        region,
-        offset,
-        randomness.map(|r| rlc(&low.to_be_bytes(), r)),
-    );
 }
 
 fn old_left<F: FieldExt>(config: &MptUpdateConfig) -> Query<F> {
