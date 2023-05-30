@@ -1,5 +1,7 @@
+mod configure;
 mod path;
 mod segment;
+use configure::configure_word_rlc;
 pub use path::PathType;
 use segment::SegmentType;
 
@@ -12,7 +14,7 @@ use super::{
     rlc_randomness::RlcRandomness,
 };
 use crate::{
-    constraint_builder::{AdviceColumn, ConstraintBuilder, Query},
+    constraint_builder::{AdviceColumn, ConstraintBuilder, Query, SecondPhaseAdviceColumn},
     types::{
         account_key, hash,
         storage::{StorageLeaf, StorageProof},
@@ -73,10 +75,10 @@ struct MptUpdateConfig {
     // Lookup columns
     old_hash: AdviceColumn,
     new_hash: AdviceColumn,
-    old_value: AdviceColumn, // nonce and codesize are not rlc'ed the others are.
-    new_value: AdviceColumn, //
+    old_value: SecondPhaseAdviceColumn,
+    new_value: SecondPhaseAdviceColumn,
     proof_type: OneHot<MPTProofType>,
-    storage_key_rlc: AdviceColumn,
+    storage_key_rlc: SecondPhaseAdviceColumn,
 
     segment_type: OneHot<SegmentType>,
     path_type: OneHot<PathType>,
@@ -101,6 +103,7 @@ struct MptUpdateConfig {
     // TODO
     // nonfirst_rows: SelectorColumn, // Enabled on all rows except the last one.
     intermediate_values: [AdviceColumn; 10],
+    second_phase_intermediate_values: [SecondPhaseAdviceColumn; 10],
 
     is_zero_values: [AdviceColumn; 2],
     is_zero_gadgets: [IsZeroGadget; 2],
@@ -139,17 +142,17 @@ impl MptUpdateConfig {
         bytes: &impl BytesLookup,
         rlc_randomness: &RlcRandomness,
     ) -> Self {
-        let ([], [], [old_hash, new_hash]) = cb.build_columns(cs);
-
         let proof_type = OneHot::configure(cs, cb);
-        let [address, storage_key_rlc] = cb.advice_columns(cs);
-        let [old_value, new_value] = cb.advice_columns(cs);
-        let [depth, key, direction, sibling, upper_128_bits] = cb.advice_columns(cs);
+        let [storage_key_rlc, old_value, new_value] = cb.second_phase_advice_columns(cs);
+        let [old_hash, new_hash, depth, key, direction, sibling, upper_128_bits] =
+            cb.advice_columns(cs);
 
         let [other_key, other_key_hash, other_leaf_data_hash, other_leaf_hash] =
             cb.advice_columns(cs);
 
         let intermediate_values: [AdviceColumn; 10] = cb.advice_columns(cs);
+        let second_phase_intermediate_values: [SecondPhaseAdviceColumn; 10] =
+            cb.second_phase_advice_columns(cs);
         let is_zero_values = cb.advice_columns(cs);
         let is_zero_gadgets = is_zero_values.map(|column| IsZeroGadget::configure(cs, cb, column));
 
@@ -231,6 +234,7 @@ impl MptUpdateConfig {
             sibling,
             upper_128_bits,
             intermediate_values,
+            second_phase_intermediate_values,
             is_zero_values,
             is_zero_gadgets,
         };
@@ -315,12 +319,9 @@ impl MptUpdateConfig {
 
             for i in 0..proof.n_rows() {
                 self.proof_type.assign(region, offset + i, proof_type);
-                self.storage_key_rlc
-                    .assign_second_phase(region, offset + i, storage_key);
-                self.old_value
-                    .assign_second_phase(region, offset + i, old_value);
-                self.new_value
-                    .assign_second_phase(region, offset + i, new_value);
+                self.storage_key_rlc.assign(region, offset + i, storage_key);
+                self.old_value.assign(region, offset + i, old_value);
+                self.new_value.assign(region, offset + i, new_value);
             }
 
             let key = account_key(proof.claim.address);
@@ -519,20 +520,32 @@ impl MptUpdateConfig {
             self.is_zero_gadgets[0].assign(region, offset, key - other_key);
             match proof.claim.kind {
                 ClaimKind::CodeHash { old, new } => {
-                    let assign = |region: &mut Region<'_, Fr>, value, column: AdviceColumn| {
-                        let (high, low) = u256_hi_lo(&value);
-                        column.assign(region, offset + 2, Fr::from_u128(high));
-                        column.assign(region, offset + 3, Fr::from_u128(low));
-                        let rlc_high = randomness.map(|r| rlc(&high.to_be_bytes(), r));
-                        let rlc_low = randomness.map(|r| rlc(&low.to_be_bytes(), r));
-                        column.assign_second_phase(region, offset, rlc_high);
-                        column.assign_second_phase(region, offset + 1, rlc_low);
-                    };
+                    let [old_high, old_low, new_high, new_low, ..] = self.intermediate_values;
+                    let [old_rlc_high, old_rlc_low, new_rlc_high, new_rlc_low, ..] =
+                        self.second_phase_intermediate_values;
                     if let Some(value) = old {
-                        assign(region, value, self.other_key_hash);
+                        assign_word_rlc(
+                            region,
+                            offset + 3,
+                            value,
+                            old_high,
+                            old_low,
+                            old_rlc_high,
+                            old_rlc_low,
+                            randomness,
+                        );
                     }
                     if let Some(value) = new {
-                        assign(region, value, self.other_leaf_data_hash);
+                        assign_word_rlc(
+                            region,
+                            offset + 3,
+                            value,
+                            new_high,
+                            new_low,
+                            new_rlc_high,
+                            new_rlc_low,
+                            randomness,
+                        );
                     }
                 }
                 _ => (),
@@ -638,27 +651,69 @@ impl MptUpdateConfig {
         let other_key = if key != old_key { old_key } else { new.key() };
         self.other_key.assign(region, offset, other_key);
 
-        let assign_word = |region: &mut Region<'_, Fr>, word: U256, column: &AdviceColumn| {
-            let (high, low) = u256_hi_lo(&word);
-            let rlc_high = randomness.map(|r| rlc(&high.to_be_bytes(), r));
-            let rlc_low = randomness.map(|r| rlc(&low.to_be_bytes(), r));
-            column.assign(region, offset, Fr::from_u128(high));
-            column.assign(region, offset - 1, Fr::from_u128(low));
-            column.assign_second_phase(region, offset - 2, rlc_high);
-            column.assign_second_phase(region, offset - 3, rlc_low);
-        };
+        let [old_high, old_low, new_high, new_low, key_high, key_low, ..] =
+            self.intermediate_values;
+        let [old_rlc_high, old_rlc_low, new_rlc_high, new_rlc_low, rlc_key_high, rlc_key_low, ..] =
+            self.second_phase_intermediate_values;
 
-        dbg!(new, old);
-        assign_word(
+        assign_word_rlc(
             region,
+            offset,
             old.storage_key().or(new.storage_key()).unwrap(),
-            &self.upper_128_bits,
+            key_high,
+            key_low,
+            rlc_key_high,
+            rlc_key_low,
+            randomness,
         );
-        assign_word(region, old.value(), &self.other_key_hash);
-        assign_word(region, new.value(), &self.other_leaf_data_hash);
+        assign_word_rlc(
+            region,
+            offset,
+            old.value(),
+            old_high,
+            old_low,
+            old_rlc_high,
+            old_rlc_low,
+            randomness,
+        );
+        assign_word_rlc(
+            region,
+            offset,
+            new.value(),
+            new_high,
+            new_low,
+            new_rlc_high,
+            new_rlc_low,
+            randomness,
+        );
 
         1
     }
+}
+
+fn assign_word_rlc(
+    region: &mut Region<'_, Fr>,
+    offset: usize,
+    word: U256,
+    high_column: AdviceColumn,
+    low_column: AdviceColumn,
+    rlc_high: SecondPhaseAdviceColumn,
+    rlc_low: SecondPhaseAdviceColumn,
+    randomness: Value<Fr>,
+) {
+    let (high, low) = u256_hi_lo(&word);
+    high_column.assign(region, offset, Fr::from_u128(high));
+    low_column.assign(region, offset, Fr::from_u128(low));
+    rlc_high.assign(
+        region,
+        offset,
+        randomness.map(|r| rlc(&high.to_be_bytes(), r)),
+    );
+    rlc_low.assign(
+        region,
+        offset,
+        randomness.map(|r| rlc(&low.to_be_bytes(), r)),
+    );
 }
 
 fn old_left<F: FieldExt>(config: &MptUpdateConfig) -> Query<F> {
@@ -1188,89 +1243,26 @@ fn configure_keccak_code_hash<F: FieldExt>(
             SegmentType::AccountLeaf3 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
 
-                cb.condition(
-                    config
-                        .path_type
-                        .current_matches(&[PathType::Common, PathType::ExtensionNew]),
-                    |cb| {
-                        // We current and 3 previous values of other_key_hash and
-                        // other_leaf_data_hash to store intermediate values here.
-                        let [old_high, old_low] =
-                            [-1, 0].map(|i| config.other_key_hash.rotation(i));
-                        cb.poseidon_lookup(
-                            "old hash = poseidon(high, low)",
-                            [old_high.clone(), old_low.clone(), config.old_hash.current()],
-                            poseidon,
-                        );
-                        cb.add_lookup(
-                            "old_high is 16 bytes",
-                            [old_high.clone(), Query::from(15)],
-                            bytes.lookup(),
-                        );
-                        cb.add_lookup(
-                            "old_low is 16 bytes",
-                            [old_low.clone(), Query::from(15)],
-                            bytes.lookup(),
-                        );
-
-                        let [rlc_old_high, rlc_old_low] =
-                            [-3, -2].map(|i| config.other_key_hash.rotation(i));
-                        cb.add_lookup(
-                            "rlc_old_high = rlc(old_high)",
-                            [old_high, rlc_old_high.clone()],
-                            rlc.lookup(),
-                        );
-
-                        cb.add_lookup(
-                            "rlc_old_low = rlc(old_low)",
-                            [old_low, rlc_old_low.clone()],
-                            rlc.lookup(),
-                        );
-
-                        let randomness_raised_to_16 =
-                            randomness.clone().square().square().square().square();
-                        cb.assert_equal(
-                            "old value is rlc(old_high) * randomness ^ 16 + rlc(old_low)",
-                            config.old_value.current(),
-                            rlc_old_high * randomness_raised_to_16.clone() + rlc_old_low,
-                        );
-
-                        let [new_high, new_low] =
-                            [-1, 0].map(|i| config.other_leaf_data_hash.rotation(i));
-                        cb.poseidon_lookup(
-                            "new hash = poseidon(high, low)",
-                            [new_high.clone(), new_low.clone(), config.new_hash.current()],
-                            poseidon,
-                        );
-                        cb.add_lookup(
-                            "new_high is 16 bytes",
-                            [new_high.clone(), Query::from(15)],
-                            bytes.lookup(),
-                        );
-                        cb.add_lookup(
-                            "new_low is 16 bytes",
-                            [new_low.clone(), Query::from(15)],
-                            bytes.lookup(),
-                        );
-
-                        let [rlc_new_high, rlc_new_low] =
-                            [-3, -2].map(|i| config.other_leaf_data_hash.rotation(i));
-                        cb.add_lookup(
-                            "rlc_new_high = rlc(new_high)",
-                            [new_high, rlc_new_high.clone()],
-                            rlc.lookup(),
-                        );
-                        cb.add_lookup(
-                            "rlc_new_low = rlc(new_low)",
-                            [new_low, rlc_new_low.clone()],
-                            rlc.lookup(),
-                        );
-                        cb.assert_equal(
-                            "new value is rlc(new_high) * randomness ^ 16 + rlc(new_low)",
-                            config.new_value.current(),
-                            rlc_new_high * randomness_raised_to_16 + rlc_new_low,
-                        );
-                    },
+                let [old_high, old_low, new_high, new_low, ..] = config.intermediate_values;
+                let [rlc_old_high, rlc_old_low, rlc_new_high, rlc_new_low, ..] =
+                    config.second_phase_intermediate_values;
+                configure_word_rlc(
+                    cb,
+                    [config.old_hash, old_high, old_low],
+                    [config.old_value, rlc_old_high, rlc_old_low],
+                    poseidon,
+                    bytes,
+                    rlc,
+                    randomness.clone(),
+                );
+                configure_word_rlc(
+                    cb,
+                    [config.new_hash, new_high, new_low],
+                    [config.new_value, rlc_new_high, rlc_new_low],
+                    poseidon,
+                    bytes,
+                    rlc,
+                    randomness.clone(),
                 );
             }
             SegmentType::AccountLeaf4

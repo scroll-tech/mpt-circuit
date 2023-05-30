@@ -1,5 +1,5 @@
 use super::{byte_bit::RangeCheck256Lookup, is_zero::IsZeroGadget, rlc_randomness::RlcRandomness};
-use crate::constraint_builder::{AdviceColumn, ConstraintBuilder, FixedColumn, Query};
+use crate::constraint_builder::{AdviceColumn, ConstraintBuilder, Query, SecondPhaseAdviceColumn};
 use ethers_core::types::{Address, H256};
 use halo2_proofs::{
     arithmetic::FieldExt,
@@ -23,7 +23,7 @@ pub trait BytesLookup {
 pub struct ByteRepresentationConfig {
     // lookup columns
     value: AdviceColumn,
-    rlc: AdviceColumn,
+    rlc: SecondPhaseAdviceColumn,
     index: AdviceColumn,
 
     // internal columns
@@ -50,7 +50,8 @@ impl ByteRepresentationConfig {
         range_check: &impl RangeCheck256Lookup,
         randomness: &RlcRandomness,
     ) -> Self {
-        let [value, rlc, index, byte] = cb.advice_columns(cs);
+        let [value, index, byte] = cb.advice_columns(cs);
+        let [rlc] = cb.second_phase_advice_columns(cs);
         let index_is_zero = IsZeroGadget::configure(cs, cb, index);
 
         cb.assert_zero(
@@ -105,7 +106,7 @@ impl ByteRepresentationConfig {
                 self.value.assign(region, offset, value);
 
                 rlc = rlc * randomness + Value::known(byte);
-                self.rlc.assign_second_phase(region, offset, rlc);
+                self.rlc.assign(region, offset, rlc);
 
                 let index = u64::try_from(index).unwrap();
                 self.index.assign(region, offset, index);
