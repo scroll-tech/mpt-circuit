@@ -15,8 +15,6 @@ mod gadgets;
 mod layers;
 mod mpt;
 mod mpt_table;
-#[cfg(test)]
-mod test_utils;
 mod types;
 mod util;
 
