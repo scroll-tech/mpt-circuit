@@ -44,8 +44,8 @@ pub trait MptUpdateLookup<F: FieldExt> {
 }
 
 // TODO:
-// segments transitions as a function of proof type
 // constrain siblings for extension paths in the account leafs
+// constraint sibling for extension paths in storage leaf
 // empty storage proofs?
 
 #[derive(Clone)]

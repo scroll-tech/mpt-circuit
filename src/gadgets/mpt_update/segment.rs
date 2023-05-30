@@ -14,6 +14,7 @@ pub enum SegmentType {
     StorageLeaf0,
 }
 
+// Allowed transitions between current and next segment type, as a function of the proof type.
 pub fn transitions(proof: MPTProofType) -> HashMap<SegmentType, Vec<SegmentType>> {
     match proof {
         MPTProofType::NonceChanged
@@ -23,8 +24,8 @@ pub fn transitions(proof: MPTProofType) -> HashMap<SegmentType, Vec<SegmentType>
             (
                 SegmentType::Start,
                 vec![
-                    SegmentType::AccountTrie,  // mpt has more than one account
-                    SegmentType::AccountLeaf0, // mpt has only one account
+                    SegmentType::AccountTrie,  // mpt has > 1 account
+                    SegmentType::AccountLeaf0, // mpt has <= 1 account
                 ],
             ),
             (
@@ -57,8 +58,8 @@ pub fn transitions(proof: MPTProofType) -> HashMap<SegmentType, Vec<SegmentType>
             (
                 SegmentType::Start,
                 vec![
-                    SegmentType::AccountTrie,  // mpt has more than one account
-                    SegmentType::AccountLeaf0, // mpt has only one account
+                    SegmentType::AccountTrie,  // mpt has > 1 account
+                    SegmentType::AccountLeaf0, // mpt has 1 account
                 ],
             ),
             (
@@ -70,7 +71,10 @@ pub fn transitions(proof: MPTProofType) -> HashMap<SegmentType, Vec<SegmentType>
             (SegmentType::AccountLeaf2, vec![SegmentType::AccountLeaf3]),
             (
                 SegmentType::AccountLeaf3,
-                vec![SegmentType::StorageTrie, SegmentType::StorageLeaf0],
+                vec![
+                    SegmentType::StorageTrie,  // existing storage has > 1 entry
+                    SegmentType::StorageLeaf0, // existing storage <= 1 entry
+                ],
             ),
             (
                 SegmentType::StorageTrie,
@@ -83,8 +87,8 @@ pub fn transitions(proof: MPTProofType) -> HashMap<SegmentType, Vec<SegmentType>
             (
                 SegmentType::Start,
                 vec![
-                    SegmentType::AccountTrie, // mpt has more than one account
-                    SegmentType::Start,       // mpt has at most 1 account
+                    SegmentType::AccountTrie, // mpt has more > 1 account
+                    SegmentType::Start,       // mpt has <= 1 account
                 ],
             ),
             (
