@@ -1,6 +1,8 @@
 use super::BinaryQuery;
+use ethers_core::k256::elliptic_curve::PrimeField;
 use halo2_proofs::{
     arithmetic::{Field, FieldExt},
+    halo2curves::bn256::Fr,
     plonk::{Advice, Challenge, Column, Expression, Fixed, VirtualCells},
     poly::Rotation,
 };
@@ -32,6 +34,10 @@ impl<F: FieldExt> Query<F> {
         Self::from(1)
     }
 
+    fn two_to_the_64th() -> Self {
+        Self::from(1 << 32).square()
+    }
+
     pub fn run(&self, meta: &mut VirtualCells<'_, F>) -> Expression<F> {
         match self {
             Query::Constant(f) => Expression::Constant(*f),
@@ -52,6 +58,19 @@ impl<F: FieldExt> Query<F> {
 impl<F: FieldExt> From<u64> for Query<F> {
     fn from(x: u64) -> Self {
         Self::Constant(F::from(x))
+    }
+}
+
+impl<F: FieldExt> From<Fr> for Query<F> {
+    fn from(x: Fr) -> Self {
+        let little_endian_bytes = x.to_repr();
+        let little_endian_limbs = little_endian_bytes
+            .as_slice()
+            .chunks_exact(8)
+            .map(|s| u64::from_le_bytes(s.try_into().unwrap()));
+        little_endian_limbs.rfold(Query::zero(), |result, limb| {
+            result * Query::two_to_the_64th() + limb
+        })
     }
 }
 

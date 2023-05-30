@@ -35,12 +35,8 @@ use itertools::izip;
 use lazy_static::lazy_static;
 use strum::IntoEnumIterator;
 
-// TODO: we also need to check that the account hasn
-// is hash(0, 0)
-// Speaking strictly, this is not needed, since non-empty accounts cannot become empty.
-// We DO need something similar for the storage trie though.
 lazy_static! {
-    static ref ZERO_ACCOUNT_HASH: Fr = Fr::zero();
+    static ref ZERO_STORAGE_HASH: Fr = hash(Fr::zero(), Fr::zero());
 }
 
 pub trait MptUpdateLookup<F: FieldExt> {
@@ -602,6 +598,7 @@ impl MptUpdateConfig {
                     self.key.assign(region, offset + i, *key);
                     self.other_key.assign(region, offset + i, other_key);
                 }
+
                 let n_leaf_rows = self.assign_storage_leaf_row(
                     region,
                     offset + n_trie_rows,
@@ -668,6 +665,14 @@ impl MptUpdateConfig {
             [new_rlc_high, new_rlc_low],
             randomness,
         );
+
+        let [old_hash_minus_zero_storage_hash, new_hash_minus_zero_storage_hash] =
+            self.is_zero_values;
+        let [old_hash_is_zero_storage_hash, new_hash_is_zero_storage_hash] = self.is_zero_gadgets;
+        old_hash_minus_zero_storage_hash.assign(region, offset, old_hash - *ZERO_STORAGE_HASH);
+        new_hash_minus_zero_storage_hash.assign(region, offset, new_hash - *ZERO_STORAGE_HASH);
+        old_hash_is_zero_storage_hash.assign(region, offset, old_hash - *ZERO_STORAGE_HASH);
+        new_hash_is_zero_storage_hash.assign(region, offset, new_hash - *ZERO_STORAGE_HASH);
 
         1
     }
@@ -1298,6 +1303,29 @@ fn configure_storage<F: FieldExt>(
                     bytes,
                     rlc,
                     randomness.clone(),
+                );
+
+                let [old_hash_minus_zero_storage_hash, new_hash_minus_zero_storage_hash] =
+                    config.is_zero_values;
+                let [old_hash_is_zero_storage_hash, new_hash_is_zero_storage_hash] =
+                    config.is_zero_gadgets;
+                cb.assert_equal(
+                    "old_hash_minus_zero_storage_hash = old_hash - hash(0, 0)",
+                    old_hash_minus_zero_storage_hash.current(),
+                    config.old_hash.current() - *ZERO_STORAGE_HASH,
+                );
+                cb.assert_equal(
+                    "new_hash_minus_zero_storage_hash = new_hash - hash(0, 0)",
+                    new_hash_minus_zero_storage_hash.current(),
+                    config.new_hash.current() - *ZERO_STORAGE_HASH,
+                );
+                cb.assert(
+                    "old hash != hash(0, 0)",
+                    !old_hash_is_zero_storage_hash.current(),
+                );
+                cb.assert(
+                    "new hash != hash(0, 0)",
+                    !new_hash_is_zero_storage_hash.current(),
                 );
             }
             SegmentType::StorageLeaf1 => {
