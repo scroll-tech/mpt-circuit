@@ -230,8 +230,10 @@ impl Config {
 /// The defination is greped from state-circuit
 #[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter, Hash)]
 pub enum MPTProofType {
+    /// non exist proof for account
+    AccountDoesNotExist = 0, // we want this to be zero so the default assigment of 0 everywhere is valid.
     /// nonce
-    NonceChanged = 1,
+    NonceChanged,
     /// balance
     BalanceChanged,
     /// keccak codehash updated
@@ -240,8 +242,6 @@ pub enum MPTProofType {
     PoseidonCodeHashExists,
     /// code size updated
     CodeSizeExists,
-    /// non exist proof for account
-    AccountDoesNotExist,
     /// account destructed
     AccountDestructed,
     /// storage

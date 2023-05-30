@@ -258,28 +258,35 @@ impl MptUpdateConfig {
             );
         }
 
-        for variant in MPTProofType::iter() {
-            let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
-                MPTProofType::NonceChanged => configure_nonce(cb, &config, bytes),
-                MPTProofType::BalanceChanged => configure_balance(cb, &config, rlc),
-                MPTProofType::CodeSizeExists => configure_code_size(cb, &config, bytes),
-                MPTProofType::PoseidonCodeHashExists => configure_poseidon_code_hash(cb, &config),
-                MPTProofType::AccountDoesNotExist => configure_empty_account(cb, &config, poseidon),
-                MPTProofType::CodeHashExists => configure_keccak_code_hash(
-                    cb,
-                    &config,
-                    poseidon,
-                    bytes,
-                    rlc,
-                    rlc_randomness.query(),
-                ),
-                MPTProofType::StorageChanged => {
-                    configure_storage(cb, &config, poseidon, bytes, rlc, rlc_randomness.query())
+        for proof_type in MPTProofType::iter() {
+            let conditional_constraints = |cb: &mut ConstraintBuilder<F>| {
+                configure_segment_transitions(cb, &config.segment_type, proof_type);
+                match proof_type {
+                    MPTProofType::NonceChanged => configure_nonce(cb, &config, bytes),
+                    MPTProofType::BalanceChanged => configure_balance(cb, &config, rlc),
+                    MPTProofType::CodeSizeExists => configure_code_size(cb, &config, bytes),
+                    MPTProofType::PoseidonCodeHashExists => {
+                        configure_poseidon_code_hash(cb, &config)
+                    }
+                    MPTProofType::AccountDoesNotExist => {
+                        configure_empty_account(cb, &config, poseidon)
+                    }
+                    MPTProofType::CodeHashExists => configure_keccak_code_hash(
+                        cb,
+                        &config,
+                        poseidon,
+                        bytes,
+                        rlc,
+                        rlc_randomness.query(),
+                    ),
+                    MPTProofType::StorageChanged => {
+                        configure_storage(cb, &config, poseidon, bytes, rlc, rlc_randomness.query())
+                    }
+                    _ => cb.assert_unreachable("unimplemented!"),
                 }
-                _ => cb.assert_unreachable("unimplemented!"),
             };
             cb.condition(
-                config.proof_type.current_matches(&[variant]),
+                config.proof_type.current_matches(&[proof_type]),
                 conditional_constraints,
             );
         }
@@ -437,7 +444,6 @@ impl MptUpdateConfig {
                 SegmentType::AccountLeaf1,
                 SegmentType::AccountLeaf2,
                 SegmentType::AccountLeaf3,
-                SegmentType::AccountLeaf4,
             ];
 
             let leaf_path_type = match final_path_type {
@@ -757,6 +763,27 @@ fn address_to_fr(a: Address) -> Fr {
     Fr::from_repr(bytes).unwrap()
 }
 
+fn configure_segment_transitions<F: FieldExt>(
+    cb: &mut ConstraintBuilder<F>,
+    segment: &OneHot<SegmentType>,
+    proof: MPTProofType,
+) {
+    let transitions = segment::transitions(proof);
+    for variant in SegmentType::iter() {
+        let conditional_constraints = |cb: &mut ConstraintBuilder<F>| {
+            if let Some(next_segments) = transitions.get(&variant) {
+                cb.assert(
+                    "transition for current segment -> next segment",
+                    segment.next_matches(next_segments),
+                );
+            } else {
+                cb.assert_unreachable("unreachable segment for proof");
+            }
+        };
+        cb.condition(segment.current_matches(&[variant]), conditional_constraints);
+    }
+}
+
 fn configure_common_path<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
@@ -954,7 +981,6 @@ fn configure_nonce<F: FieldExt>(
 ) {
     for variant in SegmentType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
-            SegmentType::Start | SegmentType::AccountTrie => {}
             SegmentType::AccountLeaf0 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
             }
@@ -1025,12 +1051,7 @@ fn configure_nonce<F: FieldExt>(
                     },
                 );
             }
-            SegmentType::AccountLeaf4
-            | SegmentType::StorageTrie
-            | SegmentType::StorageLeaf0
-            | SegmentType::StorageLeaf1 => {
-                cb.assert_unreachable("unreachable segment type for nonce update")
-            }
+            _ => {}
         };
         cb.condition(
             config.segment_type.current_matches(&[variant]),
@@ -1117,10 +1138,7 @@ fn configure_code_size<F: FieldExt>(
                     },
                 );
             }
-            SegmentType::AccountLeaf4
-            | SegmentType::StorageTrie
-            | SegmentType::StorageLeaf0
-            | SegmentType::StorageLeaf1 => {
+            SegmentType::StorageTrie | SegmentType::StorageLeaf0 => {
                 cb.assert_unreachable("unreachable segment type for nonce update")
             }
         };
@@ -1177,10 +1195,8 @@ fn configure_balance<F: FieldExt>(
                     },
                 );
             }
-            SegmentType::AccountLeaf4
-            | SegmentType::StorageTrie
-            | SegmentType::StorageLeaf0
-            | SegmentType::StorageLeaf1 => {
+
+            SegmentType::StorageTrie | SegmentType::StorageLeaf0 => {
                 cb.assert_unreachable("unreachable segment type for nonce update")
             }
         };
@@ -1230,10 +1246,8 @@ fn configure_poseidon_code_hash<F: FieldExt>(
             }
             SegmentType::AccountLeaf2
             | SegmentType::AccountLeaf3
-            | SegmentType::AccountLeaf4
             | SegmentType::StorageTrie
-            | SegmentType::StorageLeaf0
-            | SegmentType::StorageLeaf1 => {
+            | SegmentType::StorageLeaf0 => {
                 cb.assert_unreachable("unreachable segment type for poseidon code hash update")
             }
         };
@@ -1289,10 +1303,8 @@ fn configure_keccak_code_hash<F: FieldExt>(
                     randomness.clone(),
                 );
             }
-            SegmentType::AccountLeaf4
-            | SegmentType::StorageTrie
-            | SegmentType::StorageLeaf0
-            | SegmentType::StorageLeaf1 => {
+
+            SegmentType::StorageTrie | SegmentType::StorageLeaf0 => {
                 cb.assert_unreachable("unreachable segment type for keccak code hash update")
             }
         };
@@ -1336,9 +1348,6 @@ fn configure_storage<F: FieldExt>(
                     rlc,
                     randomness.clone(),
                 );
-            }
-            SegmentType::AccountLeaf4 => {
-                cb.assert_unreachable("AccountLeaf4 is not used");
             }
             SegmentType::StorageTrie => {}
             SegmentType::StorageLeaf0 => {
@@ -1403,9 +1412,6 @@ fn configure_storage<F: FieldExt>(
                     "new hash != hash(0, 0)",
                     !new_hash_is_zero_storage_hash.current(),
                 );
-            }
-            SegmentType::StorageLeaf1 => {
-                cb.assert_unreachable("StorageLeaf1 is not used");
             }
         };
         cb.condition(
@@ -1479,10 +1485,8 @@ fn configure_empty_account<F: FieldExt>(
             | SegmentType::AccountLeaf1
             | SegmentType::AccountLeaf2
             | SegmentType::AccountLeaf3
-            | SegmentType::AccountLeaf4
             | SegmentType::StorageTrie
-            | SegmentType::StorageLeaf0
-            | SegmentType::StorageLeaf1 => {
+            | SegmentType::StorageLeaf0 => {
                 cb.assert_unreachable("unreachable segment type for empty account")
             }
         };
