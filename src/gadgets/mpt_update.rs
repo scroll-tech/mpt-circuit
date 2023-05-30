@@ -1067,7 +1067,6 @@ fn configure_code_size<F: FieldExt>(
 ) {
     for variant in SegmentType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
-            SegmentType::Start | SegmentType::AccountTrie => {}
             SegmentType::AccountLeaf0 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
             }
@@ -1138,9 +1137,7 @@ fn configure_code_size<F: FieldExt>(
                     },
                 );
             }
-            SegmentType::StorageTrie | SegmentType::StorageLeaf0 => {
-                cb.assert_unreachable("unreachable segment type for nonce update")
-            }
+            _ => {}
         };
         cb.condition(
             config.segment_type.current_matches(&[variant]),
@@ -1156,7 +1153,6 @@ fn configure_balance<F: FieldExt>(
 ) {
     for variant in SegmentType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
-            SegmentType::Start | SegmentType::AccountTrie => {}
             SegmentType::AccountLeaf0 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
             }
@@ -1195,10 +1191,7 @@ fn configure_balance<F: FieldExt>(
                     },
                 );
             }
-
-            SegmentType::StorageTrie | SegmentType::StorageLeaf0 => {
-                cb.assert_unreachable("unreachable segment type for nonce update")
-            }
+            _ => {}
         };
         cb.condition(
             config.segment_type.current_matches(&[variant]),
@@ -1213,7 +1206,6 @@ fn configure_poseidon_code_hash<F: FieldExt>(
 ) {
     for variant in SegmentType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
-            SegmentType::Start | SegmentType::AccountTrie => {}
             SegmentType::AccountLeaf0 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
             }
@@ -1244,12 +1236,7 @@ fn configure_poseidon_code_hash<F: FieldExt>(
                     },
                 );
             }
-            SegmentType::AccountLeaf2
-            | SegmentType::AccountLeaf3
-            | SegmentType::StorageTrie
-            | SegmentType::StorageLeaf0 => {
-                cb.assert_unreachable("unreachable segment type for poseidon code hash update")
-            }
+            _ => {}
         };
         cb.condition(
             config.segment_type.current_matches(&[variant]),
@@ -1268,7 +1255,6 @@ fn configure_keccak_code_hash<F: FieldExt>(
 ) {
     for variant in SegmentType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
-            SegmentType::Start | SegmentType::AccountTrie => {}
             SegmentType::AccountLeaf0 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
             }
@@ -1303,10 +1289,7 @@ fn configure_keccak_code_hash<F: FieldExt>(
                     randomness.clone(),
                 );
             }
-
-            SegmentType::StorageTrie | SegmentType::StorageLeaf0 => {
-                cb.assert_unreachable("unreachable segment type for keccak code hash update")
-            }
+            _ => {}
         };
         cb.condition(
             config.segment_type.current_matches(&[variant]),
@@ -1325,7 +1308,6 @@ fn configure_storage<F: FieldExt>(
 ) {
     for variant in SegmentType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
-            SegmentType::Start | SegmentType::AccountTrie => {}
             SegmentType::AccountLeaf0 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
             }
@@ -1349,7 +1331,6 @@ fn configure_storage<F: FieldExt>(
                     randomness.clone(),
                 );
             }
-            SegmentType::StorageTrie => {}
             SegmentType::StorageLeaf0 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
 
@@ -1413,6 +1394,7 @@ fn configure_storage<F: FieldExt>(
                     !new_hash_is_zero_storage_hash.current(),
                 );
             }
+            _ => {}
         };
         cb.condition(
             config.segment_type.current_matches(&[variant]),
@@ -1481,14 +1463,7 @@ fn configure_empty_account<F: FieldExt>(
                     });
                 });
             }
-            SegmentType::AccountLeaf0
-            | SegmentType::AccountLeaf1
-            | SegmentType::AccountLeaf2
-            | SegmentType::AccountLeaf3
-            | SegmentType::StorageTrie
-            | SegmentType::StorageLeaf0 => {
-                cb.assert_unreachable("unreachable segment type for empty account")
-            }
+            _ => {}
         };
         cb.condition(
             config.segment_type.current_matches(&[variant]),
