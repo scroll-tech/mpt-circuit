@@ -82,6 +82,33 @@ impl StorageProof {
             Self::Update { key, trie_rows, .. } => trie_rows.key_bit_lookups(*key),
         }
     }
+
+    pub fn key(&self) -> Fr {
+        match self {
+            Self::Root(_) => unreachable!(),
+            Self::Update { key, .. } => *key,
+        }
+    }
+
+    pub fn other_key(&self) -> Fr {
+        match self {
+            Self::Root(_) => unreachable!(),
+            Self::Update {
+                key,
+                old_leaf,
+                new_leaf,
+                ..
+            } => {
+                let old_key = old_leaf.key();
+                let new_key = new_leaf.key();
+                if *key == old_key {
+                    new_key
+                } else {
+                    old_key
+                }
+            }
+        }
+    }
 }
 
 impl StorageLeaf {
@@ -89,12 +116,11 @@ impl StorageLeaf {
         let value = u256_from_hex(data.value);
         match (node, value.is_zero()) {
             (None, true) => Self::Empty { mpt_key },
-            (Some(_), true) => {
+            (Some(node), true) => {
                 assert_eq!(mpt_key, storage_key_hash(u256_from_hex(data.key)));
-                let (value_high, value_low) = u256_hi_lo(&u256_from_hex(data.value));
                 Self::Leaf {
-                    mpt_key,
-                    value_hash: hash(Fr::from_u128(value_high), Fr::from_u128(value_low)),
+                    mpt_key: fr(node.sibling),
+                    value_hash: fr(node.value),
                 }
             }
             (Some(_), false) => Self::Entry {
@@ -132,6 +158,7 @@ impl StorageLeaf {
         hash(Fr::one(), self.key())
     }
 
+    // maybe make this an option?
     pub fn value(&self) -> U256 {
         match self {
             Self::Empty { .. } | Self::Leaf { .. } => U256::zero(),
@@ -148,7 +175,14 @@ impl StorageLeaf {
     }
 
     pub fn value_hash(&self) -> Fr {
-        hash(self.value_high(), self.value_low())
+        match self {
+            Self::Empty { .. } => unimplemented!(),
+            Self::Leaf { value_hash, .. } => *value_hash,
+            Self::Entry { .. } => {
+                let (high, low) = u256_hi_lo(&self.value());
+                hash(Fr::from_u128(high), Fr::from_u128(low))
+            }
+        }
     }
 
     pub fn hash(&self) -> Fr {
@@ -161,12 +195,19 @@ impl StorageLeaf {
 
     fn poseidon_lookups(&self) -> Vec<(Fr, Fr, Fr)> {
         let mut lookups = vec![(Fr::one(), self.key(), self.key_hash())];
-        if let Self::Entry { storage_key, .. } = self {
-            let (key_high, key_low) = u256_hi_lo(storage_key);
-            lookups.extend(vec![
-                (Fr::from_u128(key_high), Fr::from_u128(key_low), self.key()),
-                (self.value_high(), self.value_low(), self.value_hash()),
-            ]);
+        match self {
+            Self::Empty { .. } => (),
+            Self::Leaf { value_hash, .. } => {
+                lookups.push((self.key_hash(), *value_hash, self.hash()))
+            }
+            Self::Entry { storage_key, .. } => {
+                let (key_high, key_low) = u256_hi_lo(storage_key);
+                lookups.extend(vec![
+                    (Fr::from_u128(key_high), Fr::from_u128(key_low), self.key()),
+                    (self.value_high(), self.value_low(), self.value_hash()),
+                    (self.key_hash(), self.value_hash(), self.hash()),
+                ]);
+            }
         }
         lookups
     }

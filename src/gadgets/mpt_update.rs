@@ -21,7 +21,7 @@ use crate::{
         trie::TrieRows,
         ClaimKind, Proof,
     },
-    util::{rlc, storage_key_hash, u256_to_big_endian},
+    util::{rlc, u256_to_big_endian},
     MPTProofType,
 };
 use ethers_core::{k256::elliptic_curve::PrimeField, types::Address};
@@ -62,10 +62,10 @@ struct MptUpdateConfig {
     direction: AdviceColumn,
     sibling: AdviceColumn,
 
-    intermediate_values: [AdviceColumn; 10],
-    second_phase_intermediate_values: [SecondPhaseAdviceColumn; 10],
-    is_zero_values: [AdviceColumn; 2],
-    is_zero_gadgets: [IsZeroGadget; 2],
+    intermediate_values: [AdviceColumn; 10], // can be 4?
+    second_phase_intermediate_values: [SecondPhaseAdviceColumn; 10], // 4?
+    is_zero_values: [AdviceColumn; 4],       // you can reduce this to 3
+    is_zero_gadgets: [IsZeroGadget; 4],      // can be 3
 }
 
 impl<F: FieldExt> MptUpdateLookup<F> for MptUpdateConfig {
@@ -394,11 +394,10 @@ impl MptUpdateConfig {
 
             if let MPTProofType::AccountDoesNotExist = proof_type {
                 offset -= 1;
-                self.is_zero_values[0].assign(region, offset, key - other_key);
-                self.is_zero_gadgets[0].assign(region, offset, key - other_key);
-                dbg!(final_old_hash, final_new_hash);
-                self.is_zero_values[1].assign(region, offset, final_old_hash);
-                self.is_zero_gadgets[1].assign(region, offset, final_old_hash);
+                self.is_zero_values[2].assign(region, offset, key - other_key);
+                self.is_zero_gadgets[2].assign(region, offset, key - other_key);
+                self.is_zero_values[3].assign(region, offset, final_old_hash);
+                self.is_zero_gadgets[3].assign(region, offset, final_old_hash);
 
                 self.intermediate_values[0].assign(region, offset, other_key_hash);
                 self.intermediate_values[1].assign(region, offset, other_leaf_data_hash);
@@ -454,8 +453,8 @@ impl MptUpdateConfig {
                 izip!(segment_types, siblings, old_hashes, new_hashes, directions).enumerate()
             {
                 if i == 0 {
-                    self.is_zero_values[1].assign(region, offset, old_hash);
-                    self.is_zero_gadgets[1].assign(region, offset, old_hash);
+                    self.is_zero_values[3].assign(region, offset, old_hash);
+                    self.is_zero_gadgets[3].assign(region, offset, old_hash);
                 }
 
                 self.segment_type.assign(region, offset + i, segment_type);
@@ -469,14 +468,14 @@ impl MptUpdateConfig {
 
                 match segment_type {
                     SegmentType::AccountLeaf0 => {
-                        let [other_key_hash_column, other_leaf_data_hash_column, ..] =
+                        let [.., other_key_hash_column, other_leaf_data_hash_column] =
                             self.intermediate_values;
                         other_key_hash_column.assign(region, offset, other_key_hash);
                         other_leaf_data_hash_column.assign(region, offset, other_leaf_data_hash);
                     }
                     SegmentType::AccountLeaf3 => {
                         if let ClaimKind::Storage { key, .. } = proof.claim.kind {
-                            self.key.assign(region, offset + 3, storage_key_hash(key));
+                            self.key.assign(region, offset + 3, proof.storage.key());
                             let [storage_key_high, storage_key_low, ..] = self.intermediate_values;
                             let [rlc_storage_key_high, rlc_storage_key_low, ..] =
                                 self.second_phase_intermediate_values;
@@ -488,7 +487,8 @@ impl MptUpdateConfig {
                                 [rlc_storage_key_high, rlc_storage_key_low],
                                 randomness,
                             );
-                            self.other_key.assign(region, offset + 3, storage_key_hash(key));
+                            self.other_key
+                                .assign(region, offset + 3, proof.storage.other_key());
                         }
                     }
                     _ => {}
@@ -496,8 +496,8 @@ impl MptUpdateConfig {
             }
             self.key.assign(region, offset, key);
             self.other_key.assign(region, offset, other_key);
-            self.is_zero_values[0].assign(region, offset, key - other_key);
-            self.is_zero_gadgets[0].assign(region, offset, key - other_key);
+            self.is_zero_values[2].assign(region, offset, key - other_key);
+            self.is_zero_gadgets[2].assign(region, offset, key - other_key);
             match proof.claim.kind {
                 ClaimKind::CodeHash { old, new } => {
                     let [old_high, old_low, new_high, new_low, ..] = self.intermediate_values;
@@ -610,13 +610,30 @@ impl MptUpdateConfig {
         new: &StorageLeaf,
         randomness: Value<Fr>,
     ) -> usize {
+        let path_type = match (old, new) {
+            (StorageLeaf::Entry { .. }, StorageLeaf::Entry { .. }) => PathType::Common,
+            (StorageLeaf::Entry { .. }, _) => PathType::ExtensionOld,
+            (_, StorageLeaf::Entry { .. }) => PathType::ExtensionNew,
+            _ => return 0, // no need to assign any rows for empty storage
+        };
+        self.path_type.assign(region, offset, path_type);
         self.segment_type
             .assign(region, offset, SegmentType::StorageLeaf0);
         self.direction.assign(region, offset, true);
-        self.sibling.assign(region, offset, old.key_hash());
 
-        let old_hash = old.value_hash();
-        let new_hash = new.value_hash();
+        let sibling = match path_type {
+            PathType::Start => unreachable!(),
+            PathType::Common | PathType::ExtensionOld => old.key_hash(),
+            PathType::ExtensionNew => new.key_hash(),
+        };
+        self.sibling.assign(region, offset, sibling);
+
+        let (old_hash, new_hash) = match path_type {
+            PathType::Start => unreachable!(),
+            PathType::Common => (old.value_hash(), new.value_hash()),
+            PathType::ExtensionOld => (old.value_hash(), new.hash()),
+            PathType::ExtensionNew => (old.hash(), new.value_hash()),
+        };
         self.old_hash.assign(region, offset, old_hash);
         self.new_hash.assign(region, offset, new_hash);
 
@@ -625,35 +642,60 @@ impl MptUpdateConfig {
         let other_key = if key != old_key { old_key } else { new.key() };
         self.other_key.assign(region, offset, other_key);
 
-        let [old_high, old_low, new_high, new_low, ..] =
-            self.intermediate_values;
+        let [old_high, old_low, new_high, new_low, ..] = self.intermediate_values;
         let [old_rlc_high, old_rlc_low, new_rlc_high, new_rlc_low, ..] =
             self.second_phase_intermediate_values;
 
-        assign_word_rlc(
-            region,
-            offset,
-            old.value(),
-            [old_high, old_low],
-            [old_rlc_high, old_rlc_low],
-            randomness,
-        );
-        assign_word_rlc(
-            region,
-            offset,
-            new.value(),
-            [new_high, new_low],
-            [new_rlc_high, new_rlc_low],
-            randomness,
-        );
+        if let StorageLeaf::Entry { .. } = old {
+            assign_word_rlc(
+                region,
+                offset,
+                old.value(),
+                [old_high, old_low],
+                [old_rlc_high, old_rlc_low],
+                randomness,
+            );
+        }
 
-        let [old_hash_minus_zero_storage_hash, new_hash_minus_zero_storage_hash] =
+        if let StorageLeaf::Entry { .. } = new {
+            assign_word_rlc(
+                region,
+                offset,
+                new.value(),
+                [new_high, new_low],
+                [new_rlc_high, new_rlc_low],
+                randomness,
+            );
+        }
+
+        let [old_hash_minus_zero_storage_hash, new_hash_minus_zero_storage_hash, ..] =
             self.is_zero_values;
-        let [old_hash_is_zero_storage_hash, new_hash_is_zero_storage_hash] = self.is_zero_gadgets;
+        let [old_hash_is_zero_storage_hash, new_hash_is_zero_storage_hash, ..] =
+            self.is_zero_gadgets;
         old_hash_minus_zero_storage_hash.assign(region, offset, old_hash - *ZERO_STORAGE_HASH);
         new_hash_minus_zero_storage_hash.assign(region, offset, new_hash - *ZERO_STORAGE_HASH);
         old_hash_is_zero_storage_hash.assign(region, offset, old_hash - *ZERO_STORAGE_HASH);
         new_hash_is_zero_storage_hash.assign(region, offset, new_hash - *ZERO_STORAGE_HASH);
+
+        match path_type {
+            PathType::Start => unreachable!(),
+            PathType::Common => {}
+            PathType::ExtensionOld => {}
+            PathType::ExtensionNew => {
+                let [.., key_minus_other_key, old_hash_column] = self.is_zero_values;
+                let [.., key_equals_other_key, old_hash_is_zero] = self.is_zero_gadgets;
+                key_minus_other_key.assign(region, offset, key - other_key);
+                old_hash_column.assign(region, offset, old_hash);
+                key_equals_other_key.assign(region, offset, key - other_key);
+                old_hash_is_zero.assign(region, offset, old_hash);
+
+                if key != other_key {
+                    let [.., other_key_hash, other_leaf_data_hash] = self.intermediate_values;
+                    other_key_hash.assign(region, offset, old.key_hash());
+                    other_leaf_data_hash.assign(region, offset, old.value_hash());
+                }
+            }
+        }
 
         1
     }
@@ -793,6 +835,11 @@ fn configure_extension_new<F: FieldExt>(
         "old value is 0 if old account is empty",
         config.old_value.current(),
     );
+    cb.assert_equal(
+        "old_hash unchanged for path_type=New",
+        config.old_hash.current(),
+        config.old_hash.previous(),
+    );
 
     let is_trie_segment = config
         .segment_type
@@ -815,19 +862,13 @@ fn configure_extension_new<F: FieldExt>(
             )
         });
     });
-
-    cb.assert_equal(
-        "old_hash unchanged for path_type=New",
-        config.old_hash.current(),
-        config.old_hash.previous(),
-    );
     cb.condition(
         config
             .segment_type
             .current_matches(&[SegmentType::AccountLeaf0, SegmentType::StorageLeaf0]),
         |cb| {
-            let [key_minus_other_key, old_hash] = config.is_zero_values;
-            let [key_equals_other_key, old_hash_is_zero] = config.is_zero_gadgets;
+            let [.., key_minus_other_key, old_hash] = config.is_zero_values;
+            let [.., key_equals_other_key, old_hash_is_zero] = config.is_zero_gadgets;
             cb.assert_equal(
                 "key_minus_other_key = key - other key",
                 key_minus_other_key.current(),
@@ -847,7 +888,7 @@ fn configure_extension_new<F: FieldExt>(
                 Query::from(old_is_type_1.clone()) + Query::from(old_is_type_2.clone()),
             );
 
-            let [other_key_hash, other_leaf_data_hash, ..] = config.intermediate_values;
+            let [.., other_key_hash, other_leaf_data_hash] = config.intermediate_values;
             cb.condition(old_is_type_1, |cb| {
                 cb.poseidon_lookup(
                     "previous old_hash = h(other_key_hash, other_leaf_data_hash)",
@@ -1263,28 +1304,43 @@ fn configure_storage<F: FieldExt>(
                 let [old_high, old_low, new_high, new_low, ..] = config.intermediate_values;
                 let [rlc_old_high, rlc_old_low, rlc_new_high, rlc_new_low, ..] =
                     config.second_phase_intermediate_values;
-                configure_word_rlc(
-                    cb,
-                    [config.old_hash, old_high, old_low],
-                    [config.old_value, rlc_old_high, rlc_old_low],
-                    poseidon,
-                    bytes,
-                    rlc,
-                    randomness.clone(),
+
+                cb.condition(
+                    config
+                        .path_type
+                        .current_matches(&[PathType::Common, PathType::ExtensionOld]),
+                    |cb| {
+                        configure_word_rlc(
+                            cb,
+                            [config.old_hash, old_high, old_low],
+                            [config.old_value, rlc_old_high, rlc_old_low],
+                            poseidon,
+                            bytes,
+                            rlc,
+                            randomness.clone(),
+                        );
+                    },
                 );
-                configure_word_rlc(
-                    cb,
-                    [config.new_hash, new_high, new_low],
-                    [config.new_value, rlc_new_high, rlc_new_low],
-                    poseidon,
-                    bytes,
-                    rlc,
-                    randomness.clone(),
+                cb.condition(
+                    config
+                        .path_type
+                        .current_matches(&[PathType::Common, PathType::ExtensionNew]),
+                    |cb| {
+                        configure_word_rlc(
+                            cb,
+                            [config.new_hash, new_high, new_low],
+                            [config.new_value, rlc_new_high, rlc_new_low],
+                            poseidon,
+                            bytes,
+                            rlc,
+                            randomness.clone(),
+                        );
+                    },
                 );
 
-                let [old_hash_minus_zero_storage_hash, new_hash_minus_zero_storage_hash] =
+                let [old_hash_minus_zero_storage_hash, new_hash_minus_zero_storage_hash, ..] =
                     config.is_zero_values;
-                let [old_hash_is_zero_storage_hash, new_hash_is_zero_storage_hash] =
+                let [old_hash_is_zero_storage_hash, new_hash_is_zero_storage_hash, ..] =
                     config.is_zero_gadgets;
                 cb.assert_equal(
                     "old_hash_minus_zero_storage_hash = old_hash - hash(0, 0)",
@@ -1333,8 +1389,8 @@ fn configure_empty_account<F: FieldExt>(
             SegmentType::Start | SegmentType::AccountTrie => {
                 let is_final_segment = config.segment_type.next_matches(&[SegmentType::Start]);
                 cb.condition(is_final_segment, |cb| {
-                    let [key_minus_other_key, hash] = config.is_zero_values;
-                    let [key_equals_other_key, hash_is_zero] = config.is_zero_gadgets;
+                    let [.., key_minus_other_key, hash] = config.is_zero_values;
+                    let [.., key_equals_other_key, hash_is_zero] = config.is_zero_gadgets;
                     cb.assert_equal(
                         "key_minus_other_key = key - other key",
                         key_minus_other_key.current(),
@@ -1483,9 +1539,7 @@ mod test {
                 } else {
                     proof.new.key
                 };
-                dbg!(key, other_key);
                 if key != other_key {
-                    dbg!("asdfasdfas");
                     hash_traces.push((Fr::one(), other_key, hash(Fr::one(), other_key)));
                 }
 

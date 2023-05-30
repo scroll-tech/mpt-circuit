@@ -45,7 +45,7 @@ impl TrieRows {
         old_nodes: &[SMTNode],
         new_nodes: &[SMTNode],
         old_leaf: Option<SMTNode>,
-        _new_leaf: Option<SMTNode>,
+        new_leaf: Option<SMTNode>,
     ) -> Self {
         let old_leaf_hash = old_nodes
             .last()
@@ -54,7 +54,7 @@ impl TrieRows {
         let new_leaf_hash = new_nodes
             .last()
             .map(|node| fr(node.value))
-            .unwrap_or_else(|| old_leaf.map(leaf_hash).unwrap_or_default());
+            .unwrap_or_else(|| new_leaf.map(leaf_hash).unwrap_or_default());
         Self(
             old_nodes
                 .iter()
