@@ -107,7 +107,7 @@ impl AdviceColumn {
 pub struct SecondPhaseAdviceColumn(pub Column<Advice>);
 
 impl SecondPhaseAdviceColumn {
-    pub fn rotation<F: FieldExt>(self, i: i32) -> Query<F> {
+    fn rotation<F: FieldExt>(self, i: i32) -> Query<F> {
         Query::Advice(self.0, i)
     }
 
@@ -119,15 +119,6 @@ impl SecondPhaseAdviceColumn {
         self.rotation(-1)
     }
 
-    pub fn next<F: FieldExt>(self) -> Query<F> {
-        self.rotation(1)
-    }
-
-    pub fn delta<F: FieldExt>(self) -> Query<F> {
-        self.current() - self.previous()
-    }
-
-    // TODO: first/second phase advice columns?
     pub fn assign<F: FieldExt>(&self, region: &mut Region<'_, F>, offset: usize, value: Value<F>) {
         region
             .assign_advice(|| "second phase advice", self.0, offset, || value)
