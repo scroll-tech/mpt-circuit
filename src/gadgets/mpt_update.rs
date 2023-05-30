@@ -43,9 +43,7 @@ pub trait MptUpdateLookup<F: FieldExt> {
 }
 
 // TODO:
-// configure_extension_old
 // constrain siblings for extension paths in the account leafs
-// constraint sibling for extension paths in storage leaf
 // empty storage proofs?
 
 #[derive(Clone)]
@@ -1077,9 +1075,22 @@ fn configure_nonce<F: FieldExt>(
             }
             SegmentType::AccountLeaf1 => {
                 cb.assert_zero("direction is 0", config.direction.current());
+                cb.condition(config.path_type.current_matches(&[PathType::ExtensionNew]), |cb| {
+                    cb.assert_zero(
+                        "poseidon code hash is 0 for nonce extension new at AccountLeaf1",
+                        config.sibling.current(),
+                    )
+                });
             }
             SegmentType::AccountLeaf2 => {
                 cb.assert_zero("direction is 0", config.direction.current());
+                cb.condition(config.path_type.current_matches(&[PathType::ExtensionNew]), |cb| {
+                    cb.assert_equal(
+                        "sibling is hash(0, hash(0, 0)) for nonce extension new at AccountLeaf2",
+                        config.sibling.current(),
+                        hash(Fr::zero(), hash(Fr::zero(), Fr::zero())).into(),
+                    )
+                });
             }
             SegmentType::AccountLeaf3 => {
                 cb.assert_zero("direction is 0", config.direction.current());
@@ -1124,6 +1135,10 @@ fn configure_nonce<F: FieldExt>(
                         cb.assert_zero(
                             "code size is 0 for ExtensionNew nonce update",
                             new_code_size,
+                        );
+                        cb.assert_zero(
+                            "balance is 0 for ExtensionNew nonce update",
+                            config.sibling.current(),
                         );
                     },
                 );
