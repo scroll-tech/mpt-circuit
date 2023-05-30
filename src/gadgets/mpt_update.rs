@@ -16,12 +16,11 @@ use super::{
 use crate::{
     constraint_builder::{AdviceColumn, ConstraintBuilder, Query, SecondPhaseAdviceColumn},
     types::{
-        account_key, hash,
         storage::{StorageLeaf, StorageProof},
         trie::TrieRows,
         ClaimKind, Proof,
     },
-    util::{rlc, u256_to_big_endian},
+    util::{account_key, hash, rlc, u256_to_big_endian},
     MPTProofType,
 };
 use ethers_core::{k256::elliptic_curve::PrimeField, types::Address};

@@ -8,7 +8,7 @@ use num_traits::identities::Zero;
 use crate::{
     // operation::{Account, SMTPathParse},
     serde::{AccountData, HexBytes, SMTNode, SMTPath, SMTTrace},
-    util::{balance_convert, rlc, u256_from_hex, u256_to_big_endian},
+    util::{account_key, fr_from_biguint, rlc, u256_from_hex, u256_to_big_endian, u256_from_biguint},
     MPTProofType,
 };
 
@@ -148,9 +148,9 @@ impl From<AccountData> for EthAccount {
         Self {
             nonce: account_data.nonce,
             code_size: account_data.code_size,
-            poseidon_codehash: balance_convert(&account_data.poseidon_code_hash),
-            balance: balance_convert(&account_data.balance),
-            keccak_codehash: u256(&account_data.code_hash),
+            poseidon_codehash: fr_from_biguint(&account_data.poseidon_code_hash),
+            balance: fr_from_biguint(&account_data.balance),
+            keccak_codehash: u256_from_biguint(&account_data.code_hash),
             storage_root: Fr::zero(), // TODO: fixmeeee!!!
         }
     }
@@ -258,7 +258,7 @@ impl From<(&MPTProofType, &SMTTrace)> for ClaimKind {
                     assert_eq!(*proof_type, MPTProofType::BalanceChanged);
                     ClaimKind::Balance {
                         old: None,
-                        new: Some(u256(&new.balance)),
+                        new: Some(u256_from_biguint(&new.balance)),
                     }
                 } else {
                     unimplemented!("nonce or balance must be first field set on empty account");
@@ -270,13 +270,13 @@ impl From<(&MPTProofType, &SMTTrace)> for ClaimKind {
                     new: Some(new.nonce.into()),
                 },
                 MPTProofType::BalanceChanged => ClaimKind::Balance {
-                    old: Some(u256(&old.balance)),
-                    new: Some(u256(&new.balance)),
+                    old: Some(u256_from_biguint(&old.balance)),
+                    new: Some(u256_from_biguint(&new.balance)),
                 },
                 MPTProofType::AccountDoesNotExist => ClaimKind::IsEmpty(None),
                 MPTProofType::CodeHashExists => ClaimKind::CodeHash {
-                    old: Some(u256(&old.code_hash)),
-                    new: Some(u256(&new.code_hash)),
+                    old: Some(u256_from_biguint(&old.code_hash)),
+                    new: Some(u256_from_biguint(&new.code_hash)),
                 },
                 MPTProofType::CodeSizeExists => ClaimKind::CodeSize {
                     old: Some(old.code_size.into()),
@@ -884,22 +884,8 @@ fn fr(x: HexBytes<32>) -> Fr {
     Fr::from_bytes(&x.0).unwrap()
 }
 
-fn u256(x: &BigUint) -> U256 {
-    U256::from_big_endian(&x.to_bytes_be())
-}
-
 pub fn hash(x: Fr, y: Fr) -> Fr {
     Hashable::hash([x, y])
-}
-
-pub fn account_key(address: Address) -> Fr {
-    // TODO: the names of these are reversed
-    let high_bytes: [u8; 16] = address.0[..16].try_into().unwrap();
-    let low_bytes: [u8; 4] = address.0[16..].try_into().unwrap();
-
-    let address_high = Fr::from_u128(u128::from_be_bytes(high_bytes));
-    let address_low = Fr::from_u128(u128::from(u32::from_be_bytes(low_bytes)) << 96);
-    hash(address_high, address_low)
 }
 
 fn storage_key_hash(key: U256) -> Fr {

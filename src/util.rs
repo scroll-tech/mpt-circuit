@@ -1,8 +1,9 @@
 use crate::serde::HexBytes;
-use ethers_core::k256::elliptic_curve::PrimeField;
-use ethers_core::types::U256;
-use halo2_proofs::arithmetic::FieldExt;
-use halo2_proofs::halo2curves::bn256::Fr;
+use ethers_core::{
+    k256::elliptic_curve::PrimeField,
+    types::{Address, U256},
+};
+use halo2_proofs::{arithmetic::FieldExt, halo2curves::bn256::Fr};
 use hash_circuit::hash::Hashable;
 use num_bigint::BigUint;
 
@@ -65,12 +66,10 @@ pub(crate) fn u256_hi_lo(x: &U256) -> (u128, u128) {
         (u128::from(u64_digits[1]) << 64) + u128::from(u64_digits[0]),
     )
 }
-
-pub(crate) fn balance_convert(balance: &BigUint) -> Fr {
-    balance
-        .to_u64_digits()
+pub(crate) fn fr_from_biguint(b: &BigUint) -> Fr {
+    b.to_u64_digits()
         .iter()
-        .rev() // to_u64_digits has least significant digit is first
+        .rev() // to_u64_digits has least significant digit first
         .fold(Fr::zero(), |a, b| {
             a * Fr::from(1 << 32).square() + Fr::from(*b)
         })
@@ -82,6 +81,10 @@ pub fn rlc(be_bytes: &[u8], randomness: Fr) -> Fr {
     });
     // dbg!(x);
     x
+}
+
+pub fn u256_from_biguint(x: &BigUint) -> U256 {
+    U256::from_big_endian(&x.to_bytes_be())
 }
 
 pub fn u256_to_fr(x: U256) -> Fr {
@@ -99,6 +102,15 @@ pub fn u256_to_big_endian(x: &U256) -> Vec<u8> {
 pub fn storage_key_hash(key: U256) -> Fr {
     let (high, low) = split_word(key);
     hash(high, low)
+}
+
+pub fn account_key(address: Address) -> Fr {
+    let high_bytes: [u8; 16] = address.0[..16].try_into().unwrap();
+    let low_bytes: [u8; 4] = address.0[16..].try_into().unwrap();
+
+    let address_high = Fr::from_u128(u128::from_be_bytes(high_bytes));
+    let address_low = Fr::from_u128(u128::from(u32::from_be_bytes(low_bytes)) << 96);
+    hash(address_high, address_low)
 }
 
 #[cfg(test)]
