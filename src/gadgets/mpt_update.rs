@@ -1075,22 +1075,28 @@ fn configure_nonce<F: FieldExt>(
             }
             SegmentType::AccountLeaf1 => {
                 cb.assert_zero("direction is 0", config.direction.current());
-                cb.condition(config.path_type.current_matches(&[PathType::ExtensionNew]), |cb| {
-                    cb.assert_zero(
-                        "poseidon code hash is 0 for nonce extension new at AccountLeaf1",
-                        config.sibling.current(),
-                    )
-                });
+                cb.condition(
+                    config.path_type.current_matches(&[PathType::ExtensionNew]),
+                    |cb| {
+                        cb.assert_zero(
+                            "poseidon code hash is 0 for nonce extension new at AccountLeaf1",
+                            config.sibling.current(),
+                        )
+                    },
+                );
             }
             SegmentType::AccountLeaf2 => {
                 cb.assert_zero("direction is 0", config.direction.current());
-                cb.condition(config.path_type.current_matches(&[PathType::ExtensionNew]), |cb| {
-                    cb.assert_equal(
+                cb.condition(
+                    config.path_type.current_matches(&[PathType::ExtensionNew]),
+                    |cb| {
+                        cb.assert_equal(
                         "sibling is hash(0, hash(0, 0)) for nonce extension new at AccountLeaf2",
                         config.sibling.current(),
                         hash(Fr::zero(), hash(Fr::zero(), Fr::zero())).into(),
                     )
-                });
+                    },
+                );
             }
             SegmentType::AccountLeaf3 => {
                 cb.assert_zero("direction is 0", config.direction.current());
@@ -1171,6 +1177,12 @@ fn configure_code_size<F: FieldExt>(
     config: &MptUpdateConfig,
     bytes: &impl BytesLookup,
 ) {
+    cb.assert(
+        "new accounts have balance or nonce set first",
+        config
+            .path_type
+            .current_matches(&[PathType::Start, PathType::Common]),
+    );
     for variant in SegmentType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
             SegmentType::AccountLeaf0 => {
@@ -1310,6 +1322,12 @@ fn configure_poseidon_code_hash<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
 ) {
+    cb.assert(
+        "new accounts have balance or nonce set first",
+        config
+            .path_type
+            .current_matches(&[PathType::Start, PathType::Common]),
+    );
     for variant in SegmentType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
             SegmentType::AccountLeaf0 => {
@@ -1359,6 +1377,12 @@ fn configure_keccak_code_hash<F: FieldExt>(
     rlc: &impl RlcLookup,
     randomness: Query<F>,
 ) {
+    cb.assert(
+        "new accounts have balance or nonce set first",
+        config
+            .path_type
+            .current_matches(&[PathType::Start, PathType::Common]),
+    );
     for variant in SegmentType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
             SegmentType::AccountLeaf0 => {
@@ -1514,6 +1538,12 @@ fn configure_empty_account<F: FieldExt>(
     config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
 ) {
+    cb.assert(
+        "path type is start or common for empty account proof",
+        config
+            .path_type
+            .current_matches(&[PathType::Start, PathType::Common]),
+    );
     cb.assert_zero("old value is 0", config.old_value.current());
     cb.assert_zero("new value is 0", config.new_value.current());
     cb.assert_equal(
