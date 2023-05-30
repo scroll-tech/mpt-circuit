@@ -44,7 +44,6 @@ pub trait MptUpdateLookup<F: FieldExt> {
 }
 
 // TODO:
-// path transistions
 // segments transitions as a function of proof type
 // constrain siblings for extension paths in the account leafs
 // empty storage proofs?
@@ -237,12 +236,21 @@ impl MptUpdateConfig {
             is_zero_gadgets,
         };
 
+        let path_transitions = path::forward_transitions();
         for variant in PathType::iter() {
-            let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
-                PathType::Start => {}
-                PathType::Common => configure_common_path(cb, &config, poseidon),
-                PathType::ExtensionOld => configure_extension_old(cb, &config, poseidon),
-                PathType::ExtensionNew => configure_extension_new(cb, &config, poseidon),
+            let conditional_constraints = |cb: &mut ConstraintBuilder<F>| {
+                cb.assert(
+                    "transition for path_type",
+                    config
+                        .path_type
+                        .next_matches(path_transitions.get(&variant).unwrap()),
+                );
+                match variant {
+                    PathType::Start => {}
+                    PathType::Common => configure_common_path(cb, &config, poseidon),
+                    PathType::ExtensionOld => configure_extension_old(cb, &config, poseidon),
+                    PathType::ExtensionNew => configure_extension_new(cb, &config, poseidon),
+                }
             };
             cb.condition(
                 config.path_type.current_matches(&[variant]),
@@ -432,10 +440,9 @@ impl MptUpdateConfig {
                 SegmentType::AccountLeaf4,
             ];
 
-            dbg!(final_old_hash, final_new_hash);
             let leaf_path_type = match final_path_type {
                 PathType::Common => {
-                    // need to check for type 2 non-existence proof
+                    // need to check if the old or new account is type 2 empty
                     match (
                         final_old_hash.is_zero_vartime(),
                         final_new_hash.is_zero_vartime(),
@@ -555,10 +562,12 @@ impl MptUpdateConfig {
         &self,
         region: &mut Region<'_, Fr>,
         starting_offset: usize,
-        rows: &TrieRows) -> usize {
+        rows: &TrieRows,
+    ) -> usize {
         let n_rows = self.assign_trie_rows(region, starting_offset, rows);
         for i in 0..n_rows {
-            self.segment_type.assign(region, starting_offset + i, SegmentType::StorageTrie);
+            self.segment_type
+                .assign(region, starting_offset + i, SegmentType::StorageTrie);
         }
         n_rows
     }

@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter, Hash)]
@@ -29,27 +28,10 @@ const PATH_TRANSITIONS: [(PathType, PathType); 12] = [
     (PathType::ExtensionNew, PathType::Start),
 ];
 
-// you should have this take in segment as well.....
-fn forward_transitions() -> HashMap<PathType, Vec<PathType>> {
-    let mut map = HashMap::new();
-    for variant in PathType::iter() {
-        map.insert(variant, vec![]);
-    }
-    for (source, sink) in PATH_TRANSITIONS {
-        map.get_mut(&source).unwrap().push(sink);
-    }
-    map
-}
-
-// there are additional requirements on when this transition can change?
-// e.g. common -> noncommon can only happen when segment is AccountTrie, AccountLeaf0,
-pub fn backward_transitions() -> HashMap<PathType, Vec<PathType>> {
-    let mut map = HashMap::new();
-    for variant in PathType::iter() {
-        map.insert(variant, vec![]);
-    }
-    for (source, sink) in PATH_TRANSITIONS {
-        map.get_mut(&sink).unwrap().push(source);
+pub fn forward_transitions() -> HashMap<PathType, Vec<PathType>> {
+    let mut map: HashMap<PathType, Vec<PathType>> = HashMap::new();
+    for (current, next) in PATH_TRANSITIONS {
+        map.entry(current).or_default().push(next)
     }
     map
 }
