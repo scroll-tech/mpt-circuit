@@ -21,7 +21,7 @@ use crate::{
         trie::TrieRows,
         ClaimKind, Proof,
     },
-    util::{rlc, u256_to_big_endian}, // rlc is clobbered by rlc in configure....
+    util::{rlc, storage_key_hash, u256_to_big_endian},
     MPTProofType,
 };
 use ethers_core::{k256::elliptic_curve::PrimeField, types::Address};
@@ -43,29 +43,8 @@ pub trait MptUpdateLookup<F: FieldExt> {
     fn lookup(&self) -> [Query<F>; 7];
 }
 
-// if there's a leaf witness
-//  - on the old side, you end at Common (should this be extension then? it shou), AccountLeaf0.
-//      - the general rule for Extension should be that the sibling hashes need not be the same?
-//  - on the new side, there are 1 or more ExtensionNew, AccountTrie's followed by Extension, AccountLeaf0
-// this will be combined like so:
-// (Common, AccountTrie)
-// ...
-// (Common, AccountTrie)
-// (Extension, AccountTrie)
-// ...
-// (Extension, AccountTrie)
-// (Extension, AccountLeaf0) // this may be a bit tricky? because on the new side you need to show the key hash is correct for the target address
-//                           // you also need to show on the old side that the key hash does not match the target address.
-// (Extension, AccountLeaf1)
-// ...
-// if there's an emptynode witness:
-//  - on the old side, it is just (0, sibling).
-//  - on the new side, you need to replace 0 with the hash of the new account.
-//  - this means you go from Common, AccountTrie -> Extension, AccountLeaf0
-
 #[derive(Clone)]
 struct MptUpdateConfig {
-    // Lookup columns
     old_hash: AdviceColumn,
     new_hash: AdviceColumn,
     old_value: SecondPhaseAdviceColumn,
@@ -99,7 +78,6 @@ impl<F: FieldExt> MptUpdateLookup<F> for MptUpdateConfig {
         let new_value = self.new_value.current() * is_start();
         let address = self.intermediate_values[0].current() * is_start();
         let storage_key_rlc = self.storage_key_rlc.current() * is_start();
-
         [
             proof_type,
             old_root,
@@ -122,7 +100,7 @@ impl MptUpdateConfig {
         bytes: &impl BytesLookup,
         rlc_randomness: &RlcRandomness,
     ) -> Self {
-        let proof_type = OneHot::configure(cs, cb);
+        let proof_type: OneHot<MPTProofType> = OneHot::configure(cs, cb);
         let [storage_key_rlc, old_value, new_value] = cb.second_phase_advice_columns(cs);
         let [old_hash, new_hash, depth, key, other_key, direction, sibling] = cb.advice_columns(cs);
 
@@ -135,9 +113,60 @@ impl MptUpdateConfig {
         let segment_type = OneHot::configure(cs, cb);
         let path_type = OneHot::configure(cs, cb);
 
+        let is_start = segment_type.current_matches(&[SegmentType::Start]);
+        cb.condition(is_start.clone(), |cb| {
+            let [address, address_high, ..] = intermediate_values;
+            let address_low: Query<F> = (address.current() - address_high.current() * (1 << 32))
+                * (1 << 32)
+                * (1 << 32)
+                * (1 << 32);
+            cb.poseidon_lookup(
+                "account mpt key = h(address_high, address_low)",
+                [address_high.current(), address_low, key.current()],
+                poseidon,
+            );
+        });
+        cb.condition(!is_start, |cb| {
+            cb.assert_equal(
+                "proof type does not change",
+                proof_type.current(),
+                proof_type.previous(),
+            );
+            cb.assert_equal(
+                "storage_key_rlc does not change",
+                storage_key_rlc.current(),
+                storage_key_rlc.previous(),
+            );
+            cb.assert_equal(
+                "old_value does not change",
+                old_value.current(),
+                old_value.previous(),
+            );
+            cb.assert_equal(
+                "old_value does not change",
+                new_value.current(),
+                new_value.previous(),
+            );
+        });
+
+        cb.condition(
+            !segment_type.current_matches(&[SegmentType::Start, SegmentType::AccountLeaf3]),
+            |cb| {
+                cb.assert_equal(
+                    "key can only change on Start or AccountLeaf3 rows",
+                    key.current(),
+                    key.previous(),
+                );
+                cb.assert_equal(
+                    "other_key can only change on Start or AccountLeaf3 rows",
+                    other_key.current(),
+                    other_key.previous(),
+                );
+            },
+        );
+
         let is_trie =
             segment_type.current_matches(&[SegmentType::AccountTrie, SegmentType::StorageTrie]);
-
         cb.condition(is_trie.clone(), |cb| {
             cb.add_lookup(
                 "direction is correct for key and depth",
@@ -166,23 +195,8 @@ impl MptUpdateConfig {
             cb.assert_zero("depth is 0 in non-trie segments", depth.current());
         });
 
-        cb.condition(segment_type.current_matches(&[SegmentType::Start]), |cb| {
-            let [address, address_high, ..] = intermediate_values;
-            // address  = address_high + address_low
-            // address_high 128 bits
-            let address_low: Query<F> = (address.current() - address_high.current() * (1 << 32))
-                * (1 << 32)
-                * (1 << 32)
-                * (1 << 32);
-            cb.poseidon_lookup(
-                "account mpt key = h(address_high, address_low)",
-                [address_high.current(), address_low, key.current()],
-                poseidon,
-            );
-        });
-
         cb.condition(
-            segment_type.current_matches(&[SegmentType::AccountLeaf0]),
+            segment_type.current_matches(&[SegmentType::AccountLeaf0, SegmentType::StorageLeaf0]),
             |cb| {
                 cb.poseidon_lookup(
                     "sibling = h(1, key)",
@@ -212,34 +226,9 @@ impl MptUpdateConfig {
             is_zero_gadgets,
         };
 
-        // Transitions for state machines:
-        // TODO: rethink this justification later.... maybe we can just do the forward transitions?
-        // We constrain backwards transitions (instead of the forward ones) because the
-        // backwards transitions can be enabled on every row except the first (instead
-        // of every row except the last). This makes the setting the selectors more
-        // consistent between the tests, where the number of active rows is small,
-        // and in production, where the number is much larger.
-        // for (sink, sources) in segment::backward_transitions().iter() {
-        //     cb.condition(config.segment_type.current_matches(&[*sink]), |cb| {
-        //         cb.assert(
-        //             "backward transition for segment",
-        //             config.segment_type.previous_matches(&sources),
-        //         );
-        //     });
-        // }
-        // for (sink, sources) in path::backward_transitions().iter() {
-        //     cb.condition(config.path_type.current_matches(&[*sink]), |cb| {
-        //         cb.assert(
-        //             "backward transition for path",
-        //             config.path_type.previous_matches(&sources),
-        //         );
-        //     });
-        // }
-        // Depth increases by one iff segment type is unchanged, else it is 0?
-
         for variant in PathType::iter() {
             let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
-                PathType::Start => {} // TODO
+                PathType::Start => {}
                 PathType::Common => configure_common_path(cb, &config, poseidon),
                 PathType::ExtensionOld => configure_extension_old(cb, &config, poseidon),
                 PathType::ExtensionNew => configure_extension_new(cb, &config, poseidon),
@@ -310,7 +299,7 @@ impl MptUpdateConfig {
                     (proof.old.key, proof.old.key_hash, proof.new.leaf_data_hash.unwrap_or_default())
                 };
 
-            let mut path_type = PathType::Start; // should get rid of this variant and just start from Common.
+            let mut path_type = PathType::Start;
 
             // Assign start row
             self.segment_type.assign(region, offset, SegmentType::Start);
@@ -475,6 +464,8 @@ impl MptUpdateConfig {
                 self.old_hash.assign(region, offset + i, old_hash);
                 self.new_hash.assign(region, offset + i, new_hash);
                 self.direction.assign(region, offset + i, direction);
+                self.key.assign(region, offset + i, key);
+                self.other_key.assign(region, offset + i, other_key);
 
                 match segment_type {
                     SegmentType::AccountLeaf0 => {
@@ -482,6 +473,23 @@ impl MptUpdateConfig {
                             self.intermediate_values;
                         other_key_hash_column.assign(region, offset, other_key_hash);
                         other_leaf_data_hash_column.assign(region, offset, other_leaf_data_hash);
+                    }
+                    SegmentType::AccountLeaf3 => {
+                        if let ClaimKind::Storage { key, .. } = proof.claim.kind {
+                            self.key.assign(region, offset + 3, storage_key_hash(key));
+                            let [storage_key_high, storage_key_low, ..] = self.intermediate_values;
+                            let [rlc_storage_key_high, rlc_storage_key_low, ..] =
+                                self.second_phase_intermediate_values;
+                            assign_word_rlc(
+                                region,
+                                offset + 3,
+                                key,
+                                [storage_key_high, storage_key_low],
+                                [rlc_storage_key_high, rlc_storage_key_low],
+                                randomness,
+                            );
+                            self.other_key.assign(region, offset + 3, storage_key_hash(key));
+                        }
                     }
                     _ => {}
                 };
@@ -1241,6 +1249,17 @@ fn configure_storage<F: FieldExt>(
             }
             SegmentType::AccountLeaf3 => {
                 cb.assert_zero("direction is 0", config.direction.current());
+                let [key_high, key_low, ..] = config.intermediate_values;
+                let [rlc_key_high, rlc_key_low, ..] = config.second_phase_intermediate_values;
+                configure_word_rlc(
+                    cb,
+                    [config.key, key_high, key_low],
+                    [config.storage_key_rlc, rlc_key_high, rlc_key_low],
+                    poseidon,
+                    bytes,
+                    rlc,
+                    randomness.clone(),
+                );
             }
             SegmentType::AccountLeaf4 => {
                 cb.assert_unreachable("AccountLeaf4 is not used");
@@ -1249,15 +1268,8 @@ fn configure_storage<F: FieldExt>(
             SegmentType::StorageLeaf0 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
 
-                cb.poseidon_lookup(
-                    "sibling = h(1, storage_key_hash)",
-                    [Query::one(), config.key.current(), config.sibling.current()],
-                    poseidon,
-                );
-
-                let [old_high, old_low, new_high, new_low, key_high, key_low, ..] =
-                    config.intermediate_values;
-                let [rlc_old_high, rlc_old_low, rlc_new_high, rlc_new_low, rlc_key_high, rlc_key_low, ..] =
+                let [old_high, old_low, new_high, new_low, ..] = config.intermediate_values;
+                let [rlc_old_high, rlc_old_low, rlc_new_high, rlc_new_low, ..] =
                     config.second_phase_intermediate_values;
                 configure_word_rlc(
                     cb,
@@ -1272,15 +1284,6 @@ fn configure_storage<F: FieldExt>(
                     cb,
                     [config.new_hash, new_high, new_low],
                     [config.new_value, rlc_new_high, rlc_new_low],
-                    poseidon,
-                    bytes,
-                    rlc,
-                    randomness.clone(),
-                );
-                configure_word_rlc(
-                    cb,
-                    [config.key, key_high, key_low],
-                    [config.storage_key_rlc, rlc_key_high, rlc_key_low],
                     poseidon,
                     bytes,
                     rlc,

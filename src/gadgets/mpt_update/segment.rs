@@ -12,10 +12,10 @@ pub enum SegmentType {
     AccountLeaf1,
     AccountLeaf2,
     AccountLeaf3,
-    AccountLeaf4,
+    AccountLeaf4, // delete
     StorageTrie,
-    StorageLeaf0,
-    StorageLeaf1,
+    StorageLeaf0, // rename
+    StorageLeaf1, // delete
 }
 
 // TODO: use this
