@@ -123,13 +123,17 @@ impl TrieRows {
             .collect()
     }
 
-    pub fn key_bit_lookups(&self, path: Fr) -> Vec<(Fr, usize, bool)> {
+    pub fn key_bit_lookups(&self, key: Fr, other_key: Fr) -> Vec<(Fr, usize, bool)> {
         let mut lookups = vec![];
         for (i, row) in self.0.iter().enumerate() {
             match row.path_type {
                 PathType::Start => (),
-                PathType::Common | PathType::ExtensionOld | PathType::ExtensionNew => {
-                    lookups.push((path, i, row.direction));
+                PathType::Common => {
+                    lookups.push((key, i, row.direction));
+                    lookups.push((other_key, i, row.direction));
+                }
+                PathType::ExtensionOld | PathType::ExtensionNew => {
+                    lookups.push((key, i, row.direction));
                 }
             }
         }

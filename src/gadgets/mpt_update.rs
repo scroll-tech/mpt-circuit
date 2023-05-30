@@ -43,6 +43,7 @@ pub trait MptUpdateLookup<F: FieldExt> {
 }
 
 // TODO:
+// configure_extension_old
 // constrain siblings for extension paths in the account leafs
 // constraint sibling for extension paths in storage leaf
 // empty storage proofs?
@@ -589,6 +590,7 @@ impl MptUpdateConfig {
                 .assign(region, offset, u64::try_from(i + 1).unwrap());
             self.path_type.assign(region, offset, row.path_type);
 
+            dbg!((offset, row.path_type, row.sibling));
             for (value, column) in [
                 (row.sibling, self.sibling),
                 (row.old, self.old_hash),
@@ -844,42 +846,54 @@ fn configure_common_path<F: FieldExt>(
 fn configure_extension_old<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
-    _poseidon: &impl PoseidonLookup,
+    poseidon: &impl PoseidonLookup,
 ) {
     cb.assert(
-        "can only delete old nodes for storage proofs",
+        "can only delete existing nodes for storage proofs",
         config
             .proof_type
             .current_matches(&[MPTProofType::StorageChanged]),
     );
-    // TODO: add these once you create the test json.
-    // cb.add_lookup(
+    cb.assert_zero(
+        "new value is 0 when deleting node",
+        config.new_value.current(),
+    );
+    cb.assert_equal(
+        "new_hash unchanged for path_type=ExtensionOld",
+        config.new_hash.current(),
+        config.new_hash.previous(),
+    );
+    // cb.poseidon_lookup(
     //     "poseidon hash correct for old path",
     //     [
     //         old_left(config),
     //         old_right(config),
     //         config.old_hash.current(),
     //     ],
-    //     poseidon.lookup(),
+    //     poseidon,
     // );
-    // need to check that
-    let is_final_trie_segment = config
+    let is_storage_trie_segment = config
         .segment_type
-        .current_matches(&[SegmentType::AccountTrie, SegmentType::StorageTrie])
-        .and(
-            !config
-                .segment_type
-                .next_matches(&[SegmentType::AccountTrie, SegmentType::StorageTrie]),
-        );
-    cb.condition(!is_final_trie_segment.clone(), |cb| {
-        cb.assert_zero(
-            "sibling is zero for non-final old extension path segments",
-            config.sibling.current(),
-        );
+        .current_matches(&[SegmentType::StorageTrie]);
+    cb.condition(is_storage_trie_segment, |cb| {
+        let is_final_storage_trie_segment = config
+            .segment_type
+            .next_matches(&[SegmentType::StorageLeaf0]);
+        cb.condition(!is_final_storage_trie_segment.clone(), |cb| {
+            cb.assert_zero(
+                "sibling is zero for non-final old extension path segments",
+                config.sibling.current(),
+            );
+        });
+        cb.condition(is_final_storage_trie_segment, |cb| {
+            cb.assert_equal(
+                "sibling is new leaf hash for final new extension path segments",
+                config.sibling.current(),
+                config.new_hash.previous(),
+            );
+        });
     });
-    cb.condition(is_final_trie_segment, |_cb| {
-        // TODO: assert that the leaf that was being used as the non-empty witness is put here....
-    });
+
     cb.assert_equal(
         "new_hash unchanged for path_type=Old",
         config.new_hash.current(),
@@ -909,6 +923,16 @@ fn configure_extension_new<F: FieldExt>(
         config.old_hash.current(),
         config.old_hash.previous(),
     );
+
+    // cb.poseidon_lookup(
+    //     "poseidon hash correct for new path",
+    //     [
+    //         new_left(config),
+    //         new_right(config),
+    //         config.old_hash.previous(),
+    //     ],
+    //     poseidon,
+    // );
 
     let is_trie_segment = config
         .segment_type
@@ -993,7 +1017,7 @@ fn configure_nonce<F: FieldExt>(
                 cb.assert_zero("direction is 0", config.direction.current());
 
                 let old_code_size = (config.old_hash.current() - config.old_value.current())
-                    * Query::Constant(F::from(1 << 32).square().invert().unwrap()); // should this be 64?
+                    * Query::Constant(F::from(1 << 32).square().invert().unwrap());
                 let new_code_size = (config.new_hash.current() - config.new_value.current())
                     * Query::Constant(F::from(1 << 32).square().invert().unwrap());
                 cb.condition(
@@ -1601,11 +1625,8 @@ mod test {
             for proof in self.proofs.iter() {
                 keys.push(proof.old.key);
                 keys.push(proof.new.key);
-                match proof.claim.kind {
-                    ClaimKind::Storage { key, .. } => keys.push(storage_key_hash(key)),
-                    _ => (),
-                };
                 keys.push(account_key(proof.claim.address));
+                keys.extend(proof.storage.key_lookups());
             }
             keys
         }
@@ -1993,6 +2014,30 @@ mod test {
         mock_prove(
             MPTProofType::StorageChanged,
             include_str!("../../tests/generated/storage/write_singleton_storage_trie.json"),
+        );
+    }
+
+    #[test]
+    fn write_zero_singleton_storage_trie() {
+        mock_prove(
+            MPTProofType::StorageChanged,
+            include_str!("../../tests/generated/storage/write_zero_singleton_storage_trie.json"),
+        );
+    }
+
+    #[test]
+    fn write_zero_doubleton_storage_trie() {
+        mock_prove(
+            MPTProofType::StorageChanged,
+            include_str!("../../tests/generated/storage/write_zero_doubleton_storage_trie.json"),
+        );
+    }
+
+    #[test]
+    fn write_zero_storage_trie() {
+        mock_prove(
+            MPTProofType::StorageChanged,
+            include_str!("../../tests/generated/storage/write_zero_storage_trie.json"),
         );
     }
 

@@ -76,10 +76,21 @@ impl StorageProof {
         }
     }
 
+    pub fn key_lookups(&self) -> Vec<Fr> {
+        match self {
+            Self::Root(_) => vec![],
+            Self::Update { .. } => {
+                vec![self.key(), self.other_key()]
+            }
+        }
+    }
+
     pub fn key_bit_lookups(&self) -> Vec<(Fr, usize, bool)> {
         match self {
             Self::Root(_) => vec![],
-            Self::Update { key, trie_rows, .. } => trie_rows.key_bit_lookups(*key),
+            Self::Update { trie_rows, .. } => {
+                trie_rows.key_bit_lookups(self.key(), self.other_key())
+            }
         }
     }
 

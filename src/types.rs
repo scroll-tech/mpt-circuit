@@ -8,7 +8,9 @@ use num_traits::identities::Zero;
 use crate::{
     // operation::{Account, SMTPathParse},
     serde::{AccountData, HexBytes, SMTNode, SMTPath, SMTTrace},
-    util::{account_key, fr_from_biguint, rlc, u256_from_hex, u256_to_big_endian, u256_from_biguint},
+    util::{
+        account_key, fr_from_biguint, rlc, u256_from_biguint, u256_from_hex, u256_to_big_endian,
+    },
     MPTProofType,
 };
 
