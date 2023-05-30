@@ -21,13 +21,10 @@ use crate::{
         trie::TrieRows,
         ClaimKind, Proof,
     },
-    util::{rlc, u256_hi_lo, u256_to_big_endian}, // rlc is clobbered by rlc in configure....
+    util::{rlc, u256_to_big_endian}, // rlc is clobbered by rlc in configure....
     MPTProofType,
 };
-use ethers_core::{
-    k256::elliptic_curve::PrimeField,
-    types::{Address, U256},
-};
+use ethers_core::{k256::elliptic_curve::PrimeField, types::Address};
 use halo2_proofs::{
     arithmetic::{Field, FieldExt},
     circuit::{Region, Value},
@@ -147,7 +144,7 @@ impl MptUpdateConfig {
         let [old_hash, new_hash, depth, key, direction, sibling, upper_128_bits] =
             cb.advice_columns(cs);
 
-        let [other_key, other_key_hash, other_leaf_data_hash, other_leaf_hash] =
+        let [other_key, other_key_hash, other_leaf_data_hash, _other_leaf_hash] =
             cb.advice_columns(cs);
 
         let intermediate_values: [AdviceColumn; 10] = cb.advice_columns(cs);
@@ -279,12 +276,11 @@ impl MptUpdateConfig {
 
         for variant in MPTProofType::iter() {
             let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
-                MPTProofType::NonceChanged => configure_nonce(cb, &config, bytes, poseidon),
-                MPTProofType::BalanceChanged => configure_balance(cb, &config, poseidon, rlc),
-                MPTProofType::CodeSizeExists => configure_code_size(cb, &config, bytes, poseidon),
-                MPTProofType::PoseidonCodeHashExists => {
-                    configure_poseidon_code_hash(cb, &config, poseidon)
-                }
+                MPTProofType::NonceChanged => configure_nonce(cb, &config, bytes),
+                MPTProofType::BalanceChanged => configure_balance(cb, &config, rlc),
+                MPTProofType::CodeSizeExists => configure_code_size(cb, &config, bytes),
+                MPTProofType::PoseidonCodeHashExists => configure_poseidon_code_hash(cb, &config),
+                MPTProofType::AccountDoesNotExist => configure_empty_account(cb, &config, poseidon),
                 MPTProofType::CodeHashExists => configure_keccak_code_hash(
                     cb,
                     &config,
@@ -296,7 +292,6 @@ impl MptUpdateConfig {
                 MPTProofType::StorageChanged => {
                     configure_storage(cb, &config, poseidon, bytes, rlc, rlc_randomness.query())
                 }
-                MPTProofType::AccountDoesNotExist => configure_empty_account(cb, &config, poseidon),
                 _ => cb.assert_unreachable("unimplemented!"),
             };
             cb.condition(
@@ -766,7 +761,7 @@ fn configure_common_path<F: FieldExt>(
 fn configure_extension_old<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
-    poseidon: &impl PoseidonLookup,
+    _poseidon: &impl PoseidonLookup,
 ) {
     // TODO: add these once you create the test json.
     // cb.add_lookup(
@@ -793,7 +788,7 @@ fn configure_extension_old<F: FieldExt>(
             config.sibling.current(),
         );
     });
-    cb.condition(is_final_trie_segment, |cb| {
+    cb.condition(is_final_trie_segment, |_cb| {
         // TODO: assert that the leaf that was being used as the non-empty witness is put here....
     });
     cb.assert_equal(
@@ -885,7 +880,6 @@ fn configure_nonce<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
     bytes: &impl BytesLookup,
-    poseidon: &impl PoseidonLookup,
 ) {
     for variant in SegmentType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
@@ -978,7 +972,6 @@ fn configure_code_size<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
     bytes: &impl BytesLookup,
-    poseidon: &impl PoseidonLookup,
 ) {
     for variant in SegmentType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
@@ -1070,7 +1063,6 @@ fn configure_code_size<F: FieldExt>(
 fn configure_balance<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
-    poseidon: &impl PoseidonLookup,
     rlc: &impl RlcLookup,
 ) {
     for variant in SegmentType::iter() {
@@ -1131,7 +1123,6 @@ fn configure_balance<F: FieldExt>(
 fn configure_poseidon_code_hash<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
-    poseidon: &impl PoseidonLookup,
 ) {
     for variant in SegmentType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
@@ -1398,9 +1389,6 @@ fn configure_empty_account<F: FieldExt>(
     }
 }
 
-fn configure_self_destruct<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {}
-fn configure_empty_storage<F: FieldExt>(cb: &mut ConstraintBuilder<F>, config: &MptUpdateConfig) {}
-
 fn address_high(a: Address) -> u128 {
     let high_bytes: [u8; 16] = a.0[..16].try_into().unwrap();
     u128::from_be_bytes(high_bytes)
@@ -1419,7 +1407,11 @@ mod test {
         poseidon::PoseidonTable,
     };
     use super::*;
-    use crate::{constraint_builder::SelectorColumn, serde::SMTTrace, util::storage_key_hash};
+    use crate::{
+        constraint_builder::SelectorColumn,
+        serde::SMTTrace,
+        util::{storage_key_hash, u256_hi_lo},
+    };
     use ethers_core::types::U256;
     use halo2_proofs::{
         circuit::{Layouter, SimpleFloorPlanner},

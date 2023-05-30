@@ -45,7 +45,7 @@ impl TrieRows {
         old_nodes: &[SMTNode],
         new_nodes: &[SMTNode],
         old_leaf: Option<SMTNode>,
-        new_leaf: Option<SMTNode>,
+        _new_leaf: Option<SMTNode>,
     ) -> Self {
         let old_leaf_hash = old_nodes
             .last()

@@ -89,7 +89,7 @@ impl StorageLeaf {
         let value = u256_from_hex(data.value);
         match (node, value.is_zero()) {
             (None, true) => Self::Empty { mpt_key },
-            (Some(node), true) => {
+            (Some(_), true) => {
                 assert_eq!(mpt_key, storage_key_hash(u256_from_hex(data.key)));
                 let (value_high, value_low) = u256_hi_lo(&u256_from_hex(data.value));
                 Self::Leaf {
@@ -97,7 +97,7 @@ impl StorageLeaf {
                     value_hash: hash(Fr::from_u128(value_high), Fr::from_u128(value_low)),
                 }
             }
-            (Some(node), false) => Self::Entry {
+            (Some(_), false) => Self::Entry {
                 storage_key: u256_from_hex(data.key),
                 value,
             },
@@ -161,7 +161,7 @@ impl StorageLeaf {
 
     fn poseidon_lookups(&self) -> Vec<(Fr, Fr, Fr)> {
         let mut lookups = vec![(Fr::one(), self.key(), self.key_hash())];
-        if let Self::Entry { storage_key, value } = self {
+        if let Self::Entry { storage_key, .. } = self {
             let (key_high, key_low) = u256_hi_lo(storage_key);
             lookups.extend(vec![
                 (Fr::from_u128(key_high), Fr::from_u128(key_low), self.key()),
