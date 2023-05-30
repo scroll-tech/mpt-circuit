@@ -84,20 +84,11 @@ struct MptUpdateConfig {
     other_key_hash: AdviceColumn,
     other_leaf_data_hash: AdviceColumn,
 
-    direction: AdviceColumn, // this actually must be binary because of a KeyBitLookup
-
+    direction: AdviceColumn,
     sibling: AdviceColumn,
 
-    // use this for upper/lower half lookups.
-    upper_128_bits: AdviceColumn, // most significant 128 bits of address or storage key
-
-    // not_equal_witness, // inverse used to prove to expressions are not equal.
-
-    // TODO
-    // nonfirst_rows: SelectorColumn, // Enabled on all rows except the last one.
     intermediate_values: [AdviceColumn; 10],
     second_phase_intermediate_values: [SecondPhaseAdviceColumn; 10],
-
     is_zero_values: [AdviceColumn; 2],
     is_zero_gadgets: [IsZeroGadget; 2],
 }
@@ -137,8 +128,7 @@ impl MptUpdateConfig {
     ) -> Self {
         let proof_type = OneHot::configure(cs, cb);
         let [storage_key_rlc, old_value, new_value] = cb.second_phase_advice_columns(cs);
-        let [old_hash, new_hash, depth, key, direction, sibling, upper_128_bits] =
-            cb.advice_columns(cs);
+        let [old_hash, new_hash, depth, key, direction, sibling] = cb.advice_columns(cs);
 
         let [other_key, other_key_hash, other_leaf_data_hash, _other_leaf_hash] =
             cb.advice_columns(cs);
@@ -225,7 +215,6 @@ impl MptUpdateConfig {
             depth,
             direction,
             sibling,
-            upper_128_bits,
             intermediate_values,
             second_phase_intermediate_values,
             is_zero_values,
