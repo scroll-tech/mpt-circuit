@@ -78,11 +78,7 @@ struct MptUpdateConfig {
     depth: AdviceColumn,
 
     key: AdviceColumn,
-
-    // These three columns are used to verify a type 1 non-existence proof.
     other_key: AdviceColumn,
-    other_key_hash: AdviceColumn,
-    other_leaf_data_hash: AdviceColumn,
 
     direction: AdviceColumn,
     sibling: AdviceColumn,
@@ -128,10 +124,7 @@ impl MptUpdateConfig {
     ) -> Self {
         let proof_type = OneHot::configure(cs, cb);
         let [storage_key_rlc, old_value, new_value] = cb.second_phase_advice_columns(cs);
-        let [old_hash, new_hash, depth, key, direction, sibling] = cb.advice_columns(cs);
-
-        let [other_key, other_key_hash, other_leaf_data_hash, _other_leaf_hash] =
-            cb.advice_columns(cs);
+        let [old_hash, new_hash, depth, key, other_key, direction, sibling] = cb.advice_columns(cs);
 
         let intermediate_values: [AdviceColumn; 10] = cb.advice_columns(cs);
         let second_phase_intermediate_values: [SecondPhaseAdviceColumn; 10] =
@@ -210,8 +203,6 @@ impl MptUpdateConfig {
             segment_type,
             path_type,
             other_key,
-            other_leaf_data_hash,
-            other_key_hash,
             depth,
             direction,
             sibling,
@@ -487,9 +478,10 @@ impl MptUpdateConfig {
 
                 match segment_type {
                     SegmentType::AccountLeaf0 => {
-                        self.other_key_hash.assign(region, offset, other_key_hash);
-                        self.other_leaf_data_hash
-                            .assign(region, offset, other_leaf_data_hash);
+                        let [other_key_hash_column, other_leaf_data_hash_column, ..] =
+                            self.intermediate_values;
+                        other_key_hash_column.assign(region, offset, other_key_hash);
+                        other_leaf_data_hash_column.assign(region, offset, other_leaf_data_hash);
                     }
                     _ => {}
                 };
@@ -855,12 +847,13 @@ fn configure_extension_new<F: FieldExt>(
                 Query::from(old_is_type_1.clone()) + Query::from(old_is_type_2.clone()),
             );
 
+            let [other_key_hash, other_leaf_data_hash, ..] = config.intermediate_values;
             cb.condition(old_is_type_1, |cb| {
                 cb.poseidon_lookup(
                     "previous old_hash = h(other_key_hash, other_leaf_data_hash)",
                     [
-                        config.other_key_hash.current(),
-                        config.other_leaf_data_hash.current(),
+                        other_key_hash.current(),
+                        other_leaf_data_hash.current(),
                         config.old_hash.previous(),
                     ],
                     poseidon,
