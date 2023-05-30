@@ -449,8 +449,6 @@ impl MptUpdateConfig {
                 _ => final_path_type,
             };
 
-            // path type shouldn't be start if there are no account trie rows?
-
             // TODO: this doesn't handle the case where both old and new accounts are empty.
             let directions = match proof_type {
                 MPTProofType::NonceChanged | MPTProofType::CodeSizeExists => {
@@ -553,6 +551,18 @@ impl MptUpdateConfig {
         }
     }
 
+    fn assign_storage_trie_rows(
+        &self,
+        region: &mut Region<'_, Fr>,
+        starting_offset: usize,
+        rows: &TrieRows) -> usize {
+        let n_rows = self.assign_trie_rows(region, starting_offset, rows);
+        for i in 0..n_rows {
+            self.segment_type.assign(region, starting_offset + i, SegmentType::StorageTrie);
+        }
+        n_rows
+    }
+
     fn assign_trie_rows(
         &self,
         region: &mut Region<'_, Fr>,
@@ -592,26 +602,7 @@ impl MptUpdateConfig {
                 old_leaf,
                 new_leaf,
             } => {
-                let n_trie_rows = self.assign_trie_rows(region, offset, trie_rows);
-
-                // let other_key = storage_proof.other_key()?
-                let old_key = old_leaf.key();
-                let new_key = new_leaf.key();
-                let other_key = if *key != old_key {
-                    assert!(new_key == *key || new_key == old_key);
-                    old_key
-                } else {
-                    new_key
-                };
-
-                // move this below....
-                for i in 0..n_trie_rows {
-                    self.segment_type
-                        .assign(region, offset + i, SegmentType::StorageTrie);
-                    self.key.assign(region, offset + i, *key);
-                    self.other_key.assign(region, offset + i, other_key);
-                }
-
+                let n_trie_rows = self.assign_storage_trie_rows(region, offset, trie_rows);
                 let n_leaf_rows = self.assign_storage_leaf_row(
                     region,
                     offset + n_trie_rows,
@@ -620,7 +611,14 @@ impl MptUpdateConfig {
                     new_leaf,
                     randomness,
                 );
-                n_trie_rows + n_leaf_rows
+                let n_rows = n_trie_rows + n_leaf_rows;
+
+                let other_key = storage.other_key();
+                for i in 0..n_rows {
+                    self.key.assign(region, offset + i, *key);
+                    self.other_key.assign(region, offset + i, other_key);
+                }
+                n_rows
             }
         }
     }
@@ -660,11 +658,6 @@ impl MptUpdateConfig {
         };
         self.old_hash.assign(region, offset, old_hash);
         self.new_hash.assign(region, offset, new_hash);
-
-        self.key.assign(region, offset, key);
-        let old_key = old.key();
-        let other_key = if key != old_key { old_key } else { new.key() };
-        self.other_key.assign(region, offset, other_key);
 
         let [old_high, old_low, new_high, new_low, ..] = self.intermediate_values;
         let [old_rlc_high, old_rlc_low, new_rlc_high, new_rlc_low, ..] =
@@ -706,6 +699,9 @@ impl MptUpdateConfig {
             PathType::Common => {}
             PathType::ExtensionOld => {}
             PathType::ExtensionNew => {
+                let old_key = old.key();
+                let other_key = if key != old_key { old_key } else { new.key() };
+
                 let [.., key_minus_other_key, old_hash_column] = self.is_zero_values;
                 let [.., key_equals_other_key, old_hash_is_zero] = self.is_zero_gadgets;
                 key_minus_other_key.assign(region, offset, key - other_key);
