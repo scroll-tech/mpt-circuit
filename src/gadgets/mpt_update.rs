@@ -712,7 +712,23 @@ impl MptUpdateConfig {
         match path_type {
             PathType::Start => unreachable!(),
             PathType::Common => {}
-            PathType::ExtensionOld => {}
+            PathType::ExtensionOld => {
+                let new_key = new.key();
+                let other_key = if key != new_key { new_key } else { old.key() };
+
+                let [.., key_minus_other_key, new_hash_column] = self.is_zero_values;
+                let [.., key_equals_other_key, new_hash_is_zero] = self.is_zero_gadgets;
+                key_minus_other_key.assign(region, offset, key - other_key);
+                new_hash_column.assign(region, offset, new_hash);
+                key_equals_other_key.assign(region, offset, key - other_key);
+                new_hash_is_zero.assign(region, offset, new_hash);
+
+                if key != other_key {
+                    let [.., other_key_hash, other_leaf_data_hash] = self.intermediate_values;
+                    other_key_hash.assign(region, offset, new.key_hash());
+                    other_leaf_data_hash.assign(region, offset, new.value_hash());
+                }
+            }
             PathType::ExtensionNew => {
                 let old_key = old.key();
                 let other_key = if key != old_key { old_key } else { new.key() };
@@ -901,6 +917,46 @@ fn configure_extension_old<F: FieldExt>(
             );
         });
     });
+    cb.condition(
+        config
+            .segment_type
+            .current_matches(&[SegmentType::StorageLeaf0]),
+        |cb| {
+            let [.., key_minus_other_key, new_hash] = config.is_zero_values;
+            let [.., key_equals_other_key, new_hash_is_zero] = config.is_zero_gadgets;
+            cb.assert_equal(
+                "key_minus_other_key = key - other key",
+                key_minus_other_key.current(),
+                config.key.current() - config.other_key.current(),
+            );
+            cb.assert_equal(
+                "is_zero_value is new_hash",
+                config.new_hash.current(),
+                new_hash.current(),
+            );
+            let new_is_type_1 = !key_equals_other_key.current();
+            let new_is_type_2 = new_hash_is_zero.current();
+
+            cb.assert_equal(
+                "Empty new account/storage leaf is either type 1 xor type 2",
+                Query::one(),
+                Query::from(new_is_type_1.clone()) + Query::from(new_is_type_2.clone()),
+            );
+
+            let [.., other_key_hash, other_leaf_data_hash] = config.intermediate_values;
+            cb.condition(new_is_type_1, |cb| {
+                cb.poseidon_lookup(
+                    "previous old_hash = h(other_key_hash, other_leaf_data_hash)",
+                    [
+                        other_key_hash.current(),
+                        other_leaf_data_hash.current(),
+                        config.new_hash.previous(),
+                    ],
+                    poseidon,
+                );
+            });
+        },
+    );
 }
 
 fn configure_extension_new<F: FieldExt>(
