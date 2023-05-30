@@ -9,7 +9,7 @@ edition = "2021"
 ethers-core = "0.17.0"
 itertools = "0.10.5"
 hash-circuit = { package = "poseidon-circuit", git = "https://github.com/scroll-tech/poseidon-circuit.git", branch = "scroll-dev-0408", features=['short']}
-halo2_proofs = { git = "https://github.com/privacy-scaling-explorations/halo2.git", tag = "v2022_09_10" }
+halo2_proofs = { git = "https://github.com/scroll-tech/halo2.git", branch = "scroll-dev-0220", features=['phase-check'] }
 rand = "0.8"
 lazy_static = "1.4.0"
 num-traits = "0.2.15"
