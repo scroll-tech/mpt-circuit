@@ -590,7 +590,6 @@ impl MptUpdateConfig {
                 .assign(region, offset, u64::try_from(i + 1).unwrap());
             self.path_type.assign(region, offset, row.path_type);
 
-            dbg!((offset, row.path_type, row.sibling));
             for (value, column) in [
                 (row.sibling, self.sibling),
                 (row.old, self.old_hash),
@@ -863,15 +862,15 @@ fn configure_extension_old<F: FieldExt>(
         config.new_hash.current(),
         config.new_hash.previous(),
     );
-    // cb.poseidon_lookup(
-    //     "poseidon hash correct for old path",
-    //     [
-    //         old_left(config),
-    //         old_right(config),
-    //         config.old_hash.current(),
-    //     ],
-    //     poseidon,
-    // );
+    cb.poseidon_lookup(
+        "poseidon hash correct for old path",
+        [
+            old_left(config),
+            old_right(config),
+            config.old_hash.previous(),
+        ],
+        poseidon,
+    );
     let is_storage_trie_segment = config
         .segment_type
         .current_matches(&[SegmentType::StorageTrie]);
@@ -923,16 +922,15 @@ fn configure_extension_new<F: FieldExt>(
         config.old_hash.current(),
         config.old_hash.previous(),
     );
-
-    // cb.poseidon_lookup(
-    //     "poseidon hash correct for new path",
-    //     [
-    //         new_left(config),
-    //         new_right(config),
-    //         config.old_hash.previous(),
-    //     ],
-    //     poseidon,
-    // );
+    cb.poseidon_lookup(
+        "poseidon hash correct for new extension path",
+        [
+            new_left(config),
+            new_right(config),
+            config.new_hash.previous(),
+        ],
+        poseidon,
+    );
 
     let is_trie_segment = config
         .segment_type
@@ -1513,11 +1511,7 @@ mod test {
         poseidon::PoseidonTable,
     };
     use super::*;
-    use crate::{
-        constraint_builder::SelectorColumn,
-        serde::SMTTrace,
-        util::{storage_key_hash, u256_hi_lo},
-    };
+    use crate::{constraint_builder::SelectorColumn, serde::SMTTrace, util::u256_hi_lo};
     use ethers_core::types::U256;
     use halo2_proofs::{
         circuit::{Layouter, SimpleFloorPlanner},
