@@ -625,19 +625,11 @@ impl MptUpdateConfig {
         let other_key = if key != old_key { old_key } else { new.key() };
         self.other_key.assign(region, offset, other_key);
 
-        let [old_high, old_low, new_high, new_low, key_high, key_low, ..] =
+        let [old_high, old_low, new_high, new_low, ..] =
             self.intermediate_values;
-        let [old_rlc_high, old_rlc_low, new_rlc_high, new_rlc_low, rlc_key_high, rlc_key_low, ..] =
+        let [old_rlc_high, old_rlc_low, new_rlc_high, new_rlc_low, ..] =
             self.second_phase_intermediate_values;
 
-        assign_word_rlc(
-            region,
-            offset,
-            old.storage_key().or(new.storage_key()).unwrap(),
-            [key_high, key_low],
-            [rlc_key_high, rlc_key_low],
-            randomness,
-        );
         assign_word_rlc(
             region,
             offset,
