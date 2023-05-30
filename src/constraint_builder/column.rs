@@ -102,3 +102,26 @@ impl AdviceColumn {
             .expect("failed assign_advice");
     }
 }
+
+#[derive(Clone, Copy)]
+pub struct SecondPhaseAdviceColumn(pub Column<Advice>);
+
+impl SecondPhaseAdviceColumn {
+    fn rotation<F: FieldExt>(self, i: i32) -> Query<F> {
+        Query::Advice(self.0, i)
+    }
+
+    pub fn current<F: FieldExt>(self) -> Query<F> {
+        self.rotation(0)
+    }
+
+    pub fn previous<F: FieldExt>(self) -> Query<F> {
+        self.rotation(-1)
+    }
+
+    pub fn assign<F: FieldExt>(&self, region: &mut Region<'_, F>, offset: usize, value: Value<F>) {
+        region
+            .assign_advice(|| "second phase advice", self.0, offset, || value)
+            .expect("failed assign_advice");
+    }
+}

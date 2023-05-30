@@ -1,7 +1,7 @@
 use super::BinaryQuery;
 use halo2_proofs::{
     arithmetic::{Field, FieldExt},
-    plonk::{Advice, Column, Expression, Fixed, Instance, VirtualCells},
+    plonk::{Advice, Challenge, Column, Expression, Fixed, VirtualCells},
     poly::Rotation,
 };
 
@@ -9,7 +9,7 @@ use halo2_proofs::{
 pub enum ColumnType {
     Advice,
     Fixed,
-    Instance,
+    Challenge,
 }
 
 #[derive(Clone)]
@@ -17,7 +17,7 @@ pub enum Query<F: Clone> {
     Constant(F),
     Advice(Column<Advice>, i32),
     Fixed(Column<Fixed>, i32),
-    Instance(Column<Instance>, i32),
+    Challenge(Challenge),
     Neg(Box<Self>),
     Add(Box<Self>, Box<Self>),
     Mul(Box<Self>, Box<Self>),
@@ -37,7 +37,7 @@ impl<F: FieldExt> Query<F> {
             Query::Constant(f) => Expression::Constant(*f),
             Query::Advice(c, r) => meta.query_advice(*c, Rotation(*r)),
             Query::Fixed(c, r) => meta.query_fixed(*c, Rotation(*r)),
-            Query::Instance(c, r) => meta.query_instance(*c, Rotation(*r)),
+            Query::Challenge(c) => meta.query_challenge(*c),
             Query::Neg(q) => Expression::Constant(F::zero()) - q.run(meta),
             Query::Add(q, u) => q.run(meta) + u.run(meta),
             Query::Mul(q, u) => q.run(meta) * u.run(meta),

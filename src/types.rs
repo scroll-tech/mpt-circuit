@@ -77,7 +77,6 @@ impl Claim {
                 randomness,
             ),
             ClaimKind::IsEmpty(_) => Fr::zero(),
-            _ => unimplemented!("{:?}", self),
         }
     }
 
@@ -95,7 +94,6 @@ impl Claim {
                 randomness,
             ),
             ClaimKind::IsEmpty(_) => Fr::zero(),
-            _ => unimplemented!(),
         }
     }
 }
@@ -169,7 +167,6 @@ impl Proof {
                 ClaimKind::CodeHash { .. } => 4,
                 ClaimKind::Storage { .. } => 4,
                 ClaimKind::IsEmpty(_) => 1,
-                _ => unimplemented!("{:?}", self.claim),
             }
             + self.storage.n_rows()
     }
@@ -222,7 +219,7 @@ impl From<(&MPTProofType, &SMTTrace)> for ClaimKind {
                         },
                     };
                 }
-                [None, Some(new)] => {
+                [None, Some(_new)] => {
                     unimplemented!();
                     // assert_eq!(account_old, account_new, "{:?}", state_update);
                     // return ClaimKind::Write(Write::Storage {
@@ -231,7 +228,7 @@ impl From<(&MPTProofType, &SMTTrace)> for ClaimKind {
                     //     new_value: Some(u256_from_hex(new.value)),
                     // });
                 }
-                [Some(old), None] => {
+                [Some(_old), None] => {
                     unimplemented!()
                 }
             }
@@ -547,7 +544,6 @@ impl Proof {
                 let old_account_hash = old_account_hash_traces[6][1];
                 vec![old_account_hash]
             }),
-            _ => unimplemented!(),
         }
     }
 
@@ -591,7 +587,6 @@ impl Proof {
                 let new_account_hash = new_account_hash_traces[6][1];
                 vec![new_account_hash]
             }),
-            _ => unimplemented!(),
         }
     }
 
@@ -683,7 +678,6 @@ impl Proof {
                 }
                 [None, None] => vec![],
             },
-            _ => unimplemented!(),
         }
     }
 
