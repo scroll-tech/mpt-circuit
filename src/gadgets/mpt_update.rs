@@ -871,6 +871,15 @@ fn configure_extension_old<F: FieldExt>(
         ],
         poseidon,
     );
+    cb.assert(
+        "common -> extension old switch only allowed in storage trie segments",
+        config
+            .path_type
+            .previous_matches(&[PathType::ExtensionOld])
+            .or(config
+                .segment_type
+                .current_matches(&[SegmentType::StorageTrie, SegmentType::StorageLeaf0])),
+    );
     let is_storage_trie_segment = config
         .segment_type
         .current_matches(&[SegmentType::StorageTrie]);
@@ -892,12 +901,6 @@ fn configure_extension_old<F: FieldExt>(
             );
         });
     });
-
-    cb.assert_equal(
-        "new_hash unchanged for path_type=Old",
-        config.new_hash.current(),
-        config.new_hash.previous(),
-    );
 }
 
 fn configure_extension_new<F: FieldExt>(
@@ -931,7 +934,18 @@ fn configure_extension_new<F: FieldExt>(
         ],
         poseidon,
     );
-
+    cb.assert(
+        "common -> extension new switch only allowed in trie segments",
+        config
+            .path_type
+            .previous_matches(&[PathType::ExtensionNew])
+            .or(config.segment_type.current_matches(&[
+                SegmentType::AccountTrie,
+                SegmentType::AccountLeaf0,
+                SegmentType::StorageTrie,
+                SegmentType::StorageLeaf0,
+            ])),
+    );
     let is_trie_segment = config
         .segment_type
         .current_matches(&[SegmentType::AccountTrie, SegmentType::StorageTrie]);
