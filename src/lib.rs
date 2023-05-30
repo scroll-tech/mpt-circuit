@@ -26,7 +26,6 @@ use hash_circuit::hash::PoseidonHashTable;
 /// re-export required namespace from depened poseidon hash circuit
 pub use hash_circuit::{hash, poseidon};
 pub use mpt_table::MPTProofType;
-use mpt_table::{Config as MPTConfig, MPTEntry, MPTTable};
 
 use lazy_static::lazy_static;
 use std::sync::Mutex;
@@ -295,21 +294,12 @@ pub struct EthTrieConfig {
     padding: PaddingGadget,
     tables: mpt::MPTOpTables,
     hash_tbl: mpt::HashTable,
-    mpt_tbl: Option<MPTConfig>,
 }
 
 impl EthTrieConfig {
     /// the beginning of hash table index
     pub fn hash_tbl_begin(&self) -> usize {
         self.hash_tbl.commitment_index()[0]
-    }
-
-    /// the beginning of mpt table index
-    pub fn mpt_tbl_begin(&self) -> usize {
-        self.mpt_tbl
-            .as_ref()
-            .expect("only call for non-lite circuit")
-            .mpt_table_begin_index()
     }
 
     /// configure for lite circuit (no mpt table included, for fast testing)
@@ -395,7 +385,6 @@ impl EthTrieConfig {
             padding,
             tables,
             hash_tbl,
-            mpt_tbl: None,
         }
     }
 
@@ -413,25 +402,12 @@ impl EthTrieConfig {
         randomness: Expression<Fp>,
     ) -> Self {
         let mut lite_cfg = Self::configure_base(meta, hash_tbl);
-        let mpt_tbl = MPTTable::configure(meta, mpt_tbl, randomness);
         let layer = &lite_cfg.layer;
         let layer_exported = layer.exported_cols(0);
         let gadget_ind = layer.get_gadget_index();
         let root_ind = layer.get_root_indexs();
         let addr_ind = layer.get_address_index();
 
-        mpt_tbl.bind_mpt_circuit(
-            meta,
-            gadget_ind,
-            layer_exported[0],
-            addr_ind,
-            [root_ind.0, root_ind.1],
-            [layer_exported[2], layer_exported[5]],
-            [layer_exported[3], layer_exported[6]],
-            [layer_exported[4], layer_exported[7]],
-        );
-
-        lite_cfg.mpt_tbl.replace(mpt_tbl);
         lite_cfg
     }
 
@@ -445,20 +421,7 @@ impl EthTrieConfig {
         tbl_tips: impl IntoIterator<Item = MPTProofType>,
         rows: usize,
     ) -> Result<(), Error> {
-        let mpt_entries = tbl_tips.into_iter().zip(ops).map(|(proof_type, op)| {
-            if let Some(rand) = randomness {
-                MPTEntry::from_op(proof_type, op, rand)
-            } else {
-                MPTEntry::from_op_no_base(proof_type, op)
-            }
-        });
-
-        let mpt_tbl = MPTTable::construct(
-            self.mpt_tbl.clone().expect("only call under NON-LITE mode"),
-            mpt_entries,
-            rows,
-        );
-        mpt_tbl.load(layouter)
+        Ok(())
     }
 
     /// synthesize the hash table part, it is an development-only
@@ -855,10 +818,6 @@ impl CommitmentIndexs {
         let config = EthTrieCircuit::<_, false>::configure(&mut cs);
 
         let trie_circuit_indexs = config.hash_tbl.commitment_index();
-        let mpt_table_start = config
-            .mpt_tbl
-            .expect("should has mpt table")
-            .mpt_table_begin_index();
 
         let mut cs: ConstraintSystem<Fp> = Default::default();
         let config = HashCircuit::configure(&mut cs);
@@ -868,7 +827,7 @@ impl CommitmentIndexs {
         Self(
             trie_circuit_indexs[0],
             hash_circuit_indexs[0],
-            Some(mpt_table_start),
+            None,
         )
     }
 }
