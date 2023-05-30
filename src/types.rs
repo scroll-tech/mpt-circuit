@@ -179,6 +179,16 @@ pub struct Path {
     pub leaf_data_hash: Option<Fr>, // leaf data hash for type 0 and type 1, None for type 2.
 }
 
+impl Path {
+    pub fn hash(&self) -> Fr {
+        if let Some(data_hash) = self.leaf_data_hash {
+            hash(self.key_hash, data_hash)
+        } else {
+            Fr::zero()
+        }
+    }
+}
+
 impl From<(&MPTProofType, &SMTTrace)> for Claim {
     fn from((proof_type, trace): (&MPTProofType, &SMTTrace)) -> Self {
         let [old_root, new_root] = trace.account_path.clone().map(|path| fr(path.root));

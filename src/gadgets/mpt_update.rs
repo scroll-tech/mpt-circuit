@@ -43,6 +43,12 @@ pub trait MptUpdateLookup<F: FieldExt> {
     fn lookup(&self) -> [Query<F>; 7];
 }
 
+// TODO:
+// path transistions
+// segments transitions as a function of proof type
+// constrain siblings for extension paths in the account leafs
+// empty storage proofs?
+
 #[derive(Clone)]
 struct MptUpdateConfig {
     old_hash: AdviceColumn,
@@ -114,6 +120,11 @@ impl MptUpdateConfig {
         let path_type = OneHot::configure(cs, cb);
 
         let is_start = segment_type.current_matches(&[SegmentType::Start]);
+        cb.assert_equal(
+            "segment is Start iff path is Start",
+            is_start.clone().into(),
+            path_type.current_matches(&[PathType::Start]).into(),
+        );
         cb.condition(is_start.clone(), |cb| {
             let [address, address_high, ..] = intermediate_values;
             let address_low: Query<F> = (address.current() - address_high.current() * (1 << 32))
@@ -298,9 +309,6 @@ impl MptUpdateConfig {
                     // handle type 0 and type 2 paths here:
                     (proof.old.key, proof.old.key_hash, proof.new.leaf_data_hash.unwrap_or_default())
                 };
-
-            let mut path_type = PathType::Start;
-
             // Assign start row
             self.segment_type.assign(region, offset, SegmentType::Start);
             self.path_type.assign(region, offset, PathType::Start);
@@ -330,7 +338,7 @@ impl MptUpdateConfig {
                     .assign(region, offset, u64::try_from(depth + 1).unwrap());
                 self.segment_type
                     .assign(region, offset, SegmentType::AccountTrie);
-                path_type = match (*is_padding_open, *is_padding_close) {
+                let path_type = match (*is_padding_open, *is_padding_close) {
                     (false, false) => PathType::Common,
                     (false, true) => {
                         assert_eq!(*new_hash, previous_new_hash);
@@ -387,8 +395,20 @@ impl MptUpdateConfig {
                 offset += 1;
             }
 
+            let final_path_type = proof
+                .address_hash_traces
+                .first()
+                .map(|(_, _, _, _, is_padding_open, is_padding_close)| {
+                    match (*is_padding_open, *is_padding_close) {
+                        (false, false) => PathType::Common,
+                        (false, true) => PathType::ExtensionOld,
+                        (true, false) => PathType::ExtensionNew,
+                        (true, true) => unreachable!(),
+                    }
+                })
+                .unwrap_or(PathType::Common);
             let (final_old_hash, final_new_hash) = match proof.address_hash_traces.first() {
-                None => (Fr::zero(), Fr::zero()),
+                None => (proof.old.hash(), proof.new.hash()),
                 Some((_, old_hash, new_hash, _, _, _)) => (*old_hash, *new_hash),
             };
 
@@ -412,7 +432,8 @@ impl MptUpdateConfig {
                 SegmentType::AccountLeaf4,
             ];
 
-            path_type = match path_type {
+            dbg!(final_old_hash, final_new_hash);
+            let leaf_path_type = match final_path_type {
                 PathType::Common => {
                     // need to check for type 2 non-existence proof
                     match (
@@ -425,8 +446,10 @@ impl MptUpdateConfig {
                         (false, false) => PathType::Common,
                     }
                 }
-                _ => path_type,
+                _ => final_path_type,
             };
+
+            // path type shouldn't be start if there are no account trie rows?
 
             // TODO: this doesn't handle the case where both old and new accounts are empty.
             let directions = match proof_type {
@@ -458,7 +481,7 @@ impl MptUpdateConfig {
                 }
 
                 self.segment_type.assign(region, offset + i, segment_type);
-                self.path_type.assign(region, offset + i, path_type);
+                self.path_type.assign(region, offset + i, leaf_path_type);
                 self.sibling.assign(region, offset + i, sibling);
                 self.old_hash.assign(region, offset + i, old_hash);
                 self.new_hash.assign(region, offset + i, new_hash);
@@ -526,7 +549,6 @@ impl MptUpdateConfig {
                 }
                 _ => (),
             }
-
             self.assign_storage(region, next_offset, &proof.storage, randomness);
         }
     }
@@ -572,6 +594,7 @@ impl MptUpdateConfig {
             } => {
                 let n_trie_rows = self.assign_trie_rows(region, offset, trie_rows);
 
+                // let other_key = storage_proof.other_key()?
                 let old_key = old_leaf.key();
                 let new_key = new_leaf.key();
                 let other_key = if *key != old_key {
@@ -581,6 +604,7 @@ impl MptUpdateConfig {
                     new_key
                 };
 
+                // move this below....
                 for i in 0..n_trie_rows {
                     self.segment_type
                         .assign(region, offset + i, SegmentType::StorageTrie);
@@ -791,6 +815,12 @@ fn configure_extension_old<F: FieldExt>(
     config: &MptUpdateConfig,
     _poseidon: &impl PoseidonLookup,
 ) {
+    cb.assert(
+        "can only delete old nodes for storage proofs",
+        config
+            .proof_type
+            .current_matches(&[MPTProofType::StorageChanged]),
+    );
     // TODO: add these once you create the test json.
     // cb.add_lookup(
     //     "poseidon hash correct for old path",
@@ -831,6 +861,14 @@ fn configure_extension_new<F: FieldExt>(
     config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
 ) {
+    cb.assert(
+        "can only add new nodes for nonce, balance and storage proofs",
+        config.proof_type.current_matches(&[
+            MPTProofType::NonceChanged,
+            MPTProofType::BalanceChanged,
+            MPTProofType::StorageChanged,
+        ]),
+    );
     cb.assert_zero(
         "old value is 0 if old account is empty",
         config.old_value.current(),
