@@ -1271,73 +1271,42 @@ fn configure_storage<F: FieldExt>(
             SegmentType::StorageLeaf0 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
 
-                let randomness_raised_to_16 =
-                    randomness.clone().square().square().square().square();
-                let configure_word = |cb: &mut ConstraintBuilder<F>,
-                                      high: Query<F>,
-                                      low: Query<F>,
-                                      rlc_high: Query<F>,
-                                      rlc_low: Query<F>,
-                                      rlc_word: Query<F>,
-                                      hash_word: Query<F>| {
-                    cb.add_lookup(
-                        "rlc_high = rlc(high)",
-                        [high.clone(), rlc_high.clone()],
-                        rlc.lookup(),
-                    );
-                    cb.add_lookup(
-                        "rlc_low = rlc(low)",
-                        [low.clone(), rlc_low.clone()],
-                        rlc.lookup(),
-                    );
-                    cb.assert_equal(
-                        "rlc_word = rlc(high) * randomness ^ 16 + rlc(low)",
-                        rlc_word,
-                        rlc_high.clone() * randomness_raised_to_16.clone() + rlc_low.clone(),
-                    );
-                    cb.poseidon_lookup(
-                        "hash_word = h(high, low)",
-                        [high, low, hash_word],
-                        poseidon,
-                    );
-                };
-
-                let storage_key_hash = config.key.current();
-                configure_word(
-                    cb,
-                    config.upper_128_bits.rotation(0),
-                    config.upper_128_bits.rotation(-1),
-                    config.upper_128_bits.rotation(-2),
-                    config.upper_128_bits.rotation(-3),
-                    config.storage_key_rlc.current(),
-                    storage_key_hash.clone(),
-                );
                 cb.poseidon_lookup(
                     "sibling = h(1, storage_key_hash)",
                     [Query::one(), config.key.current(), config.sibling.current()],
                     poseidon,
                 );
 
-                // need to do something there for config.other_key.current()
-
-                configure_word(
+                let [old_high, old_low, new_high, new_low, key_high, key_low, ..] =
+                    config.intermediate_values;
+                let [rlc_old_high, rlc_old_low, rlc_new_high, rlc_new_low, rlc_key_high, rlc_key_low, ..] =
+                    config.second_phase_intermediate_values;
+                configure_word_rlc(
                     cb,
-                    config.other_key_hash.rotation(0),
-                    config.other_key_hash.rotation(-1),
-                    config.other_key_hash.rotation(-2),
-                    config.other_key_hash.rotation(-3),
-                    config.old_value.current(),
-                    config.old_hash.current(),
+                    [config.old_hash, old_high, old_low],
+                    [config.old_value, rlc_old_high, rlc_old_low],
+                    poseidon,
+                    bytes,
+                    rlc,
+                    randomness.clone(),
                 );
-
-                configure_word(
+                configure_word_rlc(
                     cb,
-                    config.other_leaf_data_hash.rotation(0),
-                    config.other_leaf_data_hash.rotation(-1),
-                    config.other_leaf_data_hash.rotation(-2),
-                    config.other_leaf_data_hash.rotation(-3),
-                    config.new_value.current(),
-                    config.new_hash.current(),
+                    [config.new_hash, new_high, new_low],
+                    [config.new_value, rlc_new_high, rlc_new_low],
+                    poseidon,
+                    bytes,
+                    rlc,
+                    randomness.clone(),
+                );
+                configure_word_rlc(
+                    cb,
+                    [config.key, key_high, key_low],
+                    [config.storage_key_rlc, rlc_key_high, rlc_key_low],
+                    poseidon,
+                    bytes,
+                    rlc,
+                    randomness.clone(),
                 );
             }
             SegmentType::StorageLeaf1 => {
