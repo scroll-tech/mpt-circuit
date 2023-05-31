@@ -60,6 +60,7 @@ impl StorageProof {
     }
 
     pub fn poseidon_lookups(&self) -> Vec<(Fr, Fr, Fr)> {
+        // TODO: missing the hash of the storage key for empty storage proofs.
         match self {
             Self::Root(_) => vec![],
             Self::Update {

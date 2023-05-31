@@ -61,7 +61,7 @@ pub enum ClaimKind {
 impl Claim {
     pub fn storage_key(&self) -> U256 {
         match self.kind {
-            ClaimKind::Storage { key, .. } => key,
+            ClaimKind::Storage { key, .. } | ClaimKind::IsEmpty(Some(key)) => key,
             _ => U256::zero(),
         }
     }

@@ -42,9 +42,6 @@ pub trait MptUpdateLookup<F: FieldExt> {
     fn lookup(&self) -> [Query<F>; 7];
 }
 
-// TODO:
-// empty storage proofs?
-
 #[derive(Clone)]
 pub struct MptUpdateConfig {
     old_hash: AdviceColumn,
@@ -279,10 +276,14 @@ impl MptUpdateConfig {
                     MPTProofType::StorageChanged => {
                         configure_storage(cb, &config, poseidon, bytes, rlc, rlc_randomness.query())
                     }
-                    MPTProofType::StorageDoesNotExist => {
-                        ()
-                        // configure_empty_storage(cb, &config, poseidon)
-                    }
+                    MPTProofType::StorageDoesNotExist => configure_empty_storage(
+                        cb,
+                        &config,
+                        poseidon,
+                        bytes,
+                        rlc,
+                        rlc_randomness.query(),
+                    ),
                     MPTProofType::AccountDestructed => cb.assert_unreachable("unimplemented!"),
                 }
             };
@@ -493,7 +494,6 @@ impl MptUpdateConfig {
                     self.is_zero_values[3].assign(region, offset, old_hash);
                     self.is_zero_gadgets[3].assign(region, offset, old_hash);
                 }
-                dbg!(offset + i, segment_type);
                 self.segment_type.assign(region, offset + i, segment_type);
                 self.path_type.assign(region, offset + i, leaf_path_type);
                 self.sibling.assign(region, offset + i, sibling);
@@ -511,7 +511,9 @@ impl MptUpdateConfig {
                         other_leaf_data_hash_column.assign(region, offset, other_leaf_data_hash);
                     }
                     SegmentType::AccountLeaf3 => {
-                        if let ClaimKind::Storage { key, .. } | ClaimKind::IsEmpty(Some(key)) = proof.claim.kind {
+                        if let ClaimKind::Storage { key, .. } | ClaimKind::IsEmpty(Some(key)) =
+                            proof.claim.kind
+                        {
                             self.key.assign(region, offset + 3, proof.storage.key());
                             let [storage_key_high, storage_key_low, ..] = self.intermediate_values;
                             let [rlc_storage_key_high, rlc_storage_key_low, ..] =
@@ -620,26 +622,82 @@ impl MptUpdateConfig {
                 old_leaf,
                 new_leaf,
             } => {
+                let other_key = storage.other_key();
                 let n_trie_rows = self.assign_storage_trie_rows(region, offset, trie_rows);
                 let n_leaf_rows = self.assign_storage_leaf_row(
                     region,
                     offset + n_trie_rows,
                     *key,
+                    other_key,
                     old_leaf,
                     new_leaf,
                     randomness,
                 );
                 let n_rows = n_trie_rows + n_leaf_rows;
 
-                let other_key = storage.other_key();
                 for i in 0..n_rows {
                     self.key.assign(region, offset + i, *key);
                     self.other_key.assign(region, offset + i, other_key);
                 }
-                dbg!(n_rows);
+
                 n_rows
             }
         }
+    }
+
+    fn assign_empty_storage_proof(
+        &self,
+        region: &mut Region<'_, Fr>,
+        offset: usize,
+        key: Fr,
+        other_key: Fr,
+        old: &StorageLeaf,
+        new: &StorageLeaf,
+    ) -> usize {
+        let [key_high, key_low, other_key_hash, other_leaf_data_hash, ..] =
+            self.intermediate_values;
+        let [.., key_minus_other_key, hash] = self.is_zero_values;
+        let [.., key_equals_other_key, hash_is_zero] = self.is_zero_gadgets;
+        match (old, new) {
+            (
+                StorageLeaf::Leaf {
+                    mpt_key: old_key,
+                    value_hash: old_value_hash,
+                },
+                StorageLeaf::Leaf {
+                    mpt_key: new_key,
+                    value_hash: new_value_hash,
+                },
+            ) => {
+                assert!(key != other_key);
+
+                key_minus_other_key.assign(region, offset, key - other_key);
+                key_equals_other_key.assign(region, offset, key - other_key);
+
+                assert_eq!(new_key, old_key);
+                assert_eq!(old_value_hash, new_value_hash);
+
+                hash.assign(region, offset, old.hash());
+                hash_is_zero.assign(region, offset, old.hash());
+
+                other_key_hash.assign(region, offset, old.key_hash());
+                other_leaf_data_hash.assign(region, offset, *old_value_hash);
+            }
+            (StorageLeaf::Empty { .. }, StorageLeaf::Empty { .. }) => {
+                assert!(key == other_key);
+
+                assert_eq!(old.hash(), Fr::zero());
+                assert_eq!(new.hash(), Fr::zero());
+
+                key_minus_other_key.assign(region, offset, key - other_key);
+                key_equals_other_key.assign(region, offset, key - other_key);
+            }
+            (StorageLeaf::Entry { .. }, _) | (_, StorageLeaf::Entry { .. }) => return 0,
+            (StorageLeaf::Leaf { .. }, StorageLeaf::Empty { .. })
+            | (StorageLeaf::Empty { .. }, StorageLeaf::Leaf { .. }) => unreachable!(),
+        }
+
+        0
     }
 
     fn assign_storage_leaf_row(
@@ -647,6 +705,7 @@ impl MptUpdateConfig {
         region: &mut Region<'_, Fr>,
         offset: usize,
         key: Fr,
+        other_key: Fr,
         old: &StorageLeaf,
         new: &StorageLeaf,
         randomness: Value<Fr>,
@@ -656,9 +715,15 @@ impl MptUpdateConfig {
             (StorageLeaf::Entry { .. }, _) => PathType::ExtensionOld,
             (_, StorageLeaf::Entry { .. }) => PathType::ExtensionNew,
             _ => {
-                dbg!("yes!!!!");
-                return 0;
-            } // no need to assign any rows for empty storage
+                return self.assign_empty_storage_proof(
+                    region,
+                    offset - 1,
+                    key,
+                    other_key,
+                    old,
+                    new,
+                )
+            }
         };
         self.path_type.assign(region, offset, path_type);
         self.segment_type
@@ -801,9 +866,6 @@ fn configure_segment_transitions<F: FieldExt>(
                 );
             } else {
                 cb.assert_unreachable("unreachable segment for proof");
-                if let MPTProofType::StorageDoesNotExist = proof {
-                    dbg!(variant);
-                }
             }
         };
         cb.condition(segment.current_matches(&[variant]), conditional_constraints);
@@ -1489,6 +1551,10 @@ fn configure_storage<F: FieldExt>(
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
             }
             SegmentType::AccountLeaf3 => {
+                cb.assert(
+                    "storage modifications must be on an existing account",
+                    config.path_type.current_matches(&[PathType::Common]),
+                );
                 cb.assert_zero("direction is 0", config.direction.current());
                 let [key_high, key_low, ..] = config.intermediate_values;
                 let [rlc_key_high, rlc_key_low, ..] = config.second_phase_intermediate_values;
@@ -1574,107 +1640,105 @@ fn configure_storage<F: FieldExt>(
     }
 }
 
-// fn configure_empty_storage<F: FieldExt>(
-//     cb: &mut ConstraintBuilder<F>,
-//     config: &MptUpdateConfig,
-//     poseidon: &impl PoseidonLookup,
-// ) {
-//     for variant in SegmentType::iter() {
-//         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
-//             SegmentType::AccountLeaf0 => {
-//                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
-//             }
-//             SegmentType::AccountLeaf1 => {
-//                 cb.assert_zero("direction is 0", config.direction.current());
-//             }
-//             SegmentType::AccountLeaf2 => {
-//                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
-//             }
-//             SegmentType::AccountLeaf3 => {
-//                 cb.assert_zero("direction is 0", config.direction.current());
-//                 let [key_high, key_low, ..] = config.intermediate_values;
-//                 let [rlc_key_high, rlc_key_low, ..] = config.second_phase_intermediate_values;
-//                 configure_word_rlc(
-//                     cb,
-//                     [config.key, key_high, key_low],
-//                     [config.storage_key_rlc, rlc_key_high, rlc_key_low],
-//                     poseidon,
-//                     bytes,
-//                     rlc,
-//                     randomness.clone(),
-//                 );
-//             }
-//             SegmentType::StorageLeaf0 => {
-//                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
+fn configure_empty_storage<F: FieldExt>(
+    cb: &mut ConstraintBuilder<F>,
+    config: &MptUpdateConfig,
+    poseidon: &impl PoseidonLookup,
+    bytes: &impl BytesLookup,
+    rlc: &impl RlcLookup,
+    randomness: Query<F>,
+) {
+    let [key_high, key_low, other_key_hash, other_leaf_data_hash, ..] = config.intermediate_values;
+    let [rlc_key_high, rlc_key_low, ..] = config.second_phase_intermediate_values;
+    let [.., key_minus_other_key, hash] = config.is_zero_values;
+    let [.., key_equals_other_key, hash_is_zero] = config.is_zero_gadgets;
 
-//                 let [old_high, old_low, new_high, new_low, ..] = config.intermediate_values;
-//                 let [rlc_old_high, rlc_old_low, rlc_new_high, rlc_new_low, ..] =
-//                     config.second_phase_intermediate_values;
+    cb.assert_zero(
+        "old value is 0 for empty storage",
+        config.old_value.current(),
+    );
+    cb.assert_zero(
+        "new value is 0 for empty storage",
+        config.new_value.current(),
+    );
 
-//                 cb.condition(
-//                     config
-//                         .path_type
-//                         .current_matches(&[PathType::Common, PathType::ExtensionOld]),
-//                     |cb| {
-//                         configure_word_rlc(
-//                             cb,
-//                             [config.old_hash, old_high, old_low],
-//                             [config.old_value, rlc_old_high, rlc_old_low],
-//                             poseidon,
-//                             bytes,
-//                             rlc,
-//                             randomness.clone(),
-//                         );
-//                     },
-//                 );
-//                 cb.condition(
-//                     config
-//                         .path_type
-//                         .current_matches(&[PathType::Common, PathType::ExtensionNew]),
-//                     |cb| {
-//                         configure_word_rlc(
-//                             cb,
-//                             [config.new_hash, new_high, new_low],
-//                             [config.new_value, rlc_new_high, rlc_new_low],
-//                             poseidon,
-//                             bytes,
-//                             rlc,
-//                             randomness.clone(),
-//                         );
-//                     },
-//                 );
+    let is_final_segment = config.segment_type.next_matches(&[SegmentType::Start]);
+    cb.condition(is_final_segment, |cb| {
+        cb.assert_equal(
+            "key_minus_other_key = key - other key",
+            key_minus_other_key.current(),
+            config.key.current() - config.other_key.current(),
+        );
+        cb.assert_equal(
+            "hash == old_hash (== current_hash)",
+            config.old_hash.current(),
+            hash.current(),
+        );
+        let is_type_1 = !key_equals_other_key.current();
+        let is_type_2 = hash_is_zero.current();
+        cb.assert_equal(
+            "Empty account is either type 1 xor type 2",
+            Query::one(),
+            Query::from(is_type_1.clone()) + Query::from(is_type_2),
+        );
 
-//                 let [old_hash_minus_zero_storage_hash, new_hash_minus_zero_storage_hash, ..] =
-//                     config.is_zero_values;
-//                 let [old_hash_is_zero_storage_hash, new_hash_is_zero_storage_hash, ..] =
-//                     config.is_zero_gadgets;
-//                 cb.assert_equal(
-//                     "old_hash_minus_zero_storage_hash = old_hash - hash(0, 0)",
-//                     old_hash_minus_zero_storage_hash.current(),
-//                     config.old_hash.current() - *ZERO_STORAGE_HASH,
-//                 );
-//                 cb.assert_equal(
-//                     "new_hash_minus_zero_storage_hash = new_hash - hash(0, 0)",
-//                     new_hash_minus_zero_storage_hash.current(),
-//                     config.new_hash.current() - *ZERO_STORAGE_HASH,
-//                 );
-//                 cb.assert(
-//                     "old hash != hash(0, 0)",
-//                     !old_hash_is_zero_storage_hash.current(),
-//                 );
-//                 cb.assert(
-//                     "new hash != hash(0, 0)",
-//                     !new_hash_is_zero_storage_hash.current(),
-//                 );
-//             }
-//             _ => {}
-//         };
-//         cb.condition(
-//             config.segment_type.current_matches(&[variant]),
-//             conditional_constraints,
-//         );
-//     }
-// }
+        cb.condition(is_type_1, |cb| {
+            cb.poseidon_lookup(
+                "other_key_hash == h(1, other_key)",
+                [
+                    Query::one(),
+                    config.other_key.current(),
+                    other_key_hash.current(),
+                ],
+                poseidon,
+            );
+            cb.poseidon_lookup(
+                "old_hash == new_hash = h(key_hash, other_leaf_data_hash)",
+                [
+                    other_key_hash.current(),
+                    other_leaf_data_hash.current(),
+                    config.old_hash.current(),
+                ],
+                poseidon,
+            );
+        });
+    });
+
+    for variant in SegmentType::iter() {
+        let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
+            SegmentType::AccountLeaf0 => {
+                cb.assert_equal("direction is 1", config.direction.current(), Query::one());
+            }
+            SegmentType::AccountLeaf1 => {
+                cb.assert_zero("direction is 0", config.direction.current());
+            }
+            SegmentType::AccountLeaf2 => {
+                cb.assert_equal("direction is 1", config.direction.current(), Query::one());
+            }
+            SegmentType::AccountLeaf3 => {
+                cb.assert(
+                    "storage read must be on an existing account",
+                    config.path_type.current_matches(&[PathType::Common]),
+                );
+                cb.assert_zero("direction is 0", config.direction.current());
+                configure_word_rlc(
+                    cb,
+                    [config.key, key_high, key_low],
+                    [config.storage_key_rlc, rlc_key_high, rlc_key_low],
+                    poseidon,
+                    bytes,
+                    rlc,
+                    randomness.clone(),
+                );
+            }
+            _ => (),
+        };
+        cb.condition(
+            config.segment_type.current_matches(&[variant]),
+            conditional_constraints,
+        );
+    }
+}
 
 fn configure_empty_account<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
@@ -1822,6 +1886,15 @@ mod test {
                     proof.storage.new_root(),
                     proof.new_account_hash_traces[1][0]
                 );
+                let (storage_key_high, storage_key_low) = u256_hi_lo(&proof.claim.storage_key());
+                hash_traces.push((
+                    Fr::from_u128(storage_key_high),
+                    Fr::from_u128(storage_key_low),
+                    hash(
+                        Fr::from_u128(storage_key_high),
+                        Fr::from_u128(storage_key_low),
+                    ),
+                ));
                 hash_traces.extend(proof.storage.poseidon_lookups());
 
                 let key = account_key(proof.claim.address);
@@ -1979,38 +2052,18 @@ mod test {
                             }
                         }
                     }
+                    MPTProofType::StorageDoesNotExist => {
+                        u128s.push(address_high(proof.claim.address));
+                        let (storage_key_high, storage_key_low) =
+                            u256_hi_lo(&proof.claim.storage_key());
+                        dbg!(storage_key_high, storage_key_low);
+                        u128s.push(storage_key_high);
+                        u128s.push(storage_key_low);
+                    }
                     _ => {}
                 }
             }
             (u64s, u128s, frs)
-        }
-
-        fn rlc_lookups(&self) -> Vec<U256> {
-            let mut words = vec![];
-            for proof in &self.proofs {
-                match proof.claim.kind {
-                    ClaimKind::Nonce { .. }
-                    | ClaimKind::CodeSize { .. }
-                    | ClaimKind::PoseidonCodeHash { .. } => {}
-                    ClaimKind::Balance { old, new } | ClaimKind::CodeHash { old, new } => {
-                        words.push(old);
-                        words.push(new);
-                    }
-                    ClaimKind::Storage {
-                        key,
-                        old_value,
-                        new_value,
-                    } => {
-                        words.push(Some(key));
-                        words.push(old_value);
-                        words.push(new_value);
-                    }
-                    ClaimKind::IsEmpty(key) => {
-                        words.push(key);
-                    }
-                }
-            }
-            words.into_iter().flatten().collect()
         }
     }
 
