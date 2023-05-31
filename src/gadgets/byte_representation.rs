@@ -223,7 +223,7 @@ mod test {
         let circuit = TestCircuit {
             u64s: vec![u64::MAX],
             u128s: vec![0, 1, u128::MAX],
-            frs: vec![Fr::zero() - Fr::one()],
+            frs: vec![Fr::from(2342)],
         };
         let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
@@ -239,8 +239,8 @@ mod test {
         y[15] = 1;
         assert_eq!(u128_to_big_endian(&1), y);
 
-        let mut z = vec![0; 32];
-        z[31] = 1;
+        let mut z = vec![0; 31];
+        z[30] = 1;
         assert_eq!(fr_to_big_endian(&Fr::one()), z);
     }
 }
