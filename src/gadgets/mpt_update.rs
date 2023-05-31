@@ -1094,7 +1094,7 @@ fn configure_nonce<F: FieldExt>(
                         "sibling is hash(0, hash(0, 0)) for nonce extension new at AccountLeaf2",
                         config.sibling.current(),
                         hash(Fr::zero(), hash(Fr::zero(), Fr::zero())).into(),
-                    )
+                    );
                     },
                 );
             }
@@ -1238,6 +1238,10 @@ fn configure_code_size<F: FieldExt>(
                             "new nonce is 0 for ExtensionNew code size update",
                             new_nonce,
                         );
+                        cb.assert_zero(
+                            "nonce and code size are 0 for ExtensionNew balance update",
+                            config.sibling.current(),
+                        );
                     },
                 );
                 cb.condition(
@@ -1276,9 +1280,28 @@ fn configure_balance<F: FieldExt>(
             }
             SegmentType::AccountLeaf1 => {
                 cb.assert_zero("direction is 0", config.direction.current());
+                cb.condition(
+                    config.path_type.current_matches(&[PathType::ExtensionNew]),
+                    |cb| {
+                        cb.assert_zero(
+                            "poseidon code hash is 0 for balance extension new at AccountLeaf1",
+                            config.sibling.current(),
+                        );
+                    },
+                );
             }
             SegmentType::AccountLeaf2 => {
                 cb.assert_zero("direction is 0", config.direction.current());
+                cb.condition(
+                    config.path_type.current_matches(&[PathType::ExtensionNew]),
+                    |cb| {
+                        cb.assert_equal(
+                        "sibling is hash(0, hash(0, 0)) for balance extension new at AccountLeaf2",
+                        config.sibling.current(),
+                        hash(Fr::zero(), hash(Fr::zero(), Fr::zero())).into(),
+                    );
+                    },
+                );
             }
             SegmentType::AccountLeaf3 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
