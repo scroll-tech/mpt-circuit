@@ -31,7 +31,8 @@ pub struct ByteRepresentationConfig {
     index_is_zero: IsZeroGadget,
 }
 
-// WARNING: it is a soundness issue if the index lookup is >= 31 (i.e. the value has 32 or more bytes).
+// WARNING: it is a soundness issue if the index lookup is >= 31 (i.e. the value can
+// overflow in the field if it has 32 or more bytes).
 impl RlcLookup for ByteRepresentationConfig {
     fn lookup<F: FieldExt>(&self) -> [Query<F>; 3] {
         [
@@ -142,7 +143,9 @@ fn h256_to_big_endian(x: &H256) -> Vec<u8> {
 fn fr_to_big_endian(x: &Fr) -> Vec<u8> {
     let mut bytes = x.to_bytes();
     bytes.reverse();
-    bytes.to_vec()
+    // We only the 31 least significant bytes of x so that the value column will not overflow.
+    assert_eq!(bytes[0], 0);
+    bytes[1..].to_vec()
 }
 
 #[cfg(test)]

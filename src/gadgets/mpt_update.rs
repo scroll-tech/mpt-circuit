@@ -1303,8 +1303,6 @@ fn configure_balance<F: FieldExt>(
             }
             SegmentType::AccountLeaf3 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
-
-                // TODO: canonical representation lookups?
                 cb.condition(
                     config
                         .path_type
@@ -1314,7 +1312,7 @@ fn configure_balance<F: FieldExt>(
                             "old balance is rlc(old_hash) and fits into 31 bytes",
                             [
                                 config.old_hash.current(),
-                                Query::from(31),
+                                Query::from(30),
                                 config.old_value.current(),
                             ],
                             rlc.lookup(),
@@ -1330,7 +1328,7 @@ fn configure_balance<F: FieldExt>(
                             "new balance is rlc(new_hash) and fits into 31 bytes",
                             [
                                 config.new_hash.current(),
-                                Query::from(31),
+                                Query::from(30),
                                 config.new_value.current(),
                             ],
                             rlc.lookup(),
