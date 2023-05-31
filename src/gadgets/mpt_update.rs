@@ -43,7 +43,6 @@ pub trait MptUpdateLookup<F: FieldExt> {
 }
 
 // TODO:
-// constrain siblings for extension paths in the account leafs
 // empty storage proofs?
 
 #[derive(Clone)]
@@ -460,7 +459,6 @@ impl MptUpdateConfig {
                 _ => final_path_type,
             };
 
-            // TODO: this doesn't handle the case where both old and new accounts are empty.
             let directions = match proof_type {
                 MPTProofType::NonceChanged | MPTProofType::CodeSizeExists => {
                     vec![true, false, false, false]
@@ -1735,7 +1733,6 @@ mod test {
                     ));
                 }
 
-                // TODO: some of these hash traces are not used.
                 hash_traces.extend(
                     proof
                         .old_account_hash_traces
