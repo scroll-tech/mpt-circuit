@@ -97,6 +97,34 @@ pub fn transitions(proof: MPTProofType) -> HashMap<SegmentType, Vec<SegmentType>
             ),
         ]
         .into(),
-        MPTProofType::StorageDoesNotExist | MPTProofType::AccountDestructed => [].into(),
+        MPTProofType::StorageDoesNotExist => [
+            (
+                SegmentType::Start,
+                vec![
+                    SegmentType::AccountTrie,  // mpt has > 1 account
+                    SegmentType::AccountLeaf0, // mpt has 1 account
+                ],
+            ),
+            (
+                SegmentType::AccountTrie,
+                vec![SegmentType::AccountTrie, SegmentType::AccountLeaf0],
+            ),
+            (SegmentType::AccountLeaf0, vec![SegmentType::AccountLeaf1]),
+            (SegmentType::AccountLeaf1, vec![SegmentType::AccountLeaf2]),
+            (SegmentType::AccountLeaf2, vec![SegmentType::AccountLeaf3]),
+            (
+                SegmentType::AccountLeaf3,
+                vec![
+                    SegmentType::StorageTrie, // existing storage > 1 entry
+                    SegmentType::Start,       // storage has <= 1 entry
+                ],
+            ),
+            (
+                SegmentType::StorageTrie,
+                vec![SegmentType::StorageTrie, SegmentType::Start],
+            ),
+        ]
+        .into(),
+        MPTProofType::AccountDestructed => [].into(),
     }
 }

@@ -146,8 +146,8 @@ impl StorageLeaf {
 
     fn n_rows(&self) -> usize {
         match self {
-            Self::Empty { .. } => 0,
-            Self::Leaf { .. } | Self::Entry { .. } => 1,
+            Self::Empty { .. } | Self::Leaf { .. } => 0,
+            Self::Entry { .. } => 1,
         }
     }
 

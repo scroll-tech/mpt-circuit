@@ -279,7 +279,11 @@ impl MptUpdateConfig {
                     MPTProofType::StorageChanged => {
                         configure_storage(cb, &config, poseidon, bytes, rlc, rlc_randomness.query())
                     }
-                    _ => cb.assert_unreachable("unimplemented!"),
+                    MPTProofType::StorageDoesNotExist => {
+                        ()
+                        // configure_empty_storage(cb, &config, poseidon)
+                    }
+                    MPTProofType::AccountDestructed => cb.assert_unreachable("unimplemented!"),
                 }
             };
             cb.condition(
@@ -466,8 +470,11 @@ impl MptUpdateConfig {
                 MPTProofType::BalanceChanged => vec![true, false, false, true],
                 MPTProofType::PoseidonCodeHashExists => vec![true, true],
                 MPTProofType::CodeHashExists => vec![true, false, true, true],
-                MPTProofType::StorageChanged => vec![true, false, true, false],
-                _ => unimplemented!(),
+                MPTProofType::StorageChanged | MPTProofType::StorageDoesNotExist => {
+                    vec![true, false, true, false]
+                }
+                MPTProofType::AccountDoesNotExist => unreachable!(),
+                MPTProofType::AccountDestructed => unimplemented!(),
             };
             let next_offset = offset + directions.len();
 
@@ -486,7 +493,7 @@ impl MptUpdateConfig {
                     self.is_zero_values[3].assign(region, offset, old_hash);
                     self.is_zero_gadgets[3].assign(region, offset, old_hash);
                 }
-
+                dbg!(offset + i, segment_type);
                 self.segment_type.assign(region, offset + i, segment_type);
                 self.path_type.assign(region, offset + i, leaf_path_type);
                 self.sibling.assign(region, offset + i, sibling);
@@ -504,7 +511,7 @@ impl MptUpdateConfig {
                         other_leaf_data_hash_column.assign(region, offset, other_leaf_data_hash);
                     }
                     SegmentType::AccountLeaf3 => {
-                        if let ClaimKind::Storage { key, .. } = proof.claim.kind {
+                        if let ClaimKind::Storage { key, .. } | ClaimKind::IsEmpty(Some(key)) = proof.claim.kind {
                             self.key.assign(region, offset + 3, proof.storage.key());
                             let [storage_key_high, storage_key_low, ..] = self.intermediate_values;
                             let [rlc_storage_key_high, rlc_storage_key_low, ..] =
@@ -629,6 +636,7 @@ impl MptUpdateConfig {
                     self.key.assign(region, offset + i, *key);
                     self.other_key.assign(region, offset + i, other_key);
                 }
+                dbg!(n_rows);
                 n_rows
             }
         }
@@ -647,7 +655,10 @@ impl MptUpdateConfig {
             (StorageLeaf::Entry { .. }, StorageLeaf::Entry { .. }) => PathType::Common,
             (StorageLeaf::Entry { .. }, _) => PathType::ExtensionOld,
             (_, StorageLeaf::Entry { .. }) => PathType::ExtensionNew,
-            _ => return 0, // no need to assign any rows for empty storage
+            _ => {
+                dbg!("yes!!!!");
+                return 0;
+            } // no need to assign any rows for empty storage
         };
         self.path_type.assign(region, offset, path_type);
         self.segment_type
@@ -790,6 +801,9 @@ fn configure_segment_transitions<F: FieldExt>(
                 );
             } else {
                 cb.assert_unreachable("unreachable segment for proof");
+                if let MPTProofType::StorageDoesNotExist = proof {
+                    dbg!(variant);
+                }
             }
         };
         cb.condition(segment.current_matches(&[variant]), conditional_constraints);
@@ -1560,6 +1574,108 @@ fn configure_storage<F: FieldExt>(
     }
 }
 
+// fn configure_empty_storage<F: FieldExt>(
+//     cb: &mut ConstraintBuilder<F>,
+//     config: &MptUpdateConfig,
+//     poseidon: &impl PoseidonLookup,
+// ) {
+//     for variant in SegmentType::iter() {
+//         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
+//             SegmentType::AccountLeaf0 => {
+//                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
+//             }
+//             SegmentType::AccountLeaf1 => {
+//                 cb.assert_zero("direction is 0", config.direction.current());
+//             }
+//             SegmentType::AccountLeaf2 => {
+//                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
+//             }
+//             SegmentType::AccountLeaf3 => {
+//                 cb.assert_zero("direction is 0", config.direction.current());
+//                 let [key_high, key_low, ..] = config.intermediate_values;
+//                 let [rlc_key_high, rlc_key_low, ..] = config.second_phase_intermediate_values;
+//                 configure_word_rlc(
+//                     cb,
+//                     [config.key, key_high, key_low],
+//                     [config.storage_key_rlc, rlc_key_high, rlc_key_low],
+//                     poseidon,
+//                     bytes,
+//                     rlc,
+//                     randomness.clone(),
+//                 );
+//             }
+//             SegmentType::StorageLeaf0 => {
+//                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
+
+//                 let [old_high, old_low, new_high, new_low, ..] = config.intermediate_values;
+//                 let [rlc_old_high, rlc_old_low, rlc_new_high, rlc_new_low, ..] =
+//                     config.second_phase_intermediate_values;
+
+//                 cb.condition(
+//                     config
+//                         .path_type
+//                         .current_matches(&[PathType::Common, PathType::ExtensionOld]),
+//                     |cb| {
+//                         configure_word_rlc(
+//                             cb,
+//                             [config.old_hash, old_high, old_low],
+//                             [config.old_value, rlc_old_high, rlc_old_low],
+//                             poseidon,
+//                             bytes,
+//                             rlc,
+//                             randomness.clone(),
+//                         );
+//                     },
+//                 );
+//                 cb.condition(
+//                     config
+//                         .path_type
+//                         .current_matches(&[PathType::Common, PathType::ExtensionNew]),
+//                     |cb| {
+//                         configure_word_rlc(
+//                             cb,
+//                             [config.new_hash, new_high, new_low],
+//                             [config.new_value, rlc_new_high, rlc_new_low],
+//                             poseidon,
+//                             bytes,
+//                             rlc,
+//                             randomness.clone(),
+//                         );
+//                     },
+//                 );
+
+//                 let [old_hash_minus_zero_storage_hash, new_hash_minus_zero_storage_hash, ..] =
+//                     config.is_zero_values;
+//                 let [old_hash_is_zero_storage_hash, new_hash_is_zero_storage_hash, ..] =
+//                     config.is_zero_gadgets;
+//                 cb.assert_equal(
+//                     "old_hash_minus_zero_storage_hash = old_hash - hash(0, 0)",
+//                     old_hash_minus_zero_storage_hash.current(),
+//                     config.old_hash.current() - *ZERO_STORAGE_HASH,
+//                 );
+//                 cb.assert_equal(
+//                     "new_hash_minus_zero_storage_hash = new_hash - hash(0, 0)",
+//                     new_hash_minus_zero_storage_hash.current(),
+//                     config.new_hash.current() - *ZERO_STORAGE_HASH,
+//                 );
+//                 cb.assert(
+//                     "old hash != hash(0, 0)",
+//                     !old_hash_is_zero_storage_hash.current(),
+//                 );
+//                 cb.assert(
+//                     "new hash != hash(0, 0)",
+//                     !new_hash_is_zero_storage_hash.current(),
+//                 );
+//             }
+//             _ => {}
+//         };
+//         cb.condition(
+//             config.segment_type.current_matches(&[variant]),
+//             conditional_constraints,
+//         );
+//     }
+// }
+
 fn configure_empty_account<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
@@ -2173,6 +2289,38 @@ mod test {
         mock_prove(
             MPTProofType::StorageChanged,
             include_str!("../../tests/generated/storage/write_zero_storage_trie.json"),
+        );
+    }
+
+    #[test]
+    fn empty_storage_proof_empty_trie() {
+        mock_prove(
+            MPTProofType::StorageDoesNotExist,
+            include_str!("../../tests/generated/storage/empty_storage_proof_empty_trie.json"),
+        );
+    }
+
+    #[test]
+    fn empty_storage_proof_singleton_trie() {
+        mock_prove(
+            MPTProofType::StorageDoesNotExist,
+            include_str!("../../tests/generated/storage/empty_storage_proof_singleton_trie.json"),
+        );
+    }
+
+    #[test]
+    fn empty_storage_proof_type_1() {
+        mock_prove(
+            MPTProofType::StorageDoesNotExist,
+            include_str!("../../tests/generated/storage/empty_storage_proof_type_1.json"),
+        );
+    }
+
+    #[test]
+    fn empty_storage_proof_type_2() {
+        mock_prove(
+            MPTProofType::StorageDoesNotExist,
+            include_str!("../../tests/generated/storage/empty_storage_proof_type_2.json"),
         );
     }
 
