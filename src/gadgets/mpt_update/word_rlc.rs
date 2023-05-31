@@ -39,13 +39,13 @@ pub fn configure<F: FieldExt>(
     );
 
     cb.add_lookup(
-        "rlc_high = rlc(high)",
-        [high.current(), rlc_high.current()],
+        "rlc_high = rlc(high) and high is 16 bytes",
+        [high.current(), Query::from(15), rlc_high.current()],
         rlc.lookup(),
     );
     cb.add_lookup(
-        "rlc_low = rlc(low)",
-        [low.current(), rlc_low.current()],
+        "rlc_low = rlc(low) and low is 16 bytes",
+        [low.current(), Query::from(15), rlc_low.current()],
         rlc.lookup(),
     );
     let randomness_raised_to_16 = randomness.clone().square().square().square().square();

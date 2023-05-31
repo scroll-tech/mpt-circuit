@@ -9,7 +9,7 @@ use halo2_proofs::{
 };
 
 pub trait RlcLookup {
-    fn lookup<F: FieldExt>(&self) -> [Query<F>; 2];
+    fn lookup<F: FieldExt>(&self) -> [Query<F>; 3];
 }
 
 pub trait BytesLookup {
@@ -31,9 +31,14 @@ pub struct ByteRepresentationConfig {
     index_is_zero: IsZeroGadget,
 }
 
+// WARNING: it is a soundness issue if the index lookup is >= 31 (i.e. the value has 32 or more bytes).
 impl RlcLookup for ByteRepresentationConfig {
-    fn lookup<F: FieldExt>(&self) -> [Query<F>; 2] {
-        [self.value.current(), self.rlc.current()]
+    fn lookup<F: FieldExt>(&self) -> [Query<F>; 3] {
+        [
+            self.value.current(),
+            self.index.current(),
+            self.rlc.current(),
+        ]
     }
 }
 
