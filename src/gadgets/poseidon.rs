@@ -6,44 +6,7 @@ use halo2_proofs::{
     halo2curves::bn256::Fr,
     plonk::ConstraintSystem,
 };
-
-/// PoseidonTable represent the poseidon table in zkevm circuit
-pub trait PoseidonLookup {
-    fn lookup(&self) -> (FixedColumn, [AdviceColumn; 5]);
-}
-
-impl<F: FieldExt> ConstraintBuilder<F> {
-    pub fn poseidon_lookup(
-        &mut self,
-        name: &'static str,
-        queries: [Query<F>; 3],
-        poseidon: &impl PoseidonLookup,
-    ) {
-        let extended_queries = [
-            Query::one(),
-            queries[2].clone(),
-            queries[0].clone(),
-            queries[1].clone(),
-            Query::zero(),
-            Query::one(),
-        ];
-
-        let (q_enable, table_cols) = poseidon.lookup();
-
-        self.add_lookup(
-            name,
-            extended_queries,
-            [
-                q_enable.current(),
-                table_cols[0].current(),
-                table_cols[1].current(),
-                table_cols[2].current(),
-                table_cols[3].current(),
-                table_cols[4].current(),
-            ],
-        )
-    }
-}
+use std::iter::once;
 
 #[derive(Clone, Copy)]
 pub struct PoseidonTable {
@@ -82,7 +45,15 @@ impl PoseidonTable {
             self.size
         );
 
-        for (offset, hash_trace) in hash_traces.iter().enumerate() {
+        for (offset, hash_trace) in hash_traces
+            .iter()
+            .chain(&[(
+                Fr::one(),
+                Fr::one(),
+                poseidon_hash(1.into(), 1.into()),
+            )])
+            .enumerate()
+        {
             assert!(
                 hash_trace.0.is_zero_vartime()
                     && hash_trace.1.is_zero_vartime()
@@ -107,25 +78,49 @@ impl PoseidonTable {
             self.q_enable.assign(region, offset, Fr::one());
         }
 
-        // add an total zero row for unactived lookup
-        let (_, cols) = self.lookup();
-        for col in cols {
+        // add an total zero row for disabled lookup
+        for col in [
+            self.hash,
+            self.left,
+            self.right,
+            self.control,
+            self.head_mark,
+        ] {
             col.assign(region, self.size, Fr::zero());
         }
     }
-}
 
-impl PoseidonLookup for PoseidonTable {
-    fn lookup(&self) -> (FixedColumn, [AdviceColumn; 5]) {
-        (
-            self.q_enable,
+    pub fn lookup<F: FieldExt>(
+        &self,
+        cb: &mut ConstraintBuilder<F>,
+        name: &'static str,
+        left: Query<F>,
+        right: Query<F>,
+        hash: Query<F>,
+    ) {
+        cb.add_lookup_with_default(
+            name,
+            [Query::one(), hash, left, right, Query::zero(), Query::one()],
             [
-                self.hash,
-                self.left,
-                self.right,
-                self.control,
-                self.head_mark,
+                self.q_enable.current(),
+                self.hash.current(),
+                self.left.current(),
+                self.right.current(),
+                self.control.current(),
+                self.head_mark.current(),
             ],
+            Self::default_lookup(),
         )
+    }
+
+    fn default_lookup<F: FieldExt>() -> [Query<F>; 6] {
+        [
+            Query::one(),
+            Query::from(poseidon_hash(1.into(), 1.into())),
+            Query::one(),
+            Query::one(),
+            Query::zero(),
+            Query::one(),
+        ]
     }
 }
