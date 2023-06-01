@@ -296,7 +296,18 @@ impl MptUpdateConfig {
         config
     }
 
-    fn assign(&self, region: &mut Region<'_, Fr>, proofs: &[Proof], randomness: Value<Fr>) {
+    fn assign_padding_row(&self, region: &mut Region<'_, Fr>, offset: usize) {
+        self.proof_type
+            .assign(region, offset, MPTProofType::AccountDoesNotExist);
+    }
+
+    fn assign(
+        &self,
+        region: &mut Region<'_, Fr>,
+        proofs: &[Proof],
+        randomness: Value<Fr>,
+    ) -> usize {
+        let mut n_rows = 0;
         let mut offset = 0;
         for proof in proofs {
             let proof_type = MPTProofType::from(proof.claim);
@@ -438,6 +449,9 @@ impl MptUpdateConfig {
 
                 self.intermediate_values[0].assign(region, offset, other_key_hash);
                 self.intermediate_values[1].assign(region, offset, other_leaf_data_hash);
+
+                n_rows += proof.n_rows();
+                offset = n_rows;
                 continue; // we don't need to assign any leaf rows for empty accounts
             }
 
@@ -566,7 +580,10 @@ impl MptUpdateConfig {
                 _ => (),
             }
             self.assign_storage(region, next_offset, &proof.storage, randomness);
+            n_rows += proof.n_rows();
+            offset = n_rows;
         }
+        n_rows
     }
 
     fn assign_storage_trie_rows(
@@ -858,7 +875,7 @@ fn configure_segment_transitions<F: FieldExt>(
 ) {
     let transitions = segment::transitions(proof);
     for variant in SegmentType::iter() {
-        let conditional_constraints = |cb: &mut ConstraintBuilder<F>| {
+        cb.condition(segment.current_matches(&[variant]), |cb| {
             if let Some(next_segments) = transitions.get(&variant) {
                 cb.assert(
                     "transition for current segment -> next segment",
@@ -867,8 +884,7 @@ fn configure_segment_transitions<F: FieldExt>(
             } else {
                 cb.assert_unreachable("unreachable segment for proof");
             }
-        };
-        cb.condition(segment.current_matches(&[variant]), conditional_constraints);
+        });
     }
 }
 
@@ -1842,6 +1858,37 @@ mod test {
         plonk::{Circuit, Error},
     };
 
+    lazy_static! {
+        static ref EMPTY_STORAGE_PROOF_TYPE_2: (MPTProofType, SMTTrace) = (
+            MPTProofType::StorageDoesNotExist,
+            serde_json::from_str(include_str!(
+                "../../tests/generated/storage/empty_storage_proof_type_2.json"
+            ))
+            .unwrap(),
+        );
+        static ref NONCE_WRITE_TYPE_2_EMPTY_ACCOUNT: (MPTProofType, SMTTrace) = (
+            MPTProofType::NonceChanged,
+            serde_json::from_str(include_str!(
+                "../../tests/dual_code_hash/nonce_write_type_2_empty_account.json"
+            ))
+            .unwrap(),
+        );
+        static ref EMPTY_ACCOUNT_PROOF_TYPE_2: (MPTProofType, SMTTrace) = (
+            MPTProofType::AccountDoesNotExist,
+            serde_json::from_str(include_str!(
+                "../../tests/dual_code_hash/type_2_empty_account.json"
+            ))
+            .unwrap(),
+        );
+        static ref EMPTY_STORAGE_PROOF_SINGLETON_TRIE: (MPTProofType, SMTTrace) = (
+            MPTProofType::StorageDoesNotExist,
+            serde_json::from_str(include_str!(
+                "../../tests/generated/storage/empty_storage_proof_singleton_trie.json"
+            ))
+            .unwrap(),
+        );
+    }
+
     #[derive(Clone, Debug)]
     struct TestCircuit {
         proofs: Vec<Proof>,
@@ -2152,7 +2199,10 @@ mod test {
                     for offset in 0..1024 {
                         selector.enable(&mut region, offset);
                     }
-                    mpt_update.assign(&mut region, &self.proofs, randomness);
+                    let n_mpt_rows = mpt_update.assign(&mut region, &self.proofs, randomness);
+                    for offset in n_mpt_rows..1024 {
+                        mpt_update.assign_padding_row(&mut region, offset);
+                    }
                     poseidon.dev_load(&mut region, &self.hash_traces());
                     canonical_representation.assign(&mut region, &self.keys());
                     key_bit.assign(&mut region, &self.key_bit_lookups());
@@ -2388,5 +2438,19 @@ mod test {
                 account_key(address)
             );
         }
+    }
+
+    #[test]
+    fn prove_updates() {
+        let updates = vec![
+            EMPTY_STORAGE_PROOF_TYPE_2.clone(),
+            EMPTY_STORAGE_PROOF_SINGLETON_TRIE.clone(),
+            EMPTY_ACCOUNT_PROOF_TYPE_2.clone(),
+            NONCE_WRITE_TYPE_2_EMPTY_ACCOUNT.clone(),
+        ];
+
+        let circuit = TestCircuit::new(updates);
+        let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
+        assert_eq!(prover.verify(), Ok(()));
     }
 }
