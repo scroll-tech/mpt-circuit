@@ -168,7 +168,7 @@ impl Proof {
                 ClaimKind::PoseidonCodeHash { .. } => 2,
                 ClaimKind::CodeHash { .. } => 4,
                 ClaimKind::Storage { .. } | ClaimKind::IsEmpty(Some(_)) => 4,
-                ClaimKind::IsEmpty(None) => 1,
+                ClaimKind::IsEmpty(None) => 0,
             }
             + self.storage.n_rows()
     }
