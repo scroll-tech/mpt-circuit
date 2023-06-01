@@ -6,7 +6,7 @@ use halo2_proofs::{
 };
 
 #[derive(Clone, Copy, Debug)]
-pub struct RlcRandomness(Challenge);
+pub struct RlcRandomness(pub Challenge);
 
 impl RlcRandomness {
     pub fn configure<F: FieldExt>(cs: &mut ConstraintSystem<F>) -> Self {

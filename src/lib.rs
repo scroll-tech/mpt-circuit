@@ -2,10 +2,10 @@
 #![allow(clippy::too_many_arguments)]
 #![deny(unsafe_code)]
 
-mod constraint_builder;
-mod gadgets;
+pub mod constraint_builder;
+pub mod gadgets;
 mod mpt_table;
-mod types;
+pub mod types;
 mod util;
 // mod mpt_circuit;
 

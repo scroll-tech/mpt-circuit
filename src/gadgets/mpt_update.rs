@@ -20,12 +20,12 @@ use crate::{
         trie::TrieRows,
         ClaimKind, Proof,
     },
-    util::{account_key, hash, rlc, u256_to_big_endian},
+    util::{account_key, hash, rlc, u256_to_big_endian, u256_hi_lo},
     MPTProofType,
 };
 use ethers_core::{k256::elliptic_curve::PrimeField, types::Address};
 use halo2_proofs::{
-    arithmetic::{Field, FieldExt},
+    arithmetic::{FieldExt, Field},
     circuit::{Region, Value},
     halo2curves::bn256::Fr,
     plonk::ConstraintSystem,
@@ -296,7 +296,8 @@ impl MptUpdateConfig {
         config
     }
 
-    fn assign(&self, region: &mut Region<'_, Fr>, proofs: &[Proof], randomness: Value<Fr>) {
+    /// ..
+    pub fn assign(&self, region: &mut Region<'_, Fr>, proofs: &[Proof], randomness: Value<Fr>) {
         let mut offset = 0;
         for proof in proofs {
             let proof_type = MPTProofType::from(proof.claim);
@@ -1825,6 +1826,225 @@ fn address_low(a: Address) -> u128 {
     u128::from(u32::from_be_bytes(low_bytes)) << 96
 }
 
+// ...
+pub fn hash_traces(proofs: &[Proof]) -> Vec<(Fr, Fr, Fr)> {
+    //use hash_circuit::Hashable;
+    let mut hash_traces = vec![(Fr::zero(), Fr::zero(), Fr::zero())];
+    for proof in proofs.iter() {
+        let address_hash_traces = &proof.address_hash_traces;
+        for (direction, old_hash, new_hash, sibling, is_padding_open, is_padding_close) in
+            address_hash_traces.iter().rev()
+        {
+            if !*is_padding_open {
+                let (left, right) = if *direction {
+                    (sibling, old_hash)
+                } else {
+                    (old_hash, sibling)
+                };
+                hash_traces.push((*left, *right, hash(*left, *right)));
+            }
+            if !*is_padding_close {
+                let (left, right) = if *direction {
+                    (sibling, new_hash)
+                } else {
+                    (new_hash, sibling)
+                };
+                hash_traces.push((*left, *right, hash(*left, *right)));
+            }
+        }
+        assert_eq!(
+            proof.storage.old_root(),
+            proof.old_account_hash_traces[1][0]
+        );
+        assert_eq!(
+            proof.storage.new_root(),
+            proof.new_account_hash_traces[1][0]
+        );
+        let (storage_key_high, storage_key_low) = u256_hi_lo(&proof.claim.storage_key());
+        hash_traces.push((
+            Fr::from_u128(storage_key_high),
+            Fr::from_u128(storage_key_low),
+            hash(
+                Fr::from_u128(storage_key_high),
+                Fr::from_u128(storage_key_low),
+            ),
+        ));
+        hash_traces.extend(proof.storage.poseidon_lookups());
+
+        let key = account_key(proof.claim.address);
+        hash_traces.push((
+            Fr::from_u128(address_high(proof.claim.address)),
+            Fr::from_u128(address_low(proof.claim.address)),
+            key,
+        ));
+
+        let other_key = if key != proof.old.key {
+            proof.old.key
+        } else {
+            proof.new.key
+        };
+        if key != other_key {
+            hash_traces.push((Fr::one(), other_key, hash(Fr::one(), other_key)));
+        }
+
+        if let Some(data_hash) = proof.old.leaf_data_hash {
+            hash_traces.push((
+                proof.old.key_hash,
+                data_hash,
+                hash(proof.old.key_hash, data_hash),
+            ));
+        }
+        if let Some(data_hash) = proof.new.leaf_data_hash {
+            hash_traces.push((
+                proof.new.key_hash,
+                data_hash,
+                hash(proof.new.key_hash, data_hash),
+            ));
+        }
+
+        hash_traces.extend(
+            proof
+                .old_account_hash_traces
+                .iter()
+                .map(|x| (x[0], x[1], x[2])),
+        );
+        hash_traces.extend(
+            proof
+                .new_account_hash_traces
+                .iter()
+                .map(|x| (x[0], x[1], x[2])),
+        );
+    }
+    hash_traces
+}
+
+
+/// ...
+pub fn key_bit_lookups(proofs: &[Proof]) -> Vec<(Fr, usize, bool)> {
+    let mut lookups = vec![(Fr::zero(), 0, false), (Fr::one(), 0, true)];
+    for proof in proofs.iter() {
+        for (i, (direction, _, _, _, is_padding_open, is_padding_close)) in
+            proof.address_hash_traces.iter().rev().enumerate()
+        {
+            match (is_padding_open, is_padding_close) {
+                (false, false) => {
+                    let mut lookup_keys = vec![proof.old.key, proof.new.key];
+                    let key = account_key(proof.claim.address);
+                    if !lookup_keys.contains(&key) {
+                        lookup_keys.push(key);
+                    }
+                    lookup_keys
+                        .into_iter()
+                        .for_each(|k| lookups.push((k, i, *direction)));
+                }
+                (false, true) => {
+                    lookups.push((proof.old.key, i, *direction));
+                }
+                (true, false) => {
+                    lookups.push((proof.new.key, i, *direction));
+                }
+                (true, true) => unreachable!(),
+            };
+        }
+        lookups.extend(proof.storage.key_bit_lookups());
+    }
+    lookups
+}
+
+/// ...
+pub fn byte_representations(proofs: &[Proof]) -> (Vec<u64>, Vec<u128>, Vec<Fr>) {
+    let mut u64s = vec![];
+    let mut u128s = vec![0];
+    let mut frs = vec![];
+
+    for proof in proofs {
+        match MPTProofType::from(proof.claim) {
+            MPTProofType::NonceChanged | MPTProofType::CodeSizeExists => {
+                u128s.push(address_high(proof.claim.address));
+                if let Some(account) = proof.old_account {
+                    u64s.push(account.nonce);
+                    u64s.push(account.code_size);
+                };
+                if let Some(account) = proof.new_account {
+                    u64s.push(account.nonce);
+                    u64s.push(account.code_size);
+                };
+            }
+            MPTProofType::BalanceChanged => {
+                u128s.push(address_high(proof.claim.address));
+                if let Some(account) = proof.old_account {
+                    frs.push(account.balance);
+                };
+                if let Some(account) = proof.new_account {
+                    frs.push(account.balance);
+                };
+            }
+            MPTProofType::PoseidonCodeHashExists => {
+                u128s.push(address_high(proof.claim.address));
+            }
+            MPTProofType::CodeHashExists => {
+                u128s.push(address_high(proof.claim.address));
+                if let Some(account) = proof.old_account {
+                    let (hi, lo) = u256_hi_lo(&account.keccak_codehash);
+                    u128s.push(hi);
+                    u128s.push(lo);
+                };
+                if let Some(account) = proof.new_account {
+                    let (hi, lo) = u256_hi_lo(&account.keccak_codehash);
+                    u128s.push(hi);
+                    u128s.push(lo);
+                };
+            }
+            MPTProofType::StorageChanged => {
+                u128s.push(address_high(proof.claim.address));
+                let (storage_key_high, storage_key_low) =
+                    u256_hi_lo(&proof.claim.storage_key());
+                u128s.push(storage_key_high);
+                u128s.push(storage_key_low);
+
+                match &proof.storage {
+                    StorageProof::Root(_) => unreachable!(),
+                    StorageProof::Update {
+                        old_leaf, new_leaf, ..
+                    } => {
+                        let (old_value_high, old_value_low) = u256_hi_lo(&old_leaf.value());
+                        let (new_value_high, new_value_low) = u256_hi_lo(&new_leaf.value());
+                        u128s.extend(vec![
+                            old_value_high,
+                            old_value_low,
+                            new_value_high,
+                            new_value_low,
+                        ]);
+                    }
+                }
+            }
+            MPTProofType::StorageDoesNotExist => {
+                u128s.push(address_high(proof.claim.address));
+                let (storage_key_high, storage_key_low) =
+                    u256_hi_lo(&proof.claim.storage_key());
+                dbg!(storage_key_high, storage_key_low);
+                u128s.push(storage_key_high);
+                u128s.push(storage_key_low);
+            }
+            _ => {}
+        }
+    }
+    (u64s, u128s, frs)
+}
+
+
+/// ..
+pub fn mpt_update_keys(proofs: &[Proof]) -> Vec<Fr> {
+    let mut keys = vec![Fr::zero(), Fr::one()];
+    for proof in proofs.iter() {
+        keys.push(proof.old.key);
+        keys.push(proof.new.key);
+        keys.push(account_key(proof.claim.address));
+        keys.extend(proof.storage.key_lookups());
+    }
+    keys
+}
+
 #[cfg(test)]
 mod test {
     use super::super::{
@@ -1855,216 +2075,18 @@ mod test {
         }
 
         fn hash_traces(&self) -> Vec<(Fr, Fr, Fr)> {
-            let mut hash_traces = vec![(Fr::zero(), Fr::zero(), Fr::zero())];
-            for proof in self.proofs.iter() {
-                let address_hash_traces = &proof.address_hash_traces;
-                for (direction, old_hash, new_hash, sibling, is_padding_open, is_padding_close) in
-                    address_hash_traces.iter().rev()
-                {
-                    if !*is_padding_open {
-                        let (left, right) = if *direction {
-                            (sibling, old_hash)
-                        } else {
-                            (old_hash, sibling)
-                        };
-                        hash_traces.push((*left, *right, hash(*left, *right)));
-                    }
-                    if !*is_padding_close {
-                        let (left, right) = if *direction {
-                            (sibling, new_hash)
-                        } else {
-                            (new_hash, sibling)
-                        };
-                        hash_traces.push((*left, *right, hash(*left, *right)));
-                    }
-                }
-                assert_eq!(
-                    proof.storage.old_root(),
-                    proof.old_account_hash_traces[1][0]
-                );
-                assert_eq!(
-                    proof.storage.new_root(),
-                    proof.new_account_hash_traces[1][0]
-                );
-                let (storage_key_high, storage_key_low) = u256_hi_lo(&proof.claim.storage_key());
-                hash_traces.push((
-                    Fr::from_u128(storage_key_high),
-                    Fr::from_u128(storage_key_low),
-                    hash(
-                        Fr::from_u128(storage_key_high),
-                        Fr::from_u128(storage_key_low),
-                    ),
-                ));
-                hash_traces.extend(proof.storage.poseidon_lookups());
-
-                let key = account_key(proof.claim.address);
-                hash_traces.push((
-                    Fr::from_u128(address_high(proof.claim.address)),
-                    Fr::from_u128(address_low(proof.claim.address)),
-                    key,
-                ));
-
-                let other_key = if key != proof.old.key {
-                    proof.old.key
-                } else {
-                    proof.new.key
-                };
-                if key != other_key {
-                    hash_traces.push((Fr::one(), other_key, hash(Fr::one(), other_key)));
-                }
-
-                if let Some(data_hash) = proof.old.leaf_data_hash {
-                    hash_traces.push((
-                        proof.old.key_hash,
-                        data_hash,
-                        hash(proof.old.key_hash, data_hash),
-                    ));
-                }
-                if let Some(data_hash) = proof.new.leaf_data_hash {
-                    hash_traces.push((
-                        proof.new.key_hash,
-                        data_hash,
-                        hash(proof.new.key_hash, data_hash),
-                    ));
-                }
-
-                hash_traces.extend(
-                    proof
-                        .old_account_hash_traces
-                        .iter()
-                        .map(|x| (x[0], x[1], x[2])),
-                );
-                hash_traces.extend(
-                    proof
-                        .new_account_hash_traces
-                        .iter()
-                        .map(|x| (x[0], x[1], x[2])),
-                );
-            }
-            hash_traces
+            hash_traces(&self.proofs)
         }
-
-        fn keys(&self) -> Vec<Fr> {
-            let mut keys = vec![Fr::zero(), Fr::one()];
-            for proof in self.proofs.iter() {
-                keys.push(proof.old.key);
-                keys.push(proof.new.key);
-                keys.push(account_key(proof.claim.address));
-                keys.extend(proof.storage.key_lookups());
-            }
-            keys
-        }
-
-        fn key_bit_lookups(&self) -> Vec<(Fr, usize, bool)> {
-            let mut lookups = vec![(Fr::zero(), 0, false), (Fr::one(), 0, true)];
-            for proof in self.proofs.iter() {
-                for (i, (direction, _, _, _, is_padding_open, is_padding_close)) in
-                    proof.address_hash_traces.iter().rev().enumerate()
-                {
-                    match (is_padding_open, is_padding_close) {
-                        (false, false) => {
-                            let mut lookup_keys = vec![proof.old.key, proof.new.key];
-                            let key = account_key(proof.claim.address);
-                            if !lookup_keys.contains(&key) {
-                                lookup_keys.push(key);
-                            }
-                            lookup_keys
-                                .into_iter()
-                                .for_each(|k| lookups.push((k, i, *direction)));
-                        }
-                        (false, true) => {
-                            lookups.push((proof.old.key, i, *direction));
-                        }
-                        (true, false) => {
-                            lookups.push((proof.new.key, i, *direction));
-                        }
-                        (true, true) => unreachable!(),
-                    };
-                }
-                lookups.extend(proof.storage.key_bit_lookups());
-            }
-            lookups
-        }
-
         fn byte_representations(&self) -> (Vec<u64>, Vec<u128>, Vec<Fr>) {
-            let mut u64s = vec![];
-            let mut u128s = vec![0];
-            let mut frs = vec![];
-
-            for proof in &self.proofs {
-                match MPTProofType::from(proof.claim) {
-                    MPTProofType::NonceChanged | MPTProofType::CodeSizeExists => {
-                        u128s.push(address_high(proof.claim.address));
-                        if let Some(account) = proof.old_account {
-                            u64s.push(account.nonce);
-                            u64s.push(account.code_size);
-                        };
-                        if let Some(account) = proof.new_account {
-                            u64s.push(account.nonce);
-                            u64s.push(account.code_size);
-                        };
-                    }
-                    MPTProofType::BalanceChanged => {
-                        u128s.push(address_high(proof.claim.address));
-                        if let Some(account) = proof.old_account {
-                            frs.push(account.balance);
-                        };
-                        if let Some(account) = proof.new_account {
-                            frs.push(account.balance);
-                        };
-                    }
-                    MPTProofType::PoseidonCodeHashExists => {
-                        u128s.push(address_high(proof.claim.address));
-                    }
-                    MPTProofType::CodeHashExists => {
-                        u128s.push(address_high(proof.claim.address));
-                        if let Some(account) = proof.old_account {
-                            let (hi, lo) = u256_hi_lo(&account.keccak_codehash);
-                            u128s.push(hi);
-                            u128s.push(lo);
-                        };
-                        if let Some(account) = proof.new_account {
-                            let (hi, lo) = u256_hi_lo(&account.keccak_codehash);
-                            u128s.push(hi);
-                            u128s.push(lo);
-                        };
-                    }
-                    MPTProofType::StorageChanged => {
-                        u128s.push(address_high(proof.claim.address));
-                        let (storage_key_high, storage_key_low) =
-                            u256_hi_lo(&proof.claim.storage_key());
-                        u128s.push(storage_key_high);
-                        u128s.push(storage_key_low);
-
-                        match &proof.storage {
-                            StorageProof::Root(_) => unreachable!(),
-                            StorageProof::Update {
-                                old_leaf, new_leaf, ..
-                            } => {
-                                let (old_value_high, old_value_low) = u256_hi_lo(&old_leaf.value());
-                                let (new_value_high, new_value_low) = u256_hi_lo(&new_leaf.value());
-                                u128s.extend(vec![
-                                    old_value_high,
-                                    old_value_low,
-                                    new_value_high,
-                                    new_value_low,
-                                ]);
-                            }
-                        }
-                    }
-                    MPTProofType::StorageDoesNotExist => {
-                        u128s.push(address_high(proof.claim.address));
-                        let (storage_key_high, storage_key_low) =
-                            u256_hi_lo(&proof.claim.storage_key());
-                        dbg!(storage_key_high, storage_key_low);
-                        u128s.push(storage_key_high);
-                        u128s.push(storage_key_low);
-                    }
-                    _ => {}
-                }
-            }
-            (u64s, u128s, frs)
+            byte_representations(&self.proofs)
         }
+        fn key_bit_lookups(&self) -> Vec<(Fr, usize, bool)>  {
+            key_bit_lookups(&self.proofs)
+        }
+        fn keys(&self) -> Vec<Fr> {
+            mpt_update_keys(&self.proofs)
+        }
+
     }
 
     impl Circuit<Fr> for TestCircuit {
