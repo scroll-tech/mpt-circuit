@@ -671,7 +671,7 @@ impl MptUpdateConfig {
         old: &StorageLeaf,
         new: &StorageLeaf,
     ) -> usize {
-        let [key_high, key_low, other_key_hash, other_leaf_data_hash, ..] =
+        let [_key_high, _key_low, other_key_hash, other_leaf_data_hash, ..] =
             self.intermediate_values;
         let [.., key_minus_other_key, hash] = self.is_zero_values;
         let [.., key_equals_other_key, hash_is_zero] = self.is_zero_gadgets;
@@ -1850,7 +1850,6 @@ mod test {
     };
     use super::*;
     use crate::{constraint_builder::SelectorColumn, serde::SMTTrace, util::u256_hi_lo};
-    use ethers_core::types::U256;
     use halo2_proofs::{
         circuit::{Layouter, SimpleFloorPlanner},
         dev::MockProver,
