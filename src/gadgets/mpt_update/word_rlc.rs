@@ -2,7 +2,7 @@ use crate::{
     constraint_builder::{AdviceColumn, ConstraintBuilder, Query, SecondPhaseAdviceColumn},
     gadgets::{
         byte_representation::{BytesLookup, RlcLookup},
-        poseidon::PoseidonLookup,
+        poseidon::PoseidonTable,
     },
     util::{rlc, u256_hi_lo},
 };
@@ -17,7 +17,7 @@ pub fn configure<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     [word_hash, high, low]: [AdviceColumn; 3],
     [rlc_word, rlc_high, rlc_low]: [SecondPhaseAdviceColumn; 3],
-    poseidon: &impl PoseidonLookup,
+    poseidon: &PoseidonTable,
     bytes: &impl BytesLookup,
     rlc: &impl RlcLookup,
     randomness: Query<F>,
@@ -32,10 +32,12 @@ pub fn configure<F: FieldExt>(
         [low.current(), Query::from(15)],
         bytes.lookup(),
     );
-    cb.poseidon_lookup(
+    poseidon.lookup(
+        cb,
         "word_hash = poseidon(high, low)",
-        [high.current(), low.current(), word_hash.current()],
-        poseidon,
+        high.current(),
+        low.current(),
+        word_hash.current(),
     );
 
     cb.add_lookup(

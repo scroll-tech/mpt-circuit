@@ -10,7 +10,7 @@ use super::{
     is_zero::IsZeroGadget,
     key_bit::KeyBitLookup,
     one_hot::OneHot,
-    poseidon::PoseidonLookup,
+    poseidon::PoseidonTable,
     rlc_randomness::RlcRandomness,
 };
 use crate::{
@@ -93,7 +93,7 @@ impl MptUpdateConfig {
     pub fn configure<F: FieldExt>(
         cs: &mut ConstraintSystem<F>,
         cb: &mut ConstraintBuilder<F>,
-        poseidon: &impl PoseidonLookup,
+        poseidon: &PoseidonTable,
         key_bit: &impl KeyBitLookup,
         rlc: &impl RlcLookup,
         bytes: &impl BytesLookup,
@@ -124,10 +124,12 @@ impl MptUpdateConfig {
                 * (1 << 32)
                 * (1 << 32)
                 * (1 << 32);
-            cb.poseidon_lookup(
+            poseidon.lookup(
+                cb,
                 "account mpt key = h(address_high, address_low)",
-                [address_high.current(), address_low, key.current()],
-                poseidon,
+                address_high.current(),
+                address_low,
+                key.current(),
             );
         });
         cb.condition(!is_start, |cb| {
@@ -202,10 +204,12 @@ impl MptUpdateConfig {
         cb.condition(
             segment_type.current_matches(&[SegmentType::AccountLeaf0, SegmentType::StorageLeaf0]),
             |cb| {
-                cb.poseidon_lookup(
+                poseidon.lookup(
+                    cb,
                     "sibling = h(1, key)",
-                    [Query::one(), key.current(), sibling.current()],
-                    poseidon,
+                    Query::one(),
+                    key.current(),
+                    sibling.current(),
                 );
             },
         );
@@ -891,25 +895,21 @@ fn configure_segment_transitions<F: FieldExt>(
 fn configure_common_path<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
-    poseidon: &impl PoseidonLookup,
+    poseidon: &PoseidonTable,
 ) {
-    cb.poseidon_lookup(
+    poseidon.lookup(
+        cb,
         "poseidon hash correct for old common path",
-        [
-            old_left(config),
-            old_right(config),
-            config.old_hash.previous(),
-        ],
-        poseidon,
+        old_left(config),
+        old_right(config),
+        config.old_hash.previous(),
     );
-    cb.poseidon_lookup(
+    poseidon.lookup(
+        cb,
         "poseidon hash correct for new common path",
-        [
-            new_left(config),
-            new_right(config),
-            config.new_hash.previous(),
-        ],
-        poseidon,
+        new_left(config),
+        new_right(config),
+        config.new_hash.previous(),
     );
 
     cb.condition(
@@ -949,7 +949,7 @@ fn configure_common_path<F: FieldExt>(
 fn configure_extension_old<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
-    poseidon: &impl PoseidonLookup,
+    poseidon: &PoseidonTable,
 ) {
     cb.assert(
         "can only delete existing nodes for storage proofs",
@@ -966,14 +966,12 @@ fn configure_extension_old<F: FieldExt>(
         config.new_hash.current(),
         config.new_hash.previous(),
     );
-    cb.poseidon_lookup(
+    poseidon.lookup(
+        cb,
         "poseidon hash correct for old path",
-        [
-            old_left(config),
-            old_right(config),
-            config.old_hash.previous(),
-        ],
-        poseidon,
+        old_left(config),
+        old_right(config),
+        config.old_hash.previous(),
     );
     cb.assert(
         "common -> extension old switch only allowed in storage trie segments",
@@ -1033,14 +1031,12 @@ fn configure_extension_old<F: FieldExt>(
 
             let [.., other_key_hash, other_leaf_data_hash] = config.intermediate_values;
             cb.condition(new_is_type_1, |cb| {
-                cb.poseidon_lookup(
+                poseidon.lookup(
+                    cb,
                     "previous old_hash = h(other_key_hash, other_leaf_data_hash)",
-                    [
-                        other_key_hash.current(),
-                        other_leaf_data_hash.current(),
-                        config.new_hash.previous(),
-                    ],
-                    poseidon,
+                    other_key_hash.current(),
+                    other_leaf_data_hash.current(),
+                    config.new_hash.previous(),
                 );
             });
         },
@@ -1050,7 +1046,7 @@ fn configure_extension_old<F: FieldExt>(
 fn configure_extension_new<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
-    poseidon: &impl PoseidonLookup,
+    poseidon: &PoseidonTable,
 ) {
     cb.assert(
         "can only add new nodes for nonce, balance and storage proofs",
@@ -1069,14 +1065,12 @@ fn configure_extension_new<F: FieldExt>(
         config.old_hash.current(),
         config.old_hash.previous(),
     );
-    cb.poseidon_lookup(
+    poseidon.lookup(
+        cb,
         "poseidon hash correct for new extension path",
-        [
-            new_left(config),
-            new_right(config),
-            config.new_hash.previous(),
-        ],
-        poseidon,
+        new_left(config),
+        new_right(config),
+        config.new_hash.previous(),
     );
     cb.assert(
         "common -> extension new switch only allowed in trie segments",
@@ -1139,14 +1133,12 @@ fn configure_extension_new<F: FieldExt>(
 
             let [.., other_key_hash, other_leaf_data_hash] = config.intermediate_values;
             cb.condition(old_is_type_1, |cb| {
-                cb.poseidon_lookup(
+                poseidon.lookup(
+                    cb,
                     "previous old_hash = h(other_key_hash, other_leaf_data_hash)",
-                    [
-                        other_key_hash.current(),
-                        other_leaf_data_hash.current(),
-                        config.old_hash.previous(),
-                    ],
-                    poseidon,
+                    other_key_hash.current(),
+                    other_leaf_data_hash.current(),
+                    config.old_hash.previous(),
                 );
             });
         },
@@ -1491,7 +1483,7 @@ fn configure_poseidon_code_hash<F: FieldExt>(
 fn configure_keccak_code_hash<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
-    poseidon: &impl PoseidonLookup,
+    poseidon: &PoseidonTable,
     bytes: &impl BytesLookup,
     rlc: &impl RlcLookup,
     randomness: Query<F>,
@@ -1550,7 +1542,7 @@ fn configure_keccak_code_hash<F: FieldExt>(
 fn configure_storage<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
-    poseidon: &impl PoseidonLookup,
+    poseidon: &PoseidonTable,
     bytes: &impl BytesLookup,
     rlc: &impl RlcLookup,
     randomness: Query<F>,
@@ -1659,7 +1651,7 @@ fn configure_storage<F: FieldExt>(
 fn configure_empty_storage<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
-    poseidon: &impl PoseidonLookup,
+    poseidon: &PoseidonTable,
     bytes: &impl BytesLookup,
     rlc: &impl RlcLookup,
     randomness: Query<F>,
@@ -1699,23 +1691,19 @@ fn configure_empty_storage<F: FieldExt>(
         );
 
         cb.condition(is_type_1, |cb| {
-            cb.poseidon_lookup(
+            poseidon.lookup(
+                cb,
                 "other_key_hash == h(1, other_key)",
-                [
-                    Query::one(),
-                    config.other_key.current(),
-                    other_key_hash.current(),
-                ],
-                poseidon,
+                Query::one(),
+                config.other_key.current(),
+                other_key_hash.current(),
             );
-            cb.poseidon_lookup(
+            poseidon.lookup(
+                cb,
                 "old_hash == new_hash = h(key_hash, other_leaf_data_hash)",
-                [
-                    other_key_hash.current(),
-                    other_leaf_data_hash.current(),
-                    config.old_hash.current(),
-                ],
-                poseidon,
+                other_key_hash.current(),
+                other_leaf_data_hash.current(),
+                config.old_hash.current(),
             );
         });
     });
@@ -1759,7 +1747,7 @@ fn configure_empty_storage<F: FieldExt>(
 fn configure_empty_account<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
-    poseidon: &impl PoseidonLookup,
+    poseidon: &PoseidonTable,
 ) {
     cb.assert(
         "path type is start or common for empty account proof",
@@ -1801,23 +1789,19 @@ fn configure_empty_account<F: FieldExt>(
 
                     cb.condition(is_type_1, |cb| {
                         let [other_key_hash, other_leaf_data_hash, ..] = config.intermediate_values;
-                        cb.poseidon_lookup(
+                        poseidon.lookup(
+                            cb,
                             "other_key_hash == h(1, other_key)",
-                            [
-                                Query::one(),
-                                config.other_key.current(),
-                                other_key_hash.current(),
-                            ],
-                            poseidon,
+                            Query::one(),
+                            config.other_key.current(),
+                            other_key_hash.current(),
                         );
-                        cb.poseidon_lookup(
+                        poseidon.lookup(
+                            cb,
                             "old_hash == new_hash = h(key_hash, other_leaf_data_hash)",
-                            [
-                                other_key_hash.current(),
-                                other_leaf_data_hash.current(),
-                                config.old_hash.current(),
-                            ],
-                            poseidon,
+                            other_key_hash.current(),
+                            other_leaf_data_hash.current(),
+                            config.old_hash.current(),
                         );
                     });
                 });
