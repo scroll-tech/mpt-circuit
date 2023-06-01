@@ -1829,7 +1829,8 @@ fn address_low(a: Address) -> u128 {
 // ...
 pub fn hash_traces(proofs: &[Proof]) -> Vec<(Fr, Fr, Fr)> {
     //use hash_circuit::Hashable;
-    let mut hash_traces = vec![(Fr::zero(), Fr::zero(), Fr::zero())];
+    //let mut hash_traces = vec![(Fr::zero(), Fr::zero(), Fr::zero())];
+    let mut hash_traces = vec![];
     for proof in proofs.iter() {
         let address_hash_traces = &proof.address_hash_traces;
         for (direction, old_hash, new_hash, sibling, is_padding_open, is_padding_close) in
