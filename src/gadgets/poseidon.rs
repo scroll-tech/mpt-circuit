@@ -1,12 +1,11 @@
-use crate::constraint_builder::{AdviceColumn, ConstraintBuilder, FixedColumn, Query};
-use crate::util::hash as poseidon_hash;
-use halo2_proofs::{
-    arithmetic::{Field, FieldExt},
-    circuit::Region,
-    halo2curves::bn256::Fr,
-    plonk::ConstraintSystem,
+use crate::{
+    constraint_builder::{AdviceColumn, ConstraintBuilder, FixedColumn, Query},
+    types::HASH_ZERO_ZERO,
+    util::hash as poseidon_hash,
 };
-use std::iter::once;
+use halo2_proofs::{
+    arithmetic::FieldExt, circuit::Region, halo2curves::bn256::Fr, plonk::ConstraintSystem,
+};
 
 #[derive(Clone, Copy)]
 pub struct PoseidonTable {
@@ -47,18 +46,11 @@ impl PoseidonTable {
 
         for (offset, hash_trace) in hash_traces
             .iter()
-            .chain(&[(
-                Fr::one(),
-                Fr::one(),
-                poseidon_hash(1.into(), 1.into()),
-            )])
+            .chain(&[(Fr::zero(), Fr::zero(), *HASH_ZERO_ZERO)])
             .enumerate()
         {
             assert!(
-                hash_trace.0.is_zero_vartime()
-                    && hash_trace.1.is_zero_vartime()
-                    && hash_trace.2.is_zero_vartime()
-                    || poseidon_hash(hash_trace.0, hash_trace.1) == hash_trace.2,
+                poseidon_hash(hash_trace.0, hash_trace.1) == hash_trace.2,
                 "{:?}",
                 (hash_trace.0, hash_trace.1, hash_trace.2)
             );
@@ -116,9 +108,9 @@ impl PoseidonTable {
     fn default_lookup<F: FieldExt>() -> [Query<F>; 6] {
         [
             Query::one(),
-            Query::from(poseidon_hash(1.into(), 1.into())),
-            Query::one(),
-            Query::one(),
+            Query::from(*HASH_ZERO_ZERO),
+            Query::zero(),
+            Query::zero(),
             Query::zero(),
             Query::one(),
         ]

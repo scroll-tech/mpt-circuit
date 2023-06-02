@@ -15,8 +15,10 @@ use crate::{
 };
 
 mod account;
+mod constants;
 pub mod storage;
 pub mod trie;
+pub use constants::HASH_ZERO_ZERO;
 use storage::StorageProof;
 
 #[derive(Clone, Copy, Debug)]
