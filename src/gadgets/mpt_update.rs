@@ -18,7 +18,7 @@ use crate::{
     types::{
         storage::{StorageLeaf, StorageProof},
         trie::TrieRows,
-        ClaimKind, Proof,
+        ClaimKind, Proof, HASH_ZERO_ZERO,
     },
     util::{account_key, hash, rlc, u256_to_big_endian},
     MPTProofType,
@@ -31,12 +31,7 @@ use halo2_proofs::{
     plonk::ConstraintSystem,
 };
 use itertools::izip;
-use lazy_static::lazy_static;
 use strum::IntoEnumIterator;
-
-lazy_static! {
-    static ref ZERO_STORAGE_HASH: Fr = hash(Fr::zero(), Fr::zero());
-}
 
 pub trait MptUpdateLookup<F: FieldExt> {
     fn lookup(&self) -> [Query<F>; 7];
@@ -303,6 +298,8 @@ impl MptUpdateConfig {
     fn assign_padding_row(&self, region: &mut Region<'_, Fr>, offset: usize) {
         self.proof_type
             .assign(region, offset, MPTProofType::AccountDoesNotExist);
+        self.key.assign(region, offset, *HASH_ZERO_ZERO);
+        self.other_key.assign(region, offset, *HASH_ZERO_ZERO);
     }
 
     fn assign(
@@ -797,10 +794,10 @@ impl MptUpdateConfig {
             self.is_zero_values;
         let [old_hash_is_zero_storage_hash, new_hash_is_zero_storage_hash, ..] =
             self.is_zero_gadgets;
-        old_hash_minus_zero_storage_hash.assign(region, offset, old_hash - *ZERO_STORAGE_HASH);
-        new_hash_minus_zero_storage_hash.assign(region, offset, new_hash - *ZERO_STORAGE_HASH);
-        old_hash_is_zero_storage_hash.assign(region, offset, old_hash - *ZERO_STORAGE_HASH);
-        new_hash_is_zero_storage_hash.assign(region, offset, new_hash - *ZERO_STORAGE_HASH);
+        old_hash_minus_zero_storage_hash.assign(region, offset, old_hash - *HASH_ZERO_ZERO);
+        new_hash_minus_zero_storage_hash.assign(region, offset, new_hash - *HASH_ZERO_ZERO);
+        old_hash_is_zero_storage_hash.assign(region, offset, old_hash - *HASH_ZERO_ZERO);
+        new_hash_is_zero_storage_hash.assign(region, offset, new_hash - *HASH_ZERO_ZERO);
 
         match path_type {
             PathType::Start => unreachable!(),
@@ -1623,12 +1620,12 @@ fn configure_storage<F: FieldExt>(
                 cb.assert_equal(
                     "old_hash_minus_zero_storage_hash = old_hash - hash(0, 0)",
                     old_hash_minus_zero_storage_hash.current(),
-                    config.old_hash.current() - *ZERO_STORAGE_HASH,
+                    config.old_hash.current() - *HASH_ZERO_ZERO,
                 );
                 cb.assert_equal(
                     "new_hash_minus_zero_storage_hash = new_hash - hash(0, 0)",
                     new_hash_minus_zero_storage_hash.current(),
-                    config.new_hash.current() - *ZERO_STORAGE_HASH,
+                    config.new_hash.current() - *HASH_ZERO_ZERO,
                 );
                 cb.assert(
                     "old hash != hash(0, 0)",
@@ -1840,6 +1837,7 @@ mod test {
         halo2curves::bn256::Fr,
         plonk::{Circuit, Error},
     };
+    use lazy_static::lazy_static;
 
     lazy_static! {
         static ref EMPTY_STORAGE_PROOF_TYPE_2: (MPTProofType, SMTTrace) = (
@@ -1885,7 +1883,7 @@ mod test {
         }
 
         fn hash_traces(&self) -> Vec<(Fr, Fr, Fr)> {
-            let mut hash_traces = vec![(Fr::zero(), Fr::zero(), Fr::zero())];
+            let mut hash_traces = vec![(Fr::zero(), Fr::zero(), hash(Fr::zero(), Fr::zero()))];
             for proof in self.proofs.iter() {
                 let address_hash_traces = &proof.address_hash_traces;
                 for (direction, old_hash, new_hash, sibling, is_padding_open, is_padding_close) in
@@ -1958,18 +1956,15 @@ mod test {
                     ));
                 }
 
-                hash_traces.extend(
-                    proof
-                        .old_account_hash_traces
-                        .iter()
-                        .map(|x| (x[0], x[1], x[2])),
-                );
-                hash_traces.extend(
-                    proof
-                        .new_account_hash_traces
-                        .iter()
-                        .map(|x| (x[0], x[1], x[2])),
-                );
+                for account_leaf_hash_traces in
+                    [proof.old_account_hash_traces, proof.new_account_hash_traces]
+                {
+                    for [left, right, digest] in account_leaf_hash_traces {
+                        if hash(left, right) == digest {
+                            hash_traces.push((left, right, digest))
+                        }
+                    }
+                }
             }
             hash_traces
         }
@@ -2086,7 +2081,6 @@ mod test {
                         u128s.push(address_high(proof.claim.address));
                         let (storage_key_high, storage_key_low) =
                             u256_hi_lo(&proof.claim.storage_key());
-                        dbg!(storage_key_high, storage_key_low);
                         u128s.push(storage_key_high);
                         u128s.push(storage_key_low);
                     }
