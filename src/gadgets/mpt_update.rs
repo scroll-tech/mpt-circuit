@@ -1824,6 +1824,7 @@ fn address_low(a: Address) -> u128 {
 
 // ...
 pub fn hash_traces(proofs: &[Proof]) -> Vec<(Fr, Fr, Fr)> {
+    panic!("23rasdfwq3fasdf");
     //use hash_circuit::Hashable;
     let mut hash_traces = vec![];
     for proof in proofs.iter() {
