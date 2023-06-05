@@ -18,7 +18,7 @@ use crate::{
     types::{
         storage::{StorageLeaf, StorageProof},
         trie::TrieRows,
-        ClaimKind, Proof,
+        ClaimKind, Proof, HASH_ZERO_ZERO,
     },
     util::{account_key, hash, rlc, u256_hi_lo, u256_to_big_endian},
     MPTProofType,
@@ -299,6 +299,8 @@ impl MptUpdateConfig {
     fn assign_padding_row(&self, region: &mut Region<'_, Fr>, offset: usize) {
         self.proof_type
             .assign(region, offset, MPTProofType::AccountDoesNotExist);
+        self.key.assign(region, offset, *HASH_ZERO_ZERO);
+        self.other_key.assign(region, offset, *HASH_ZERO_ZERO);
     }
 
     /// ..
@@ -1845,7 +1847,7 @@ fn address_low(a: Address) -> u128 {
 // ...
 pub fn hash_traces(proofs: &[Proof]) -> Vec<(Fr, Fr, Fr)> {
     //use hash_circuit::Hashable;
-    let mut hash_traces = vec![(Fr::zero(), Fr::zero(), Fr::zero())];
+    let mut hash_traces = vec![(Fr::zero(), Fr::zero(), *HASH_ZERO_ZERO)];
     for proof in proofs.iter() {
         let address_hash_traces = &proof.address_hash_traces;
         for (direction, old_hash, new_hash, sibling, is_padding_open, is_padding_close) in
@@ -1918,18 +1920,15 @@ pub fn hash_traces(proofs: &[Proof]) -> Vec<(Fr, Fr, Fr)> {
             ));
         }
 
-        hash_traces.extend(
-            proof
-                .old_account_hash_traces
-                .iter()
-                .map(|x| (x[0], x[1], x[2])),
-        );
-        hash_traces.extend(
-            proof
-                .new_account_hash_traces
-                .iter()
-                .map(|x| (x[0], x[1], x[2])),
-        );
+        for account_leaf_hash_traces in
+            [proof.old_account_hash_traces, proof.new_account_hash_traces]
+        {
+            for [left, right, digest] in account_leaf_hash_traces {
+                if hash(left, right) == digest {
+                    hash_traces.push((left, right, digest))
+                }
+            }
+        }
     }
     hash_traces
 }

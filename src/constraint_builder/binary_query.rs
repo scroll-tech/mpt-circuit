@@ -29,6 +29,10 @@ impl<F: FieldExt> BinaryQuery<F> {
     pub fn condition(self, constraint: Query<F>) -> Query<F> {
         self.0 * constraint
     }
+
+    pub fn select(&self, if_true: Query<F>, if_false: Query<F>) -> Query<F> {
+        if_true * self.clone() + if_false * !self.clone()
+    }
 }
 
 impl<F: FieldExt> BinaryQuery<F> {
