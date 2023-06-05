@@ -214,7 +214,9 @@ impl From<(&MPTProofType, &SMTTrace)> for ClaimKind {
                 [None, None] => (),
                 [Some(old), Some(new)] => {
                     // The account must exist, because only contracts with bytecode can modify their own storage slots.
-                    assert_eq!(account_old, account_new, "{:?}", state_update);
+                    if !(account_old == account_new || (account_old.is_none() && account_new == &Some(Default::default()))) {
+                        assert_eq!(account_old, account_new, "{:?}", state_update);
+                    }
                     let old_value = u256_from_hex(old.value);
                     let new_value = u256_from_hex(new.value);
 

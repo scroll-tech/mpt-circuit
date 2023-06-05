@@ -284,7 +284,7 @@ pub struct SMTPath {
 }
 
 /// struct in SMTTrace
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq, Default)]
 #[serde(rename_all(deserialize = "camelCase", serialize = "camelCase"))]
 pub struct AccountData {
     /// nonce
