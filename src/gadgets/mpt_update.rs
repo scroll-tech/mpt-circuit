@@ -20,12 +20,12 @@ use crate::{
         trie::TrieRows,
         ClaimKind, Proof,
     },
-    util::{account_key, hash, rlc, u256_to_big_endian, u256_hi_lo},
+    util::{account_key, hash, rlc, u256_hi_lo, u256_to_big_endian},
     MPTProofType,
 };
 use ethers_core::{k256::elliptic_curve::PrimeField, types::Address};
 use halo2_proofs::{
-    arithmetic::{FieldExt, Field},
+    arithmetic::{Field, FieldExt},
     circuit::{Region, Value},
     halo2curves::bn256::Fr,
     plonk::ConstraintSystem,
@@ -296,8 +296,19 @@ impl MptUpdateConfig {
         config
     }
 
+    fn assign_padding_row(&self, region: &mut Region<'_, Fr>, offset: usize) {
+        self.proof_type
+            .assign(region, offset, MPTProofType::AccountDoesNotExist);
+    }
+
     /// ..
-    pub fn assign(&self, region: &mut Region<'_, Fr>, proofs: &[Proof], randomness: Value<Fr>) {
+    pub fn assign(
+        &self,
+        region: &mut Region<'_, Fr>,
+        proofs: &[Proof],
+        randomness: Value<Fr>,
+    ) -> usize {
+        let mut n_rows = 0;
         let mut offset = 0;
         for proof in proofs {
             let proof_type = MPTProofType::from(proof.claim);
@@ -439,6 +450,9 @@ impl MptUpdateConfig {
 
                 self.intermediate_values[0].assign(region, offset, other_key_hash);
                 self.intermediate_values[1].assign(region, offset, other_leaf_data_hash);
+
+                n_rows += proof.n_rows();
+                offset = n_rows;
                 continue; // we don't need to assign any leaf rows for empty accounts
             }
 
@@ -567,7 +581,10 @@ impl MptUpdateConfig {
                 _ => (),
             }
             self.assign_storage(region, next_offset, &proof.storage, randomness);
+            n_rows += proof.n_rows();
+            offset = n_rows;
         }
+        n_rows
     }
 
     fn assign_storage_trie_rows(
@@ -655,7 +672,7 @@ impl MptUpdateConfig {
         old: &StorageLeaf,
         new: &StorageLeaf,
     ) -> usize {
-        let [key_high, key_low, other_key_hash, other_leaf_data_hash, ..] =
+        let [_key_high, _key_low, other_key_hash, other_leaf_data_hash, ..] =
             self.intermediate_values;
         let [.., key_minus_other_key, hash] = self.is_zero_values;
         let [.., key_equals_other_key, hash_is_zero] = self.is_zero_gadgets;
@@ -859,7 +876,7 @@ fn configure_segment_transitions<F: FieldExt>(
 ) {
     let transitions = segment::transitions(proof);
     for variant in SegmentType::iter() {
-        let conditional_constraints = |cb: &mut ConstraintBuilder<F>| {
+        cb.condition(segment.current_matches(&[variant]), |cb| {
             if let Some(next_segments) = transitions.get(&variant) {
                 cb.assert(
                     "transition for current segment -> next segment",
@@ -868,8 +885,7 @@ fn configure_segment_transitions<F: FieldExt>(
             } else {
                 cb.assert_unreachable("unreachable segment for proof");
             }
-        };
-        cb.condition(segment.current_matches(&[variant]), conditional_constraints);
+        });
     }
 }
 
@@ -1829,8 +1845,7 @@ fn address_low(a: Address) -> u128 {
 // ...
 pub fn hash_traces(proofs: &[Proof]) -> Vec<(Fr, Fr, Fr)> {
     //use hash_circuit::Hashable;
-    //let mut hash_traces = vec![(Fr::zero(), Fr::zero(), Fr::zero())];
-    let mut hash_traces = vec![];
+    let mut hash_traces = vec![(Fr::zero(), Fr::zero(), Fr::zero())];
     for proof in proofs.iter() {
         let address_hash_traces = &proof.address_hash_traces;
         for (direction, old_hash, new_hash, sibling, is_padding_open, is_padding_close) in
@@ -1919,7 +1934,6 @@ pub fn hash_traces(proofs: &[Proof]) -> Vec<(Fr, Fr, Fr)> {
     hash_traces
 }
 
-
 /// ...
 pub fn key_bit_lookups(proofs: &[Proof]) -> Vec<(Fr, usize, bool)> {
     let mut lookups = vec![(Fr::zero(), 0, false), (Fr::one(), 0, true)];
@@ -1998,8 +2012,7 @@ pub fn byte_representations(proofs: &[Proof]) -> (Vec<u64>, Vec<u128>, Vec<Fr>) 
             }
             MPTProofType::StorageChanged => {
                 u128s.push(address_high(proof.claim.address));
-                let (storage_key_high, storage_key_low) =
-                    u256_hi_lo(&proof.claim.storage_key());
+                let (storage_key_high, storage_key_low) = u256_hi_lo(&proof.claim.storage_key());
                 u128s.push(storage_key_high);
                 u128s.push(storage_key_low);
 
@@ -2021,8 +2034,7 @@ pub fn byte_representations(proofs: &[Proof]) -> (Vec<u64>, Vec<u128>, Vec<Fr>) 
             }
             MPTProofType::StorageDoesNotExist => {
                 u128s.push(address_high(proof.claim.address));
-                let (storage_key_high, storage_key_low) =
-                    u256_hi_lo(&proof.claim.storage_key());
+                let (storage_key_high, storage_key_low) = u256_hi_lo(&proof.claim.storage_key());
                 dbg!(storage_key_high, storage_key_low);
                 u128s.push(storage_key_high);
                 u128s.push(storage_key_low);
@@ -2032,7 +2044,6 @@ pub fn byte_representations(proofs: &[Proof]) -> (Vec<u64>, Vec<u128>, Vec<Fr>) 
     }
     (u64s, u128s, frs)
 }
-
 
 /// ..
 pub fn mpt_update_keys(proofs: &[Proof]) -> Vec<Fr> {
@@ -2055,13 +2066,43 @@ mod test {
     };
     use super::*;
     use crate::{constraint_builder::SelectorColumn, serde::SMTTrace, util::u256_hi_lo};
-    use ethers_core::types::U256;
     use halo2_proofs::{
         circuit::{Layouter, SimpleFloorPlanner},
         dev::MockProver,
         halo2curves::bn256::Fr,
         plonk::{Circuit, Error},
     };
+
+    lazy_static! {
+        static ref EMPTY_STORAGE_PROOF_TYPE_2: (MPTProofType, SMTTrace) = (
+            MPTProofType::StorageDoesNotExist,
+            serde_json::from_str(include_str!(
+                "../../tests/generated/storage/empty_storage_proof_type_2.json"
+            ))
+            .unwrap(),
+        );
+        static ref NONCE_WRITE_TYPE_2_EMPTY_ACCOUNT: (MPTProofType, SMTTrace) = (
+            MPTProofType::NonceChanged,
+            serde_json::from_str(include_str!(
+                "../../tests/dual_code_hash/nonce_write_type_2_empty_account.json"
+            ))
+            .unwrap(),
+        );
+        static ref EMPTY_ACCOUNT_PROOF_TYPE_2: (MPTProofType, SMTTrace) = (
+            MPTProofType::AccountDoesNotExist,
+            serde_json::from_str(include_str!(
+                "../../tests/dual_code_hash/type_2_empty_account.json"
+            ))
+            .unwrap(),
+        );
+        static ref EMPTY_STORAGE_PROOF_SINGLETON_TRIE: (MPTProofType, SMTTrace) = (
+            MPTProofType::StorageDoesNotExist,
+            serde_json::from_str(include_str!(
+                "../../tests/generated/storage/empty_storage_proof_singleton_trie.json"
+            ))
+            .unwrap(),
+        );
+    }
 
     #[derive(Clone, Debug)]
     struct TestCircuit {
@@ -2081,13 +2122,12 @@ mod test {
         fn byte_representations(&self) -> (Vec<u64>, Vec<u128>, Vec<Fr>) {
             byte_representations(&self.proofs)
         }
-        fn key_bit_lookups(&self) -> Vec<(Fr, usize, bool)>  {
+        fn key_bit_lookups(&self) -> Vec<(Fr, usize, bool)> {
             key_bit_lookups(&self.proofs)
         }
         fn keys(&self) -> Vec<Fr> {
             mpt_update_keys(&self.proofs)
         }
-
     }
 
     impl Circuit<Fr> for TestCircuit {
@@ -2175,7 +2215,10 @@ mod test {
                     for offset in 0..1024 {
                         selector.enable(&mut region, offset);
                     }
-                    mpt_update.assign(&mut region, &self.proofs, randomness);
+                    let n_mpt_rows = mpt_update.assign(&mut region, &self.proofs, randomness);
+                    for offset in n_mpt_rows..1024 {
+                        mpt_update.assign_padding_row(&mut region, offset);
+                    }
                     poseidon.dev_load(&mut region, &self.hash_traces());
                     canonical_representation.assign(&mut region, &self.keys());
                     key_bit.assign(&mut region, &self.key_bit_lookups());
@@ -2411,5 +2454,19 @@ mod test {
                 account_key(address)
             );
         }
+    }
+
+    #[test]
+    fn prove_updates() {
+        let updates = vec![
+            EMPTY_STORAGE_PROOF_TYPE_2.clone(),
+            EMPTY_STORAGE_PROOF_SINGLETON_TRIE.clone(),
+            EMPTY_ACCOUNT_PROOF_TYPE_2.clone(),
+            NONCE_WRITE_TYPE_2_EMPTY_ACCOUNT.clone(),
+        ];
+
+        let circuit = TestCircuit::new(updates);
+        let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
+        assert_eq!(prover.verify(), Ok(()));
     }
 }

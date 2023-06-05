@@ -168,7 +168,7 @@ impl Proof {
                 ClaimKind::PoseidonCodeHash { .. } => 2,
                 ClaimKind::CodeHash { .. } => 4,
                 ClaimKind::Storage { .. } | ClaimKind::IsEmpty(Some(_)) => 4,
-                ClaimKind::IsEmpty(None) => 1,
+                ClaimKind::IsEmpty(None) => 0,
             }
             + self.storage.n_rows()
     }
@@ -214,7 +214,9 @@ impl From<(&MPTProofType, &SMTTrace)> for ClaimKind {
                 [None, None] => (),
                 [Some(old), Some(new)] => {
                     // The account must exist, because only contracts with bytecode can modify their own storage slots.
-                    if !(account_old == account_new || (account_old.is_none() && account_new == &Some(Default::default()))) {
+                    if !(account_old == account_new
+                        || (account_old.is_none() && account_new == &Some(Default::default())))
+                    {
                         assert_eq!(account_old, account_new, "{:?}", state_update);
                     }
                     let old_value = u256_from_hex(old.value);

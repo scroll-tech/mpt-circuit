@@ -4,24 +4,24 @@ use strum_macros::EnumIter;
 /// The defination is greped from state-circuit
 #[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter, Hash)]
 pub enum MPTProofType {
-    /// non exist proof for account
-    AccountDoesNotExist = 0, // we want this to be zero so the default assigment of 0 everywhere is valid.
+    /// poseidon codehash updated
+    PoseidonCodeHashExists,
     /// nonce
     NonceChanged,
     /// balance
     BalanceChanged,
     /// keccak codehash updated
     CodeHashExists,
-    /// poseidon codehash updated
-    PoseidonCodeHashExists,
     /// code size updated
     CodeSizeExists,
-    /// account destructed
-    AccountDestructed,
+    /// account is empty
+    AccountDoesNotExist,
     /// storage
     StorageChanged,
     /// non exist proof for storage
     StorageDoesNotExist,
+    /// account destructed
+    AccountDestructed,
 }
 
 impl From<Claim> for MPTProofType {
