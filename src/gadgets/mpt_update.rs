@@ -2160,7 +2160,7 @@ mod test {
             let mut cb = ConstraintBuilder::new(selector);
             let rlc_randomness = RlcRandomness::configure(cs);
 
-            let poseidon = PoseidonTable::configure(cs, &mut cb);
+            let poseidon = PoseidonTable::dev_configure(cs, &mut cb);
             let byte_bit = ByteBitGadget::configure(cs, &mut cb);
             let byte_representation =
                 ByteRepresentationConfig::configure(cs, &mut cb, &byte_bit, &rlc_randomness);
@@ -2244,6 +2244,7 @@ mod test {
                     for offset in n_mpt_rows..self.n_rows {
                         mpt_update.assign_padding_row(&mut region, offset);
                     }
+                    poseidon.dev_load(&mut region, &self.hash_traces(), 4096);
                     canonical_representation.assign(&mut region, &self.keys());
                     key_bit.assign(&mut region, &self.key_bit_lookups());
                     byte_bit.assign(&mut region);
