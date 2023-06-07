@@ -99,20 +99,20 @@ impl MptCircuitConfig {
         proofs: &[Proof],
         row_limit: usize,
     ) -> Result<(), Error> {
-        let (u64s, u128s, frs) = byte_representations(&proofs);
+        let (u64s, u128s, frs) = byte_representations(proofs);
 
         layouter.assign_region(
             || "",
             |mut region| {
                 self.canonical_representation
-                    .assign(&mut region, &mpt_update_keys(&proofs));
-                self.key_bit.assign(&mut region, &key_bit_lookups(&proofs));
+                    .assign(&mut region, &mpt_update_keys(proofs));
+                self.key_bit.assign(&mut region, &key_bit_lookups(proofs));
                 self.byte_bit.assign(&mut region);
                 self.byte_representation
                     .assign(&mut region, &u64s, &u128s, &frs, randomness);
 
                 // TODO: selector?
-                let rows = self.mpt_update.assign(&mut region, &proofs, randomness);
+                let rows = self.mpt_update.assign(&mut region, proofs, randomness);
 
                 assert!(
                     rows < row_limit,
