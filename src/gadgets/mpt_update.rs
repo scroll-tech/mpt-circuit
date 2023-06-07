@@ -295,14 +295,14 @@ impl MptUpdateConfig {
         config
     }
 
-    fn assign_padding_row(&self, region: &mut Region<'_, Fr>, offset: usize) {
+    pub fn assign_padding_row(&self, region: &mut Region<'_, Fr>, offset: usize) {
         self.proof_type
             .assign(region, offset, MPTProofType::AccountDoesNotExist);
         self.key.assign(region, offset, *HASH_ZERO_ZERO);
         self.other_key.assign(region, offset, *HASH_ZERO_ZERO);
     }
 
-    fn assign(
+    pub fn assign(
         &self,
         region: &mut Region<'_, Fr>,
         proofs: &[Proof],
@@ -2136,7 +2136,7 @@ mod test {
             let mut cb = ConstraintBuilder::new(selector);
             let rlc_randomness = RlcRandomness::configure(cs);
 
-            let poseidon = PoseidonTable::configure(cs, &mut cb, 4096);
+            let poseidon = PoseidonTable::dev_configure(cs, &mut cb);
             let byte_bit = ByteBitGadget::configure(cs, &mut cb);
             let byte_representation =
                 ByteRepresentationConfig::configure(cs, &mut cb, &byte_bit, &rlc_randomness);
@@ -2203,7 +2203,7 @@ mod test {
                     for offset in n_mpt_rows..1024 {
                         mpt_update.assign_padding_row(&mut region, offset);
                     }
-                    poseidon.dev_load(&mut region, &self.hash_traces());
+                    poseidon.dev_load(&mut region, &self.hash_traces(), 4096);
                     canonical_representation.assign(&mut region, &self.keys());
                     key_bit.assign(&mut region, &self.key_bit_lookups());
                     byte_bit.assign(&mut region);

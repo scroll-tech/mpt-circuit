@@ -15,14 +15,25 @@ pub struct PoseidonTable {
     hash: AdviceColumn,
     control: AdviceColumn,
     head_mark: AdviceColumn,
-    size: usize,
+}
+
+impl From<(FixedColumn, [AdviceColumn; 5])> for PoseidonTable {
+    fn from(src: (FixedColumn, [AdviceColumn; 5])) -> Self {
+        Self {
+            left: src.1[0],
+            right: src.1[1],
+            hash: src.1[2],
+            control: src.1[3],
+            head_mark: src.1[4],
+            q_enable: src.0,
+        }
+    }
 }
 
 impl PoseidonTable {
-    pub fn configure<F: FieldExt>(
+    pub fn dev_configure<F: FieldExt>(
         cs: &mut ConstraintSystem<F>,
         cb: &mut ConstraintBuilder<F>,
-        size: usize,
     ) -> Self {
         let [left, right, hash, control, head_mark] = cb.advice_columns(cs);
         Self {
@@ -32,16 +43,15 @@ impl PoseidonTable {
             control,
             head_mark,
             q_enable: FixedColumn(cs.fixed_column()),
-            size,
         }
     }
 
-    pub fn dev_load(&self, region: &mut Region<'_, Fr>, hash_traces: &[(Fr, Fr, Fr)]) {
+    pub fn dev_load(&self, region: &mut Region<'_, Fr>, hash_traces: &[(Fr, Fr, Fr)], size: usize) {
         assert!(
-            self.size >= hash_traces.len(),
+            size >= hash_traces.len(),
             "too many traces ({}), limit is {}",
             hash_traces.len(),
-            self.size
+            size,
         );
 
         for (offset, hash_trace) in hash_traces
@@ -66,7 +76,7 @@ impl PoseidonTable {
             self.q_enable.assign(region, offset, Fr::one());
         }
 
-        for offset in hash_traces.len()..self.size {
+        for offset in hash_traces.len()..size {
             self.q_enable.assign(region, offset, Fr::one());
         }
 
@@ -78,7 +88,7 @@ impl PoseidonTable {
             self.control,
             self.head_mark,
         ] {
-            col.assign(region, self.size, Fr::zero());
+            col.assign(region, size, Fr::zero());
         }
     }
 

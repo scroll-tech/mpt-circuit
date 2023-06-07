@@ -9,6 +9,7 @@ pub mod types;
 mod util;
 // mod mpt_circuit;
 
+pub mod mpt;
 pub mod serde;
 
 // use hash_circuit::hash::Hashable;
