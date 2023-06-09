@@ -1,17 +1,18 @@
 use crate::types::{Claim, ClaimKind};
+use serde::{Deserialize, Serialize};
 use strum_macros::EnumIter;
 
 /// The defination is greped from state-circuit
-#[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter, Hash, Serialize, Deserialize)]
 pub enum MPTProofType {
-    /// poseidon codehash updated
-    PoseidonCodeHashExists,
     /// nonce
     NonceChanged,
     /// balance
     BalanceChanged,
     /// keccak codehash updated
     CodeHashExists,
+    /// poseidon codehash updated
+    PoseidonCodeHashExists,
     /// code size updated
     CodeSizeExists,
     /// account is empty
