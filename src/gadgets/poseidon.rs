@@ -1,5 +1,7 @@
 use crate::{
-    constraint_builder::{AdviceColumn, SecondPhaseAdviceColumn, ConstraintBuilder, FixedColumn, Query},
+    constraint_builder::{
+        AdviceColumn, ConstraintBuilder, FixedColumn, Query, SecondPhaseAdviceColumn,
+    },
     types::HASH_ZERO_ZERO,
     util::hash as poseidon_hash,
 };
@@ -65,14 +67,12 @@ pub struct PoseidonTable {
     hash: SecondPhaseAdviceColumn,
     control: AdviceColumn,
     head_mark: AdviceColumn,
-    size: usize,
 }
 
 impl PoseidonTable {
     pub fn configure<F: FieldExt>(
         cs: &mut ConstraintSystem<F>,
         cb: &mut ConstraintBuilder<F>,
-        size: usize,
     ) -> Self {
         let [left, right, control, head_mark] = cb.advice_columns(cs);
         let [hash] = cb.second_phase_advice_columns(cs);
@@ -83,7 +83,6 @@ impl PoseidonTable {
             control,
             head_mark,
             q_enable: FixedColumn(cs.fixed_column()),
-            size,
         }
     }
 
@@ -105,13 +104,8 @@ impl PoseidonLookup for PoseidonTable {
     fn lookup(&self) -> (FixedColumn, [AdviceColumn; 4], SecondPhaseAdviceColumn) {
         (
             self.q_enable,
-            [
-                self.left,
-                self.right,
-                self.control,
-                self.head_mark,
-            ],
-            self.hash
+            [self.left, self.right, self.control, self.head_mark],
+            self.hash,
         )
     }
 }

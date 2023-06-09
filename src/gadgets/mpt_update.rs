@@ -443,15 +443,15 @@ impl MptUpdateConfig {
                 Some((_, old_hash, new_hash, _, _, _)) => (*old_hash, *new_hash),
             };
 
-            if let MPTProofType::AccountDoesNotExist = proof_type {
+            if proof.old_account.is_none() && proof.new_account.is_none() {
                 offset -= 1;
                 self.is_zero_values[2].assign(region, offset, key - other_key);
                 self.is_zero_gadgets[2].assign(region, offset, key - other_key);
                 self.is_zero_values[3].assign(region, offset, final_old_hash);
                 self.is_zero_gadgets[3].assign(region, offset, final_old_hash);
 
-                self.intermediate_values[0].assign(region, offset, other_key_hash);
-                self.intermediate_values[1].assign(region, offset, other_leaf_data_hash);
+                self.intermediate_values[2].assign(region, offset, other_key_hash);
+                self.intermediate_values[3].assign(region, offset, other_leaf_data_hash);
 
                 n_rows += proof.n_rows();
                 offset = n_rows;
@@ -1680,6 +1680,12 @@ fn configure_empty_storage<F: FieldExt>(
         "new value is 0 for empty storage",
         config.new_value.current(),
     );
+    cb.assert(
+        "empty storage proof does not extend trie",
+        config
+            .path_type
+            .current_matches(&[PathType::Start, PathType::Common]),
+    );
 
     let is_final_segment = config.segment_type.next_matches(&[SegmentType::Start]);
     cb.condition(is_final_segment, |cb| {
@@ -1735,10 +1741,6 @@ fn configure_empty_storage<F: FieldExt>(
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
             }
             SegmentType::AccountLeaf3 => {
-                cb.assert(
-                    "storage read must be on an existing account",
-                    config.path_type.current_matches(&[PathType::Common]),
-                );
                 cb.assert_zero("direction is 0", config.direction.current());
                 configure_word_rlc(
                     cb,
@@ -1803,7 +1805,8 @@ fn configure_empty_account<F: FieldExt>(
                     );
 
                     cb.condition(is_type_1, |cb| {
-                        let [other_key_hash, other_leaf_data_hash, ..] = config.intermediate_values;
+                        let [_, _, other_key_hash, other_leaf_data_hash, ..] =
+                            config.intermediate_values;
                         cb.poseidon_lookup(
                             "other_key_hash == h(1, other_key)",
                             [
@@ -1846,7 +1849,6 @@ fn address_low(a: Address) -> u128 {
 
 // ...
 pub fn hash_traces(proofs: &[Proof]) -> Vec<(Fr, Fr, Fr)> {
-    //use hash_circuit::Hashable;
     let mut hash_traces = vec![(Fr::zero(), Fr::zero(), *HASH_ZERO_ZERO)];
     for proof in proofs.iter() {
         let address_hash_traces = &proof.address_hash_traces;
@@ -2034,7 +2036,6 @@ pub fn byte_representations(proofs: &[Proof]) -> (Vec<u64>, Vec<u128>, Vec<Fr>) 
             MPTProofType::StorageDoesNotExist => {
                 u128s.push(address_high(proof.claim.address));
                 let (storage_key_high, storage_key_low) = u256_hi_lo(&proof.claim.storage_key());
-                dbg!(storage_key_high, storage_key_low);
                 u128s.push(storage_key_high);
                 u128s.push(storage_key_low);
             }
@@ -2071,6 +2072,10 @@ mod test {
         halo2curves::bn256::Fr,
         plonk::{Circuit, Error},
     };
+    use hash_circuit::hash::{PoseidonHashChip, PoseidonHashConfig, PoseidonHashTable};
+
+    const HASH_BLOCK_STEP_SIZE: usize = 62;
+    const N_ROWS: usize = 1024;
 
     lazy_static! {
         static ref EMPTY_STORAGE_PROOF_TYPE_2: (MPTProofType, SMTTrace) = (
@@ -2103,14 +2108,16 @@ mod test {
         );
     }
 
-    #[derive(Clone, Debug)]
+    #[derive(Clone, Debug, Default)]
     struct TestCircuit {
+        n_rows: usize,
         proofs: Vec<Proof>,
     }
 
     impl TestCircuit {
-        fn new(traces: Vec<(MPTProofType, SMTTrace)>) -> Self {
+        fn new(n_rows: usize, traces: Vec<(MPTProofType, SMTTrace)>) -> Self {
             Self {
+                n_rows,
                 proofs: traces.into_iter().map(Proof::from).collect(),
             }
         }
@@ -2139,11 +2146,12 @@ mod test {
             ByteBitGadget,
             ByteRepresentationConfig,
             RlcRandomness,
+            PoseidonHashConfig<Fr>,
         );
         type FloorPlanner = SimpleFloorPlanner;
 
         fn without_witnesses(&self) -> Self {
-            Self { proofs: vec![] }
+            Self::default()
         }
 
         fn configure(cs: &mut ConstraintSystem<Fr>) -> Self::Config {
@@ -2151,7 +2159,7 @@ mod test {
             let mut cb = ConstraintBuilder::new(selector);
             let rlc_randomness = RlcRandomness::configure(cs);
 
-            let poseidon = PoseidonTable::configure(cs, &mut cb, 4096);
+            let poseidon = PoseidonTable::configure(cs, &mut cb);
             let byte_bit = ByteBitGadget::configure(cs, &mut cb);
             let byte_representation =
                 ByteRepresentationConfig::configure(cs, &mut cb, &byte_bit, &rlc_randomness);
@@ -2177,6 +2185,10 @@ mod test {
             );
 
             cb.build(cs);
+
+            let poseidon_config =
+                PoseidonHashConfig::configure_sub(cs, poseidon.columns(), HASH_BLOCK_STEP_SIZE);
+
             (
                 selector,
                 mpt_update,
@@ -2186,6 +2198,7 @@ mod test {
                 byte_bit,
                 byte_representation,
                 rlc_randomness,
+                poseidon_config,
             )
         }
 
@@ -2203,41 +2216,61 @@ mod test {
                 byte_bit,
                 byte_representation,
                 rlc_randomness,
+                poseidon_config,
             ) = config;
 
             let (u64s, u128s, frs) = self.byte_representations();
             let randomness = rlc_randomness.value(&layouter);
 
+            let mut poseidon_hash_table = PoseidonHashTable::default();
+            poseidon_hash_table.constant_inputs_with_check(&self.hash_traces());
+            let poseidon_chip = PoseidonHashChip::<_, HASH_BLOCK_STEP_SIZE>::construct(
+                poseidon_config,
+                &poseidon_hash_table,
+                self.n_rows,
+                false,
+                Some(Fr::one()),
+            );
+
             layouter.assign_region(
-                || "",
+                || "hash table",
                 |mut region| {
-                    for offset in 0..1024 {
+                    for offset in 0..self.n_rows {
                         selector.enable(&mut region, offset);
                     }
                     let n_mpt_rows = mpt_update.assign(&mut region, &self.proofs, randomness);
-                    for offset in n_mpt_rows..1024 {
+                    assert!(n_mpt_rows <= self.n_rows, "{:?}", n_mpt_rows);
+                    for offset in n_mpt_rows..self.n_rows {
                         mpt_update.assign_padding_row(&mut region, offset);
                     }
-                    poseidon.dev_load(&mut region, &self.hash_traces());
                     canonical_representation.assign(&mut region, &self.keys());
                     key_bit.assign(&mut region, &self.key_bit_lookups());
                     byte_bit.assign(&mut region);
                     byte_representation.assign(&mut region, &u64s, &u128s, &frs, randomness);
+
                     Ok(())
                 },
-            )
+            );
+
+            poseidon_chip.load(&mut layouter)?;
+
+            Ok(())
         }
     }
 
     fn mock_prove(proof_type: MPTProofType, trace: &str) {
-        let circuit = TestCircuit::new(vec![(proof_type, serde_json::from_str(trace).unwrap())]);
+        let circuit =
+            TestCircuit::new(N_ROWS, vec![(proof_type, serde_json::from_str(trace).unwrap())]);
         let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
     }
 
     #[test]
-    fn test_mpt_updates() {
-        let circuit = TestCircuit { proofs: vec![] };
+    fn test_empty() {
+        let circuit = TestCircuit {
+            n_rows: N_ROWS,
+            proofs: vec![],
+        };
         let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
     }
@@ -2464,8 +2497,27 @@ mod test {
             NONCE_WRITE_TYPE_2_EMPTY_ACCOUNT.clone(),
         ];
 
-        let circuit = TestCircuit::new(updates);
+        let circuit = TestCircuit::new(N_ROWS, updates);
         let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
+        assert_eq!(prover.verify(), Ok(()));
+    }
+
+    #[test]
+    fn empty_account_empty_storage() {
+        mock_prove(
+            MPTProofType::StorageDoesNotExist,
+            include_str!("../../tests/generated/storage/empty_account_empty_storage_proof.json"),
+        );
+    }
+
+    #[test]
+    fn uniswapv2_factory_create_pair() {
+        let updates = serde_json::from_str(include_str!(
+            "../../tests/mock_test_traces/uniswapv2_factory-createPair.json"
+        ))
+        .unwrap();
+        let circuit = TestCircuit::new(4096, updates);
+        let prover = MockProver::<Fr>::run(16, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
     }
 }

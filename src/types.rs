@@ -162,6 +162,9 @@ impl From<AccountData> for EthAccount {
 
 impl Proof {
     pub fn n_rows(&self) -> usize {
+        if self.old_account.is_none() && self.new_account.is_none() {
+            return 1 + self.address_hash_traces.len();
+        }
         1 + self.address_hash_traces.len()
             + match self.claim.kind {
                 ClaimKind::Nonce { .. } => 4,
@@ -248,7 +251,7 @@ impl From<(&MPTProofType, &SMTTrace)> for ClaimKind {
         }
 
         match &trace.account_update {
-            [None, None] => ClaimKind::IsEmpty(None),
+            [None, None] => ClaimKind::IsEmpty(trace.state_key.map(u256_from_hex)),
             [None, Some(new)] => {
                 if !new.nonce.is_zero() {
                     assert_eq!(*proof_type, MPTProofType::NonceChanged);
@@ -538,13 +541,13 @@ impl Proof {
                 let old_h1 = old_account_hash_traces[0][2];
                 vec![old_account_hash, old_h4, old_h2, old_h1]
             }),
-            ClaimKind::Storage { .. } | ClaimKind::IsEmpty(Some(_)) => {
+            ClaimKind::Storage { .. } | ClaimKind::IsEmpty(Some(_)) => self.old_account.map(|_| {
                 let old_account_hash = old_account_hash_traces[6][1];
                 let old_h4 = old_account_hash_traces[4][0];
                 let old_h2 = old_account_hash_traces[1][2];
                 let old_storage_root = old_account_hash_traces[1][0];
-                Some(vec![old_account_hash, old_h4, old_h2, old_storage_root])
-            }
+                vec![old_account_hash, old_h4, old_h2, old_storage_root]
+            }),
             ClaimKind::IsEmpty(None) => self.leafs[0].map(|_| {
                 let old_account_hash = old_account_hash_traces[6][1];
                 vec![old_account_hash]
