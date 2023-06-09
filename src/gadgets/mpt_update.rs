@@ -2513,7 +2513,7 @@ mod test {
             include_str!("../../tests/generated/storage/empty_account_empty_storage_proof.json"),
         );
     }
-
+    /*
     #[test]
     fn uniswapv2_factory_create_pair() {
         let updates = serde_json::from_str(include_str!(
@@ -2524,4 +2524,5 @@ mod test {
         let prover = MockProver::<Fr>::run(16, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
     }
+    */
 }

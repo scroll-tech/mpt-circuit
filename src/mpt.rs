@@ -66,8 +66,7 @@ impl MptCircuitConfig {
             &byte_bit,
             &byte_bit,
         );
-        let poseidon_table: PoseidonTable =
-            (FixedColumn(hash_tbl.0), hash_tbl.1.map(AdviceColumn)).into();
+        let poseidon_table: PoseidonTable = hash_tbl.into();
 
         let mpt_update = MptUpdateConfig::configure(
             cs,

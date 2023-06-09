@@ -69,15 +69,15 @@ pub struct PoseidonTable {
     head_mark: AdviceColumn,
 }
 
-impl From<(FixedColumn, [AdviceColumn; 5])> for PoseidonTable {
-    fn from(src: (FixedColumn, [AdviceColumn; 5])) -> Self {
+impl From<(Column<Fixed>, [Column<Advice>; 5])> for PoseidonTable {
+    fn from(src: (Column<Fixed>, [Column<Advice>; 5])) -> Self {
         Self {
-            left: src.1[0],
-            right: src.1[1],
-            hash: src.1[2],
-            control: src.1[3],
-            head_mark: src.1[4],
-            q_enable: src.0,
+            left: AdviceColumn(src.1[0]),
+            right: AdviceColumn(src.1[1]),
+            hash: SecondPhaseAdviceColumn(src.1[2]),
+            control: AdviceColumn(src.1[3]),
+            head_mark: AdviceColumn(src.1[4]),
+            q_enable: FixedColumn(src.0),
         }
     }
 }
@@ -107,38 +107,33 @@ impl PoseidonTable {
             size,
         );
 
-    //     for (offset, hash_trace) in hash_traces.iter().enumerate() {
-    //         assert!(
-    //             poseidon_hash(hash_trace.0, hash_trace.1) == hash_trace.2,
-    //             "{:?}",
-    //             (hash_trace.0, hash_trace.1, hash_trace.2)
-    //         );
-    //         for (column, value) in [
-    //             (self.left, hash_trace.0),
-    //             (self.right, hash_trace.1),
-    //             (self.control, Fr::zero()),
-    //             (self.head_mark, Fr::one()),
-    //         ] {
-    //             column.assign(region, offset, value);
-    //         }
-    //         self.hash.assign(region, offset, Value::known(hash_trace.2));
-    //         self.q_enable.assign(region, offset, Fr::one());
-    //     }
+        for (offset, hash_trace) in hash_traces.iter().enumerate() {
+            assert!(
+                poseidon_hash(hash_trace.0, hash_trace.1) == hash_trace.2,
+                "{:?}",
+                (hash_trace.0, hash_trace.1, hash_trace.2)
+            );
+            for (column, value) in [
+                (self.left, hash_trace.0),
+                (self.right, hash_trace.1),
+                (self.control, Fr::zero()),
+                (self.head_mark, Fr::one()),
+            ] {
+                column.assign(region, offset, value);
+            }
+            self.hash.assign(region, offset, Value::known(hash_trace.2));
+            self.q_enable.assign(region, offset, Fr::one());
+        }
 
         for offset in hash_traces.len()..size {
             self.q_enable.assign(region, offset, Fr::one());
         }
 
         // add an total zero row for disabled lookup
-        for col in [
-            self.hash,
-            self.left,
-            self.right,
-            self.control,
-            self.head_mark,
-        ] {
+        for col in [self.left, self.right, self.control, self.head_mark] {
             col.assign(region, size, Fr::zero());
         }
+        self.hash.assign(region, size, Value::known(Fr::zero()));
     }
 
     pub fn columns(&self) -> (Column<Fixed>, [Column<Advice>; 5]) {
