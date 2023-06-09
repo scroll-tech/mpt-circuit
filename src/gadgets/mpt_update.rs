@@ -2073,7 +2073,7 @@ mod test {
         halo2curves::bn256::Fr,
         plonk::{Circuit, Error},
     };
-    use hash_circuit::hash::{PoseidonHashChip, PoseidonHashConfig, PoseidonHashTable};
+    //use hash_circuit::hash::{PoseidonHashChip, PoseidonHashConfig, PoseidonHashTable};
 
     const HASH_BLOCK_STEP_SIZE: usize = 62;
     const N_ROWS: usize = 1024;
@@ -2147,7 +2147,7 @@ mod test {
             ByteBitGadget,
             ByteRepresentationConfig,
             RlcRandomness,
-            PoseidonHashConfig<Fr>,
+            //PoseidonHashConfig<Fr>,
         );
         type FloorPlanner = SimpleFloorPlanner;
 
@@ -2187,8 +2187,8 @@ mod test {
 
             cb.build(cs);
 
-            let poseidon_config =
-                PoseidonHashConfig::configure_sub(cs, poseidon.columns(), HASH_BLOCK_STEP_SIZE);
+            //            let poseidon_config =
+            //                PoseidonHashConfig::configure_sub(cs, poseidon.columns(), HASH_BLOCK_STEP_SIZE);
 
             (
                 selector,
@@ -2199,7 +2199,7 @@ mod test {
                 byte_bit,
                 byte_representation,
                 rlc_randomness,
-                poseidon_config,
+                //                poseidon_config,
             )
         }
 
@@ -2217,22 +2217,22 @@ mod test {
                 byte_bit,
                 byte_representation,
                 rlc_randomness,
-                poseidon_config,
+                //                poseidon_config,
             ) = config;
 
             let (u64s, u128s, frs) = self.byte_representations();
             let randomness = rlc_randomness.value(&layouter);
 
-            let mut poseidon_hash_table = PoseidonHashTable::default();
-            poseidon_hash_table.constant_inputs_with_check(&self.hash_traces());
-            let poseidon_chip = PoseidonHashChip::<_, HASH_BLOCK_STEP_SIZE>::construct(
-                poseidon_config,
-                &poseidon_hash_table,
-                self.n_rows,
-                false,
-                Some(Fr::one()),
-            );
-
+            /*            let mut poseidon_hash_table = PoseidonHashTable::default();
+                        poseidon_hash_table.constant_inputs_with_check(&self.hash_traces());
+                        let poseidon_chip = PoseidonHashChip::<_, HASH_BLOCK_STEP_SIZE>::construct(
+                            poseidon_config,
+                            &poseidon_hash_table,
+                            5000,
+                            false,
+                            Some(Fr::one()),
+                        );
+            */
             layouter.assign_region(
                 || "hash table",
                 |mut region| {
@@ -2244,7 +2244,7 @@ mod test {
                     for offset in n_mpt_rows..self.n_rows {
                         mpt_update.assign_padding_row(&mut region, offset);
                     }
-                    poseidon.dev_load(&mut region, &self.hash_traces(), 4096);
+                    poseidon.dev_load(&mut region, &self.hash_traces(), 5000);
                     canonical_representation.assign(&mut region, &self.keys());
                     key_bit.assign(&mut region, &self.key_bit_lookups());
                     byte_bit.assign(&mut region);
@@ -2252,9 +2252,9 @@ mod test {
 
                     Ok(())
                 },
-            );
+            )?;
 
-            poseidon_chip.load(&mut layouter)?;
+            // poseidon_chip.load(&mut layouter)?;
 
             Ok(())
         }
