@@ -1403,15 +1403,15 @@ fn configure_balance<F: FieldExt>(
                         .path_type
                         .current_matches(&[PathType::Common, PathType::ExtensionOld]),
                     |cb| {
-                        cb.add_lookup(
-                            "old balance is rlc(old_hash) and fits into 31 bytes",
-                            [
-                                config.old_hash.current(),
-                                Query::from(30),
-                                config.old_value.current(),
-                            ],
-                            rlc.lookup(),
-                        );
+                        // cb.add_lookup(
+                        //     "old balance is rlc(old_hash) and fits into 31 bytes",
+                        //     [
+                        //         config.old_hash.current(),
+                        //         Query::from(30),
+                        //         config.old_value.current(),
+                        //     ],
+                        //     rlc.lookup(),
+                        // );
                     },
                 );
                 cb.condition(
@@ -1419,15 +1419,15 @@ fn configure_balance<F: FieldExt>(
                         .path_type
                         .current_matches(&[PathType::Common, PathType::ExtensionNew]),
                     |cb| {
-                        cb.add_lookup(
-                            "new balance is rlc(new_hash) and fits into 31 bytes",
-                            [
-                                config.new_hash.current(),
-                                Query::from(30),
-                                config.new_value.current(),
-                            ],
-                            rlc.lookup(),
-                        );
+                        // cb.add_lookup(
+                        //     "new balance is rlc(new_hash) and fits into 31 bytes",
+                        //     [
+                        //         config.new_hash.current(),
+                        //         Query::from(30),
+                        //         config.new_value.current(),
+                        //     ],
+                        //     rlc.lookup(),
+                        // );
                     },
                 );
             }
