@@ -296,7 +296,8 @@ impl MptUpdateConfig {
         config
     }
 
-    fn assign_padding_row(&self, region: &mut Region<'_, Fr>, offset: usize) {
+    /// Valid assignment proving that the address 0 doesn't exist in an empty MPT.
+    pub fn assign_padding_row(&self, region: &mut Region<'_, Fr>, offset: usize) {
         self.proof_type
             .assign(region, offset, MPTProofType::AccountDoesNotExist);
         self.key.assign(region, offset, *HASH_ZERO_ZERO);
@@ -2259,8 +2260,10 @@ mod test {
     }
 
     fn mock_prove(proof_type: MPTProofType, trace: &str) {
-        let circuit =
-            TestCircuit::new(N_ROWS, vec![(proof_type, serde_json::from_str(trace).unwrap())]);
+        let circuit = TestCircuit::new(
+            N_ROWS,
+            vec![(proof_type, serde_json::from_str(trace).unwrap())],
+        );
         let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
     }
