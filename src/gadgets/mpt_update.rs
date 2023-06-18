@@ -1365,7 +1365,7 @@ fn configure_code_size<F: FieldExt>(
 fn configure_balance<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
-    rlc: &impl RlcLookup,
+    _rlc: &impl RlcLookup,
 ) {
     for variant in SegmentType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
@@ -1403,7 +1403,7 @@ fn configure_balance<F: FieldExt>(
                     config
                         .path_type
                         .current_matches(&[PathType::Common, PathType::ExtensionOld]),
-                    |cb| {
+                    |_cb| {
                         // cb.add_lookup(
                         //     "old balance is rlc(old_hash) and fits into 31 bytes",
                         //     [
@@ -1419,7 +1419,7 @@ fn configure_balance<F: FieldExt>(
                     config
                         .path_type
                         .current_matches(&[PathType::Common, PathType::ExtensionNew]),
-                    |cb| {
+                    |_cb| {
                         // cb.add_lookup(
                         //     "new balance is rlc(new_hash) and fits into 31 bytes",
                         //     [

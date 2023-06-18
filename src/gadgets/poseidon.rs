@@ -1,18 +1,18 @@
+#[cfg(test)]
+use crate::util::hash as poseidon_hash;
 use crate::{
     constraint_builder::{
         AdviceColumn, ConstraintBuilder, FixedColumn, Query, SecondPhaseAdviceColumn,
     },
     types::HASH_ZERO_ZERO,
-    util::hash as poseidon_hash,
 };
+use halo2_proofs::arithmetic::FieldExt;
 #[cfg(test)]
-use halo2_proofs::plonk::SecondPhase;
-use halo2_proofs::plonk::{Advice, Column, Fixed};
 use halo2_proofs::{
-    arithmetic::{Field, FieldExt},
     circuit::{Region, Value},
     halo2curves::bn256::Fr,
     plonk::ConstraintSystem,
+    plonk::SecondPhase,
 };
 
 /// Lookup  represent the poseidon table in zkevm circuit

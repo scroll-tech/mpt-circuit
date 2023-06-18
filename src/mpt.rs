@@ -1,11 +1,5 @@
-use halo2_proofs::{
-    circuit::{Layouter, SimpleFloorPlanner, Value},
-    halo2curves::bn256::Fr,
-    plonk::{Advice, Challenge, Circuit, Column, ConstraintSystem, Error, FirstPhase, Fixed},
-};
-
 use crate::{
-    constraint_builder::{AdviceColumn, ConstraintBuilder, FixedColumn, SelectorColumn},
+    constraint_builder::{ConstraintBuilder, SelectorColumn},
     gadgets::{
         byte_bit::ByteBitGadget,
         byte_representation::ByteRepresentationConfig,
@@ -15,9 +9,12 @@ use crate::{
         poseidon::PoseidonLookup,
         rlc_randomness::RlcRandomness,
     },
-    serde::SMTTrace,
     types::Proof,
-    MPTProofType,
+};
+use halo2_proofs::{
+    circuit::Layouter,
+    halo2curves::bn256::Fr,
+    plonk::{Challenge, ConstraintSystem, Error},
 };
 
 /// Config for MptCircuit
@@ -122,17 +119,12 @@ impl MptCircuitConfig {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{
-        hash_traces,
-        constraint_builder::SelectorColumn, gadgets::poseidon::PoseidonTable, serde::SMTTrace,
-        util::account_key, util::u256_hi_lo,
-    };
+    use crate::{gadgets::poseidon::PoseidonTable, hash_traces, serde::SMTTrace, MPTProofType};
     use halo2_proofs::{
-        arithmetic::FieldExt,
         circuit::{Layouter, SimpleFloorPlanner},
         dev::MockProver,
         halo2curves::bn256::Fr,
-        plonk::{Circuit, Error},
+        plonk::{Circuit, Error, FirstPhase},
     };
     use lazy_static::lazy_static;
 
@@ -195,8 +187,7 @@ mod test {
         fn configure(cs: &mut ConstraintSystem<Fr>) -> Self::Config {
             let poseidon = PoseidonTable::configure(cs);
             let challenge = cs.challenge_usable_after(FirstPhase);
-            let mpt_circuit_config =
-                MptCircuitConfig::configure(cs, challenge, &poseidon);
+            let mpt_circuit_config = MptCircuitConfig::configure(cs, challenge, &poseidon);
             (poseidon, mpt_circuit_config)
         }
 
@@ -206,10 +197,12 @@ mod test {
             mut layouter: impl Layouter<Fr>,
         ) -> Result<(), Error> {
             let (poseidon, mpt_circuit_config) = config;
-            mpt_circuit_config.assign(&mut layouter, &self.proofs, self.n_rows);
+            mpt_circuit_config.assign(&mut layouter, &self.proofs, self.n_rows)?;
             layouter.assign_region(
                 || "load poseidon table",
-                |mut region| Ok(poseidon.load(&mut region, &hash_traces(&self.proofs), self.n_rows)),
+                |mut region| {
+                    Ok(poseidon.load(&mut region, &hash_traces(&self.proofs), self.n_rows))
+                },
             )
         }
     }
