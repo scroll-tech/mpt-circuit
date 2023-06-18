@@ -200,9 +200,7 @@ mod test {
             mpt_circuit_config.assign(&mut layouter, &self.proofs, self.n_rows)?;
             layouter.assign_region(
                 || "load poseidon table",
-                |mut region| {
-                    Ok(poseidon.load(&mut region, &hash_traces(&self.proofs), self.n_rows))
-                },
+                |mut region| Ok(poseidon.load(&mut region, &hash_traces(&self.proofs))),
             )
         }
     }

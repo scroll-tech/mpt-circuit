@@ -87,14 +87,7 @@ impl PoseidonTable {
         }
     }
 
-    pub fn load(&self, region: &mut Region<'_, Fr>, hash_traces: &[(Fr, Fr, Fr)], size: usize) {
-        assert!(
-            size >= hash_traces.len(),
-            "too many traces ({}), limit is {}",
-            hash_traces.len(),
-            size,
-        );
-
+    pub fn load(&self, region: &mut Region<'_, Fr>, hash_traces: &[(Fr, Fr, Fr)]) {
         for (offset, hash_trace) in hash_traces.iter().enumerate() {
             assert!(
                 poseidon_hash(hash_trace.0, hash_trace.1) == hash_trace.2,
@@ -112,17 +105,6 @@ impl PoseidonTable {
             self.hash.assign(region, offset, Value::known(hash_trace.2));
             self.q_enable.assign(region, offset, Fr::one());
         }
-
-        for offset in hash_traces.len()..size {
-            self.q_enable.assign(region, offset, Fr::one());
-        }
-
-        // TODO: fix
-        // add an total zero row for disabled lookup
-        for col in [self.left, self.right, self.control, self.head_mark] {
-            col.assign(region, size, Fr::zero());
-        }
-        self.hash.assign(region, size, Value::known(Fr::zero()));
     }
 }
 
