@@ -12,7 +12,7 @@ use crate::{
         canonical_representation::CanonicalRepresentationConfig,
         key_bit::KeyBitConfig,
         mpt_update::{byte_representations, key_bit_lookups, mpt_update_keys, MptUpdateConfig},
-        poseidon::PoseidonTable,
+        poseidon::PoseidonLookup,
         rlc_randomness::RlcRandomness,
     },
     serde::SMTTrace,
@@ -20,38 +20,27 @@ use crate::{
     MPTProofType,
 };
 
-/// the integration of full mpt circuit
+/// Config for MptCircuit
 #[derive(Clone)]
 pub struct MptCircuitConfig {
+    selector: SelectorColumn,
+    rlc_randomness: RlcRandomness,
     mpt_update: MptUpdateConfig,
     canonical_representation: CanonicalRepresentationConfig,
     key_bit: KeyBitConfig,
     byte_bit: ByteBitGadget,
     byte_representation: ByteRepresentationConfig,
-    /// export PoseidonTable for external assign
-    pub poseidon_table: PoseidonTable,
-    q_rows: SelectorColumn,
 }
 
 impl MptCircuitConfig {
-    pub fn create(
+    pub fn configure(
         cs: &mut ConstraintSystem<Fr>,
-        _mpt_tbl: [Column<Advice>; 7],
-        hash_tbl: (Column<Fixed>, [Column<Advice>; 5]),
-        randomness: Challenge,
+        evm_word_challenge: Challenge,
+        poseidon: &impl PoseidonLookup,
     ) -> Self {
-        // TODO: connect mpt_table
-        Self::create_core(cs, hash_tbl, randomness)
-    }
-
-    pub fn create_core(
-        cs: &mut ConstraintSystem<Fr>,
-        hash_tbl: (Column<Fixed>, [Column<Advice>; 5]),
-        randomness: Challenge,
-    ) -> Self {
-        let q_rows = SelectorColumn(cs.fixed_column());
-        let rlc_randomness = RlcRandomness(randomness);
-        let mut cb = ConstraintBuilder::new(q_rows);
+        let selector = SelectorColumn(cs.fixed_column());
+        let rlc_randomness = RlcRandomness(evm_word_challenge);
+        let mut cb = ConstraintBuilder::new(selector);
 
         let byte_bit = ByteBitGadget::configure(cs, &mut cb);
         let byte_representation =
@@ -66,12 +55,11 @@ impl MptCircuitConfig {
             &byte_bit,
             &byte_bit,
         );
-        let poseidon_table: PoseidonTable = hash_tbl.into();
 
         let mpt_update = MptUpdateConfig::configure(
             cs,
             &mut cb,
-            &poseidon_table,
+            poseidon,
             &key_bit,
             &byte_representation,
             &byte_representation,
@@ -81,28 +69,32 @@ impl MptCircuitConfig {
         cb.build(cs);
 
         Self {
+            selector,
+            rlc_randomness,
             mpt_update,
             key_bit,
             byte_bit,
             canonical_representation,
             byte_representation,
-            poseidon_table,
-            q_rows,
         }
     }
 
     pub fn assign(
         &self,
         layouter: &mut impl Layouter<Fr>,
-        randomness: Value<Fr>,
         proofs: &[Proof],
-        row_limit: usize,
+        n_rows: usize,
     ) -> Result<(), Error> {
+        let randomness = self.rlc_randomness.value(layouter);
         let (u64s, u128s, frs) = byte_representations(proofs);
 
         layouter.assign_region(
-            || "",
+            || "mpt circuit",
             |mut region| {
+                for offset in 0..n_rows {
+                    self.selector.enable(&mut region, offset);
+                }
+
                 self.canonical_representation
                     .assign(&mut region, &mpt_update_keys(proofs));
                 self.key_bit.assign(&mut region, &key_bit_lookups(proofs));
@@ -110,92 +102,368 @@ impl MptCircuitConfig {
                 self.byte_representation
                     .assign(&mut region, &u64s, &u128s, &frs, randomness);
 
-                // TODO: selector?
-                let rows = self.mpt_update.assign(&mut region, proofs, randomness);
+                let n_assigned_rows = self.mpt_update.assign(&mut region, proofs, randomness);
 
                 assert!(
-                    rows < row_limit,
-                    "the assigned rows for mpt update has {rows} rows and exceed limit {row_limit}"
+                    n_assigned_rows <= n_rows,
+                    "mpt circuit requires {n_assigned_rows} rows > limit of {n_rows} rows"
                 );
 
-                for offset in rows..row_limit {
+                for offset in n_assigned_rows..n_rows {
                     self.mpt_update.assign_padding_row(&mut region, offset);
                 }
 
                 Ok(())
             },
-        )?;
-
-        Ok(())
+        )
     }
 }
 
-// export hash_traces for poseidon table
-pub use crate::gadgets::mpt_update::hash_traces;
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::{
+        hash_traces,
+        constraint_builder::SelectorColumn, gadgets::poseidon::PoseidonTable, serde::SMTTrace,
+        util::account_key, util::u256_hi_lo,
+    };
+    use halo2_proofs::{
+        arithmetic::FieldExt,
+        circuit::{Layouter, SimpleFloorPlanner},
+        dev::MockProver,
+        halo2curves::bn256::Fr,
+        plonk::{Circuit, Error},
+    };
+    use lazy_static::lazy_static;
 
-// the circuit object
-#[derive(Debug, Clone, Default)]
-pub struct MptCircuit {
-    pub row_limit: usize,
-    /// the proofs required
-    pub proofs: Vec<Proof>,
-}
+    const N_ROWS: usize = 1024;
 
-impl MptCircuit {
-    pub fn from_traces(
-        traces: impl IntoIterator<Item = (MPTProofType, SMTTrace)>,
-        row_limit: usize,
-    ) -> Self {
-        let proofs = traces.into_iter().map(Proof::from).collect();
-        Self { row_limit, proofs }
+    lazy_static! {
+        static ref EMPTY_STORAGE_PROOF_TYPE_2: (MPTProofType, SMTTrace) = (
+            MPTProofType::StorageDoesNotExist,
+            serde_json::from_str(include_str!(
+                "../tests/generated/storage/empty_storage_proof_type_2.json"
+            ))
+            .unwrap(),
+        );
+        static ref NONCE_WRITE_TYPE_2_EMPTY_ACCOUNT: (MPTProofType, SMTTrace) = (
+            MPTProofType::NonceChanged,
+            serde_json::from_str(include_str!(
+                "../tests/dual_code_hash/nonce_write_type_2_empty_account.json"
+            ))
+            .unwrap(),
+        );
+        static ref EMPTY_ACCOUNT_PROOF_TYPE_2: (MPTProofType, SMTTrace) = (
+            MPTProofType::AccountDoesNotExist,
+            serde_json::from_str(include_str!(
+                "../tests/dual_code_hash/type_2_empty_account.json"
+            ))
+            .unwrap(),
+        );
+        static ref EMPTY_STORAGE_PROOF_SINGLETON_TRIE: (MPTProofType, SMTTrace) = (
+            MPTProofType::StorageDoesNotExist,
+            serde_json::from_str(include_str!(
+                "../tests/generated/storage/empty_storage_proof_singleton_trie.json"
+            ))
+            .unwrap(),
+        );
     }
 
-    pub fn hash_traces(&self) -> Vec<(Fr, Fr, Fr)> {
-        hash_traces(&self.proofs)
+    #[derive(Clone, Debug, Default)]
+    struct TestCircuit {
+        n_rows: usize,
+        proofs: Vec<Proof>,
     }
-}
 
-// an example for implement of circuit
-impl Circuit<Fr> for MptCircuit {
-    type Config = (MptCircuitConfig, Challenge);
-    type FloorPlanner = SimpleFloorPlanner;
-
-    fn without_witnesses(&self) -> Self {
-        Self {
-            row_limit: self.row_limit,
-            ..Default::default()
+    impl TestCircuit {
+        fn new(n_rows: usize, traces: Vec<(MPTProofType, SMTTrace)>) -> Self {
+            Self {
+                n_rows,
+                proofs: traces.into_iter().map(Proof::from).collect(),
+            }
         }
     }
 
-    fn configure(meta: &mut ConstraintSystem<Fr>) -> Self::Config {
-        let hash_tbl = (meta.fixed_column(), [0; 5].map(|_| meta.advice_column()));
-        let challenge = meta.challenge_usable_after(FirstPhase);
+    impl Circuit<Fr> for TestCircuit {
+        type Config = (PoseidonTable, MptCircuitConfig);
+        type FloorPlanner = SimpleFloorPlanner;
 
-        (
-            MptCircuitConfig::create_core(meta, hash_tbl, challenge),
-            challenge,
-        )
+        fn without_witnesses(&self) -> Self {
+            Self::default()
+        }
+
+        fn configure(cs: &mut ConstraintSystem<Fr>) -> Self::Config {
+            let poseidon = PoseidonTable::configure(cs);
+            let challenge = cs.challenge_usable_after(FirstPhase);
+            let mpt_circuit_config =
+                MptCircuitConfig::configure(cs, challenge, &poseidon);
+            (poseidon, mpt_circuit_config)
+        }
+
+        fn synthesize(
+            &self,
+            config: Self::Config,
+            mut layouter: impl Layouter<Fr>,
+        ) -> Result<(), Error> {
+            let (poseidon, mpt_circuit_config) = config;
+            mpt_circuit_config.assign(&mut layouter, &self.proofs, self.n_rows);
+            layouter.assign_region(
+                || "load poseidon table",
+                |mut region| Ok(poseidon.load(&mut region, &hash_traces(&self.proofs), self.n_rows)),
+            )
+        }
     }
 
-    fn synthesize(
-        &self,
-        (config, challenge): Self::Config,
-        mut layouter: impl Layouter<Fr>,
-    ) -> Result<(), Error> {
-        let chg = layouter.get_challenge(challenge);
-
-        layouter.assign_region(
-            || "poseidon table for dev",
-            |mut region| {
-                config
-                    .poseidon_table
-                    .dev_load(&mut region, &self.hash_traces(), self.row_limit);
-                Ok(())
-            },
-        )?;
-
-        config.assign(&mut layouter, chg, &self.proofs, self.row_limit)?;
-
-        Ok(())
+    fn mock_prove(proof_type: MPTProofType, trace: &str) {
+        let circuit = TestCircuit::new(
+            N_ROWS,
+            vec![(proof_type, serde_json::from_str(trace).unwrap())],
+        );
+        let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
+        assert_eq!(prover.verify(), Ok(()));
     }
+
+    #[test]
+    fn test_empty() {
+        let circuit = TestCircuit {
+            n_rows: N_ROWS,
+            proofs: vec![],
+        };
+        let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
+        assert_eq!(prover.verify(), Ok(()));
+    }
+
+    #[test]
+    fn nonce_write_existing_account() {
+        mock_prove(
+            MPTProofType::NonceChanged,
+            include_str!("../tests/dual_code_hash/nonce_write_existing_account.json"),
+        );
+    }
+
+    #[test]
+    fn nonce_write_type_1_empty_account() {
+        mock_prove(
+            MPTProofType::NonceChanged,
+            include_str!("../tests/dual_code_hash/nonce_write_type_1_empty_account.json"),
+        );
+    }
+
+    #[test]
+    fn nonce_write_type_2_empty_account() {
+        mock_prove(
+            MPTProofType::NonceChanged,
+            include_str!("../tests/dual_code_hash/nonce_write_type_2_empty_account.json"),
+        );
+    }
+
+    #[test]
+    fn nonce_update_existing() {
+        mock_prove(
+            MPTProofType::NonceChanged,
+            include_str!("../tests/generated/nonce_update_existing.json"),
+        );
+    }
+
+    #[test]
+    fn nonce_update_type_1() {
+        mock_prove(
+            MPTProofType::NonceChanged,
+            include_str!("../tests/generated/nonce_update_type_1.json"),
+        );
+    }
+
+    #[test]
+    fn nonce_update_type_2() {
+        mock_prove(
+            MPTProofType::NonceChanged,
+            include_str!("../tests/generated/nonce_update_type_2.json"),
+        );
+    }
+
+    #[test]
+    fn balance_update_existing() {
+        mock_prove(
+            MPTProofType::BalanceChanged,
+            include_str!("../tests/generated/balance_update_existing.json"),
+        );
+    }
+
+    #[test]
+    fn balance_update_type_1() {
+        mock_prove(
+            MPTProofType::BalanceChanged,
+            include_str!("../tests/generated/balance_update_type_1.json"),
+        );
+    }
+
+    #[test]
+    fn balance_update_type_2() {
+        mock_prove(
+            MPTProofType::BalanceChanged,
+            include_str!("../tests/generated/balance_update_type_2.json"),
+        );
+    }
+
+    #[test]
+    fn code_size_update_existing() {
+        mock_prove(
+            MPTProofType::CodeSizeExists,
+            include_str!("../tests/generated/code_size_update_existing.json"),
+        );
+    }
+
+    #[test]
+    fn code_hash_update_existing() {
+        mock_prove(
+            MPTProofType::PoseidonCodeHashExists,
+            include_str!("../tests/generated/code_hash_update_existing.json"),
+        );
+    }
+
+    #[test]
+    fn keccak_code_hash_update_existing() {
+        mock_prove(
+            MPTProofType::CodeHashExists, // yes, the naming is very confusing :/
+            include_str!("../tests/generated/keccak_code_hash_update_existing.json"),
+        );
+    }
+
+    #[test]
+    fn keccak_code_hash_read_existing() {
+        mock_prove(
+            MPTProofType::CodeHashExists, // yes, the naming is very confusing :/
+            include_str!("../tests/generated/keccak_code_hash_read_existing.json"),
+        );
+    }
+
+    #[test]
+    fn update_storage_existing_to_existing() {
+        mock_prove(
+            MPTProofType::StorageChanged,
+            include_str!("../tests/generated/storage/update_storage_existing_to_existing.json"),
+        );
+    }
+
+    #[test]
+    fn nonexisting_type_1() {
+        mock_prove(
+            MPTProofType::AccountDoesNotExist,
+            include_str!("../tests/dual_code_hash/type_1_empty_account.json"),
+        );
+    }
+
+    #[test]
+    fn write_empty_storage_trie() {
+        mock_prove(
+            MPTProofType::StorageChanged,
+            include_str!("../tests/generated/storage/write_empty_storage_trie.json"),
+        );
+    }
+
+    #[test]
+    fn nonexisting_type_2() {
+        mock_prove(
+            MPTProofType::AccountDoesNotExist,
+            include_str!("../tests/dual_code_hash/type_2_empty_account.json"),
+        );
+    }
+
+    #[test]
+    fn write_singleton_storage_trie() {
+        mock_prove(
+            MPTProofType::StorageChanged,
+            include_str!("../tests/generated/storage/write_singleton_storage_trie.json"),
+        );
+    }
+
+    #[test]
+    fn write_zero_singleton_storage_trie() {
+        mock_prove(
+            MPTProofType::StorageChanged,
+            include_str!("../tests/generated/storage/write_zero_singleton_storage_trie.json"),
+        );
+    }
+
+    #[test]
+    fn write_zero_doubleton_storage_trie() {
+        mock_prove(
+            MPTProofType::StorageChanged,
+            include_str!("../tests/generated/storage/write_zero_doubleton_storage_trie.json"),
+        );
+    }
+
+    #[test]
+    fn write_zero_storage_trie() {
+        mock_prove(
+            MPTProofType::StorageChanged,
+            include_str!("../tests/generated/storage/write_zero_storage_trie.json"),
+        );
+    }
+
+    #[test]
+    fn empty_storage_proof_empty_trie() {
+        mock_prove(
+            MPTProofType::StorageDoesNotExist,
+            include_str!("../tests/generated/storage/empty_storage_proof_empty_trie.json"),
+        );
+    }
+
+    #[test]
+    fn empty_storage_proof_singleton_trie() {
+        mock_prove(
+            MPTProofType::StorageDoesNotExist,
+            include_str!("../tests/generated/storage/empty_storage_proof_singleton_trie.json"),
+        );
+    }
+
+    #[test]
+    fn empty_storage_proof_type_1() {
+        mock_prove(
+            MPTProofType::StorageDoesNotExist,
+            include_str!("../tests/generated/storage/empty_storage_proof_type_1.json"),
+        );
+    }
+
+    #[test]
+    fn empty_storage_proof_type_2() {
+        mock_prove(
+            MPTProofType::StorageDoesNotExist,
+            include_str!("../tests/generated/storage/empty_storage_proof_type_2.json"),
+        );
+    }
+
+    #[test]
+    fn prove_updates() {
+        let updates = vec![
+            EMPTY_STORAGE_PROOF_TYPE_2.clone(),
+            EMPTY_STORAGE_PROOF_SINGLETON_TRIE.clone(),
+            EMPTY_ACCOUNT_PROOF_TYPE_2.clone(),
+            NONCE_WRITE_TYPE_2_EMPTY_ACCOUNT.clone(),
+        ];
+
+        let circuit = TestCircuit::new(N_ROWS, updates);
+        let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
+        assert_eq!(prover.verify(), Ok(()));
+    }
+
+    #[test]
+    fn empty_account_empty_storage() {
+        mock_prove(
+            MPTProofType::StorageDoesNotExist,
+            include_str!("../tests/generated/storage/empty_account_empty_storage_proof.json"),
+        );
+    }
+    /*
+    #[test]
+    fn uniswapv2_factory_create_pair() {
+        let updates = serde_json::from_str(include_str!(
+            "../../tests/mock_test_traces/uniswapv2_factory-createPair.json"
+        ))
+        .unwrap();
+        let circuit = TestCircuit::new(4096, updates);
+        let prover = MockProver::<Fr>::run(16, &circuit, vec![]).unwrap();
+        assert_eq!(prover.verify(), Ok(()));
+    }
+    */
 }
