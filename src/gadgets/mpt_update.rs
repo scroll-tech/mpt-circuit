@@ -39,7 +39,7 @@ lazy_static! {
 }
 
 pub trait MptUpdateLookup<F: FieldExt> {
-    fn lookup(&self) -> [Query<F>; 7];
+    fn lookup(&self) -> [Query<F>; 8];
 }
 
 #[derive(Clone)]
@@ -68,7 +68,7 @@ pub struct MptUpdateConfig {
 }
 
 impl<F: FieldExt> MptUpdateLookup<F> for MptUpdateConfig {
-    fn lookup(&self) -> [Query<F>; 7] {
+    fn lookup(&self) -> [Query<F>; 8] {
         let is_start = || self.segment_type.current_matches(&[SegmentType::Start]);
         let old_root = self.old_hash.current() * is_start();
         let new_root = self.new_hash.current() * is_start();
@@ -78,13 +78,14 @@ impl<F: FieldExt> MptUpdateLookup<F> for MptUpdateConfig {
         let address = self.intermediate_values[0].current() * is_start();
         let storage_key_rlc = self.storage_key_rlc.current() * is_start();
         [
-            proof_type,
-            old_root,
-            new_root,
-            old_value,
-            new_value,
+            is_start().into(),
             address,
             storage_key_rlc,
+            proof_type,
+            new_root,
+            old_root,
+            new_value,
+            old_value,
         ]
     }
 }
