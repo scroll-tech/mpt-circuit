@@ -7,11 +7,10 @@ pub mod gadgets;
 mod mpt_table;
 pub mod types;
 mod util;
-// mod mpt_circuit;
 
+pub mod mpt;
 pub mod serde;
 
-// use hash_circuit::hash::Hashable;
-
-// pub use gadgets::mpt_update::MptUpdateConfig;
+pub use gadgets::{mpt_update::hash_traces, poseidon::PoseidonLookup};
+pub use mpt::MptCircuitConfig;
 pub use mpt_table::MPTProofType;
