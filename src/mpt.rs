@@ -445,6 +445,14 @@ mod test {
             include_str!("../tests/generated/storage/empty_account_empty_storage_proof.json"),
         );
     }
+
+    #[test]
+    fn degree() {
+        let mut meta = ConstraintSystem::<Fr>::default();
+        TestCircuit::configure(&mut meta);
+        assert_eq!(meta.degree(), 9);
+    }
+
     /*
     #[test]
     fn uniswapv2_factory_create_pair() {
