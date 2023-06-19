@@ -118,7 +118,7 @@ impl MptUpdateConfig {
             is_start.clone().into(),
             path_type.current_matches(&[PathType::Start]).into(),
         );
-        cb.condition(is_start.clone(), |cb| {
+        cb.condition(is_start.clone().and(cb.every_row_selector()), |cb| {
             let [address, address_high, ..] = intermediate_values;
             let address_low: Query<F> = (address.current() - address_high.current() * (1 << 32))
                 * (1 << 32)
