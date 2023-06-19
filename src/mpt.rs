@@ -5,16 +5,20 @@ use crate::{
         byte_representation::ByteRepresentationConfig,
         canonical_representation::CanonicalRepresentationConfig,
         key_bit::KeyBitConfig,
-        mpt_update::{byte_representations, key_bit_lookups, mpt_update_keys, MptUpdateConfig},
+        mpt_update::{
+            byte_representations, key_bit_lookups, mpt_update_keys, MptUpdateConfig,
+            MptUpdateLookup,
+        },
         poseidon::PoseidonLookup,
         rlc_randomness::RlcRandomness,
     },
     types::Proof,
 };
 use halo2_proofs::{
+    arithmetic::FieldExt,
     circuit::Layouter,
     halo2curves::bn256::Fr,
-    plonk::{Challenge, ConstraintSystem, Error},
+    plonk::{Challenge, ConstraintSystem, Error, Expression, VirtualCells},
 };
 
 /// Config for MptCircuit
@@ -113,6 +117,10 @@ impl MptCircuitConfig {
                 Ok(())
             },
         )
+    }
+
+    pub fn lookup_exprs<F: FieldExt>(&self, meta: &mut VirtualCells<'_, F>) -> [Expression<F>; 8] {
+        self.mpt_update.lookup().map(|q| q.run(meta))
     }
 }
 
