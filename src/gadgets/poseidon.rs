@@ -1,22 +1,19 @@
 #[cfg(test)]
 use crate::util::hash as poseidon_hash;
 use crate::{
-    constraint_builder::{
-        AdviceColumn, ConstraintBuilder, FixedColumn, Query,
-    },
+    constraint_builder::{AdviceColumn, ConstraintBuilder, FixedColumn, Query},
     types::HASH_ZERO_ZERO,
 };
-use halo2_proofs::arithmetic::FieldExt;
-#[cfg(test)]
 use halo2_proofs::{
-    circuit::{Region},
-    halo2curves::bn256::Fr,
-    plonk::ConstraintSystem,
+    arithmetic::FieldExt,
+    plonk::{Advice, Column, Fixed},
 };
+#[cfg(test)]
+use halo2_proofs::{circuit::Region, halo2curves::bn256::Fr, plonk::ConstraintSystem};
 
 /// The selector and advice columns of the poseidon table in the super circuit
 pub trait PoseidonLookup {
-    fn lookup_columns(&self) -> (FixedColumn, [AdviceColumn; 5]);
+    fn lookup_columns(&self) -> (Column<Fixed>, [Column<Advice>; 5]);
 }
 
 impl<F: FieldExt> ConstraintBuilder<F> {
@@ -41,12 +38,12 @@ impl<F: FieldExt> ConstraintBuilder<F> {
             name,
             extended_queries,
             [
-                q_enable.current(),
-                hash.current(),
-                left.current(),
-                right.current(),
-                control.current(),
-                head_mark.current(),
+                FixedColumn(q_enable).current(),
+                AdviceColumn(hash).current(),
+                AdviceColumn(left).current(),
+                AdviceColumn(right).current(),
+                AdviceColumn(control).current(),
+                AdviceColumn(head_mark).current(),
             ],
             [
                 Query::one(),
@@ -109,15 +106,15 @@ impl PoseidonTable {
 
 #[cfg(test)]
 impl PoseidonLookup for PoseidonTable {
-    fn lookup_columns(&self) -> (FixedColumn, [AdviceColumn; 5]) {
+    fn lookup_columns(&self) -> (Column<Fixed>, [Column<Advice>; 5]) {
         (
-            self.q_enable,
+            self.q_enable.0,
             [
-                self.left,
-                self.right,
-                self.hash,
-                self.control,
-                self.head_mark,
+                self.left.0,
+                self.right.0,
+                self.hash.0,
+                self.control.0,
+                self.head_mark.0,
             ],
         )
     }

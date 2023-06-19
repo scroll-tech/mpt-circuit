@@ -11,6 +11,6 @@ mod util;
 pub mod mpt;
 pub mod serde;
 
-pub use gadgets::mpt_update::hash_traces;
+pub use gadgets::{mpt_update::hash_traces, poseidon::PoseidonLookup};
 pub use mpt::MptCircuitConfig;
 pub use mpt_table::MPTProofType;
