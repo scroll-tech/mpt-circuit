@@ -70,8 +70,8 @@ pub struct MptUpdateConfig {
 impl<F: FieldExt> MptUpdateLookup<F> for MptUpdateConfig {
     fn lookup(&self) -> [Query<F>; 8] {
         let is_start = || self.segment_type.current_matches(&[SegmentType::Start]);
-        let old_root = self.old_hash.current() * is_start();
-        let new_root = self.new_hash.current() * is_start();
+        let old_root_rlc = self.second_phase_intermediate_values[0].current() * is_start();
+        let new_root_rlc = self.second_phase_intermediate_values[1].current() * is_start();
         let proof_type = self.proof_type.current();
         let old_value = self.old_value.current() * is_start();
         let new_value = self.new_value.current() * is_start();
@@ -82,8 +82,8 @@ impl<F: FieldExt> MptUpdateLookup<F> for MptUpdateConfig {
             address,
             storage_key_rlc,
             proof_type,
-            new_root,
-            old_root,
+            new_root_rlc,
+            old_root_rlc,
             new_value,
             old_value,
         ]
@@ -99,6 +99,7 @@ impl MptUpdateConfig {
         rlc: &impl RlcLookup,
         bytes: &impl BytesLookup,
         rlc_randomness: &RlcRandomness,
+        fr_rlc: &impl RlcLookup,
     ) -> Self {
         let proof_type: OneHot<MPTProofType> = OneHot::configure(cs, cb);
         let [storage_key_rlc, old_value, new_value] = cb.second_phase_advice_columns(cs);
@@ -121,6 +122,7 @@ impl MptUpdateConfig {
         );
         cb.condition(is_start.clone().and(cb.every_row_selector()), |cb| {
             let [address, address_high, ..] = intermediate_values;
+            let [old_hash_rlc, new_hash_rlc, ..] = second_phase_intermediate_values;
             let address_low: Query<F> = (address.current() - address_high.current() * (1 << 32))
                 * (1 << 32)
                 * (1 << 32)
@@ -129,6 +131,16 @@ impl MptUpdateConfig {
                 "account mpt key = h(address_high, address_low)",
                 [address_high.current(), address_low, key.current()],
                 poseidon,
+            );
+            cb.add_lookup(
+                "rlc_old_root = rlc(old_root)",
+                [old_hash.current(), old_hash_rlc.current(), Query::from(31)],
+                fr_rlc.lookup(),
+            );
+            cb.add_lookup(
+                "rlc_new_root = rlc(new_root)",
+                [new_hash.current(), new_hash_rlc.current(), Query::from(31)],
+                fr_rlc.lookup(),
             );
         });
         cb.condition(!is_start, |cb| {
@@ -356,6 +368,23 @@ impl MptUpdateConfig {
                 region,
                 offset,
                 Fr::from_u128(address_high(proof.claim.address)),
+            );
+
+            let rlc_fr = |x: Fr| {
+                let mut bytes = x.to_bytes();
+                bytes.reverse();
+                randomness.map(|r| rlc(&bytes, r))
+            };
+
+            self.second_phase_intermediate_values[0].assign(
+                region,
+                offset,
+                rlc_fr(proof.claim.old_root),
+            );
+            self.second_phase_intermediate_values[1].assign(
+                region,
+                offset,
+                rlc_fr(proof.claim.new_root),
             );
 
             offset += 1;
@@ -2055,6 +2084,8 @@ pub fn mpt_update_keys(proofs: &[Proof]) -> Vec<Fr> {
         keys.push(proof.new.key);
         keys.push(account_key(proof.claim.address));
         keys.extend(proof.storage.key_lookups());
+        keys.push(proof.claim.old_root);
+        keys.push(proof.claim.new_root);
     }
     keys
 }

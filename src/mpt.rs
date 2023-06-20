@@ -47,7 +47,7 @@ impl MptCircuitConfig {
         let byte_representation =
             ByteRepresentationConfig::configure(cs, &mut cb, &byte_bit, &rlc_randomness);
         let canonical_representation =
-            CanonicalRepresentationConfig::configure(cs, &mut cb, &byte_bit);
+            CanonicalRepresentationConfig::configure(cs, &mut cb, &byte_bit, &rlc_randomness);
         let key_bit = KeyBitConfig::configure(
             cs,
             &mut cb,
@@ -65,6 +65,7 @@ impl MptCircuitConfig {
             &byte_representation,
             &byte_representation,
             &rlc_randomness,
+            &canonical_representation,
         );
 
         cb.build(cs);
@@ -96,8 +97,11 @@ impl MptCircuitConfig {
                     self.selector.enable(&mut region, offset);
                 }
 
-                self.canonical_representation
-                    .assign(&mut region, &mpt_update_keys(proofs));
+                self.canonical_representation.assign(
+                    &mut region,
+                    randomness,
+                    &mpt_update_keys(proofs),
+                );
                 self.key_bit.assign(&mut region, &key_bit_lookups(proofs));
                 self.byte_bit.assign(&mut region);
                 self.byte_representation
