@@ -31,7 +31,10 @@ impl<F: FieldExt> ConstraintBuilder<F> {
     }
 
     pub fn every_row_selector(&self) -> BinaryQuery<F> {
-        self.conditions.first().expect("every_row selector should always be first condition").clone()
+        self.conditions
+            .first()
+            .expect("every_row selector should always be first condition")
+            .clone()
     }
 
     pub fn assert_zero(&mut self, name: &'static str, query: Query<F>) {
@@ -68,7 +71,8 @@ impl<F: FieldExt> ConstraintBuilder<F> {
     ) {
         let condition = self
             .conditions
-            .iter().skip(1) // Save a degree by skipping every row selector
+            .iter()
+            .skip(1) // Save a degree by skipping every row selector
             .fold(BinaryQuery::one(), |a, b| a.clone().and(b.clone()));
         let lookup = left
             .into_iter()
@@ -87,7 +91,8 @@ impl<F: FieldExt> ConstraintBuilder<F> {
     ) {
         let condition = self
             .conditions
-            .iter().skip(1) // Save a degree by skipping every row selector
+            .iter()
+            .skip(1) // Save a degree by skipping every row selector
             .fold(BinaryQuery::one(), |a, b| a.clone().and(b.clone()));
         let lookup = left
             .into_iter()
