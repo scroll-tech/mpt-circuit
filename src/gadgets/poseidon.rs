@@ -41,7 +41,7 @@ impl<F: FieldExt> ConstraintBuilder<F> {
 
         let (q_enable, [hash, left, right, control, head_mark]) = poseidon.lookup_columns();
 
-        self.add_lookup_with_default(
+        self.add_lookup(
             name,
             extended_queries,
             [
@@ -51,14 +51,6 @@ impl<F: FieldExt> ConstraintBuilder<F> {
                 right.current(),
                 control.current(),
                 head_mark.current(),
-            ],
-            [
-                Query::one(),
-                Query::from(*HASH_ZERO_ZERO),
-                Query::zero(),
-                Query::zero(),
-                Query::zero(),
-                Query::one(),
             ],
         )
     }
