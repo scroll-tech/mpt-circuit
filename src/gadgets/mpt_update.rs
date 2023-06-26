@@ -1395,7 +1395,7 @@ fn configure_code_size<F: FieldExt>(
 fn configure_balance<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
-    _rlc: &impl RlcLookup,
+    rlc: &impl RlcLookup,
 ) {
     for variant in SegmentType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
@@ -1433,32 +1433,32 @@ fn configure_balance<F: FieldExt>(
                     config
                         .path_type
                         .current_matches(&[PathType::Common, PathType::ExtensionOld]),
-                    |_cb| {
-                        // cb.add_lookup(
-                        //     "old balance is rlc(old_hash) and fits into 31 bytes",
-                        //     [
-                        //         config.old_hash.current(),
-                        //         Query::from(30),
-                        //         config.old_value.current(),
-                        //     ],
-                        //     rlc.lookup(),
-                        // );
+                    |cb| {
+                        cb.add_lookup(
+                            "old balance is rlc(old_hash) and fits into 31 bytes",
+                            [
+                                config.old_hash.current(),
+                                Query::from(30),
+                                config.old_value.current(),
+                            ],
+                            rlc.lookup(),
+                        );
                     },
                 );
                 cb.condition(
                     config
                         .path_type
                         .current_matches(&[PathType::Common, PathType::ExtensionNew]),
-                    |_cb| {
-                        // cb.add_lookup(
-                        //     "new balance is rlc(new_hash) and fits into 31 bytes",
-                        //     [
-                        //         config.new_hash.current(),
-                        //         Query::from(30),
-                        //         config.new_value.current(),
-                        //     ],
-                        //     rlc.lookup(),
-                        // );
+                    |cb| {
+                        cb.add_lookup(
+                            "new balance is rlc(new_hash) and fits into 31 bytes",
+                            [
+                                config.new_hash.current(),
+                                Query::from(30),
+                                config.new_value.current(),
+                            ],
+                            rlc.lookup(),
+                        );
                     },
                 );
             }
