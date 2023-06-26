@@ -127,14 +127,19 @@ impl CanonicalRepresentationConfig {
         }
     }
 
-    pub fn assign(&self, region: &mut Region<'_, Fr>, randomness: Value<Fr>, values: &[Fr]) {
+    pub fn assign<'a>(
+        &self,
+        region: &mut Region<'_, Fr>,
+        randomness: Value<Fr>,
+        values: impl IntoIterator<Item = &'a Fr>,
+    ) {
         let modulus = U256::from_str_radix(Fr::MODULUS, 16).unwrap();
         let mut modulus_bytes = [0u8; 32];
         modulus.to_big_endian(&mut modulus_bytes);
 
         let mut offset = 0;
         // TODO: we add a final Fr::zero() to handle the always enabled selector. Add a default assignment instead?
-        for value in values.iter().chain(&[Fr::zero()]) {
+        for value in values.into_iter().copied().chain([Fr::zero()]) {
             let mut bytes = value.to_bytes();
             bytes.reverse();
             let mut differences_are_zero_so_far = true;
@@ -161,7 +166,7 @@ impl CanonicalRepresentationConfig {
                 );
                 differences_are_zero_so_far &= difference.is_zero_vartime();
 
-                self.value.assign(region, offset, *value);
+                self.value.assign(region, offset, value);
 
                 rlc = rlc * randomness + Value::known(Fr::from(u64::from(*byte)));
                 self.rlc.assign(region, offset, rlc);

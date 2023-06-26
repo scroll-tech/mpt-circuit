@@ -97,10 +97,23 @@ impl MptCircuitConfig {
                     self.selector.enable(&mut region, offset);
                 }
 
+                // pad canonical_representation to fixed count
+                // notice each input cost 32 rows in canonical_representation, and inside
+                // assign one extra input is added
+                let keys = mpt_update_keys(proofs);
+                let total_rep_size = n_rows / 32 - 1;
+                assert!(
+                    total_rep_size >= keys.len(),
+                    "no enough space for canonical representation of all keys (need {})",
+                    keys.len()
+                );
+
                 self.canonical_representation.assign(
                     &mut region,
                     randomness,
-                    &mpt_update_keys(proofs),
+                    keys.iter()
+                        .chain(std::iter::repeat(&Fr::zero()))
+                        .take(total_rep_size),
                 );
                 self.key_bit.assign(&mut region, &key_bit_lookups(proofs));
                 self.byte_bit.assign(&mut region);
