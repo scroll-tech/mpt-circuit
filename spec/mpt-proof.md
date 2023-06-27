@@ -4,8 +4,6 @@ tags: zkevm-circuits
 
 # MPT circuit doc/spec draft
 
-code: https://github.com/scroll-tech/mpt-circuit `feat/refactor` branch and `feat/refactor_nonce` branch.
-
 This draft may serve as a preliminary version of a part of future documentation/spec.
 
 Notice that the document is <i>not final</i> and may change due to potential errors in my understanding of the codebase or due to frequent changes of the codebase itself.
