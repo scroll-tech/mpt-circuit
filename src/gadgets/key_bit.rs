@@ -1,9 +1,9 @@
 use super::{
     byte_bit::{ByteBitLookup, RangeCheck256Lookup, RangeCheck8Lookup},
     canonical_representation::CanonicalRepresentationLookup,
+    rlc_randomness::RlcRandomness,
 };
 use crate::constraint_builder::{AdviceColumn, ConstraintBuilder, Query, SelectorColumn};
-use crate::types::Bit;
 use halo2_proofs::{
     arithmetic::FieldExt, circuit::Region, halo2curves::bn256::Fr, plonk::ConstraintSystem,
 };
@@ -144,6 +144,7 @@ mod test {
             KeyBitConfig,
             ByteBitGadget,
             CanonicalRepresentationConfig,
+            RlcRandomness,
         );
         type FloorPlanner = SimpleFloorPlanner;
 
@@ -156,8 +157,9 @@ mod test {
             let mut cb = ConstraintBuilder::new(selector);
 
             let byte_bit = ByteBitGadget::configure(cs, &mut cb);
+            let randomness = RlcRandomness::configure(cs);
             let canonical_representation =
-                CanonicalRepresentationConfig::configure(cs, &mut cb, &byte_bit);
+                CanonicalRepresentationConfig::configure(cs, &mut cb, &byte_bit, &randomness);
             let key_bit = KeyBitConfig::configure(
                 cs,
                 &mut cb,
@@ -167,7 +169,13 @@ mod test {
                 &byte_bit,
             );
             cb.build(cs);
-            (selector, key_bit, byte_bit, canonical_representation)
+            (
+                selector,
+                key_bit,
+                byte_bit,
+                canonical_representation,
+                randomness,
+            )
         }
 
         fn synthesize(
@@ -177,7 +185,8 @@ mod test {
         ) -> Result<(), Error> {
             let keys: Vec<_> = self.lookups.iter().map(|lookup| lookup.0).collect();
 
-            let (selector, key_bit, byte_bit, canonical_representation) = config;
+            let (selector, key_bit, byte_bit, canonical_representation, rlc_randomness) = config;
+            let randomness = rlc_randomness.value(&layouter);
 
             layouter.assign_region(
                 || "",
@@ -188,7 +197,7 @@ mod test {
 
                     key_bit.assign(&mut region, &self.lookups);
                     byte_bit.assign(&mut region);
-                    canonical_representation.assign(&mut region, &keys);
+                    canonical_representation.assign(&mut region, randomness, &keys);
                     Ok(())
                 },
             )

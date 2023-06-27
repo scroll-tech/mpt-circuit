@@ -10,19 +10,19 @@ use halo2_proofs::{
 pub struct BinaryColumn(pub Column<Advice>);
 
 impl BinaryColumn {
-    pub fn rotation<F: FieldExt>(self, i: i32) -> BinaryQuery<F> {
+    pub fn rotation<F: FieldExt>(&self, i: i32) -> BinaryQuery<F> {
         BinaryQuery(Query::Advice(self.0, i))
     }
 
-    pub fn current<F: FieldExt>(self) -> BinaryQuery<F> {
+    pub fn current<F: FieldExt>(&self) -> BinaryQuery<F> {
         self.rotation(0)
     }
 
-    pub fn previous<F: FieldExt>(self) -> BinaryQuery<F> {
+    pub fn previous<F: FieldExt>(&self) -> BinaryQuery<F> {
         self.rotation(-1)
     }
 
-    pub fn next<F: FieldExt>(self) -> BinaryQuery<F> {
+    pub fn next<F: FieldExt>(&self) -> BinaryQuery<F> {
         self.rotation(1)
     }
 

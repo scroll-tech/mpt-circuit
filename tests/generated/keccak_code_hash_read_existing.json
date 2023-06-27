@@ -3,60 +3,60 @@
   "accountKey": "0x7888131573444f4c71462edba7496ef473ba878418a310b4f4eb87c09185f708",
   "accountPath": [
     {
-      "root": "0xde7c1a6bd50c72a38380ba48b1f0b5f4f09569bc6c7ba92b797ed13e42039005",
+      "root": "0xcae360d722b28382e2f20e2f22bfc97d935842754377295859d30c5450fc1d24",
       "leaf": {
-        "value": "0x3b857f1d74e745ed68b98c1fa528f60a86acbd7b0485bdef8846d97a214e8217",
+        "value": "0x7b879d30033234488b13a335e12dd5428ea476a27301d28c8a671cc9fe1bb319",
         "sibling": "0x7888131573444f4c71462edba7496ef473ba878418a310b4f4eb87c09185f708"
       },
       "path": [
         {
-          "value": "0x78c8b2c45518052aa33fda8a233d810bfb324247620ef21950b50bfbef4e3107",
+          "value": "0xcab66cbe55c05b79d0cf95a15ceca5de571c5b9a2cf578cc264fbbd605854227",
           "sibling": "0x0000000000000000000000000000000000000000000000000000000000000000"
         },
         {
-          "value": "0x56423216898a631cd839064806626e26cadec1a5f1fc054b39cf36f48893b42d",
+          "value": "0xf8c0e48db7f1506b34e48d45b1f849f8ad25dccf52ed38ca8bf3f7f3518c0f0c",
           "sibling": "0x0000000000000000000000000000000000000000000000000000000000000000"
         },
         {
-          "value": "0x0f88d9b447053acefdad6d389912c102411f50a36e6ed39311e90c32eb10390e",
+          "value": "0xb68eed7bc14603db67c0bdea56ddfdd370571e68397de07f8da1c2b787fe830b",
           "sibling": "0xea615108b4731ffafe5db875fb11ff8cbf703ca0e79d845740f2c2e989917a19"
         },
         {
-          "value": "0xf43935955a38be73e5507f885822483339cd3a3e3f74d7a9b198842ec79d842e",
+          "value": "0x55f4551bb6d205bbae51fb409d31115e59ac8f4d1503f2472bc256e35c510125",
           "sibling": "0x0000000000000000000000000000000000000000000000000000000000000000"
         },
         {
-          "value": "0x537b2b01db958f5479f7e4d656cd0d11a39173246f0400ccfa903a0988046c11",
+          "value": "0xa488dcc454ed846ff6d0fd01ece6d996220ad65048ac1d6c311aee9de0e9e922",
           "sibling": "0x3a38f3c3a90865873c80ca022b406b81d9feb3bf59707f0b9bcfe7e4024d3417"
         }
       ],
       "pathPart": "0x18"
     },
     {
-      "root": "0x61698e7b22ab359691df18a6eee4526a9c2bd17882108152c9537955f36db226",
+      "root": "0xcae360d722b28382e2f20e2f22bfc97d935842754377295859d30c5450fc1d24",
       "leaf": {
-        "value": "0x4a5fa37d0cb8dbef45d5b39d67d5a3d81c37365696d65ee7effdb5ea62019921",
+        "value": "0x7b879d30033234488b13a335e12dd5428ea476a27301d28c8a671cc9fe1bb319",
         "sibling": "0x7888131573444f4c71462edba7496ef473ba878418a310b4f4eb87c09185f708"
       },
       "path": [
         {
-          "value": "0x06f30094bb962155fbc2a7529fa247c56865a75d985f3ee01189a6f17ae7c723",
+          "value": "0xcab66cbe55c05b79d0cf95a15ceca5de571c5b9a2cf578cc264fbbd605854227",
           "sibling": "0x0000000000000000000000000000000000000000000000000000000000000000"
         },
         {
-          "value": "0xc02aa2a0a71d4fd465a8347f53f9385591609651915f09e220c8d19652475915",
+          "value": "0xf8c0e48db7f1506b34e48d45b1f849f8ad25dccf52ed38ca8bf3f7f3518c0f0c",
           "sibling": "0x0000000000000000000000000000000000000000000000000000000000000000"
         },
         {
-          "value": "0xd5e1b7b1063460eb11e6b8b6c4e6cc5c7c3e60e3dbe4ca859411701b763b9016",
+          "value": "0xb68eed7bc14603db67c0bdea56ddfdd370571e68397de07f8da1c2b787fe830b",
           "sibling": "0xea615108b4731ffafe5db875fb11ff8cbf703ca0e79d845740f2c2e989917a19"
         },
         {
-          "value": "0x7c3c7502f4ea29f3e1cb7f972403e6541d4506b3bae0d4dc92765531f5ab6113",
+          "value": "0x55f4551bb6d205bbae51fb409d31115e59ac8f4d1503f2472bc256e35c510125",
           "sibling": "0x0000000000000000000000000000000000000000000000000000000000000000"
         },
         {
-          "value": "0x45ef29c5b35f94102734a6a7d213cd432f38a20bfa1fa25e9e5a05c691278f06",
+          "value": "0xa488dcc454ed846ff6d0fd01ece6d996220ad65048ac1d6c311aee9de0e9e922",
           "sibling": "0x3a38f3c3a90865873c80ca022b406b81d9feb3bf59707f0b9bcfe7e4024d3417"
         }
       ],
@@ -65,16 +65,16 @@
   ],
   "accountUpdate": [
     {
-      "nonce": 0,
-      "balance": "0xffffffffffffffff",
-      "codeHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "nonce": 1,
+      "balance": "0x0",
+      "codeHash": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
       "poseidonCodeHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
       "codeSize": 0
     },
     {
-      "nonce": 0,
-      "balance": "0xfffbffffffffffff",
-      "codeHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "nonce": 1,
+      "balance": "0x0",
+      "codeHash": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
       "poseidonCodeHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
       "codeSize": 0
     }

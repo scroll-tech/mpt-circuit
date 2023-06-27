@@ -1,7 +1,9 @@
 use super::BinaryQuery;
+use ethers_core::k256::elliptic_curve::PrimeField;
 use halo2_proofs::{
     arithmetic::{Field, FieldExt},
-    plonk::{Advice, Column, Expression, Fixed, Instance, VirtualCells},
+    halo2curves::bn256::Fr,
+    plonk::{Advice, Challenge, Column, Expression, Fixed, VirtualCells},
     poly::Rotation,
 };
 
@@ -9,7 +11,7 @@ use halo2_proofs::{
 pub enum ColumnType {
     Advice,
     Fixed,
-    Instance,
+    Challenge,
 }
 
 #[derive(Clone)]
@@ -17,7 +19,7 @@ pub enum Query<F: Clone> {
     Constant(F),
     Advice(Column<Advice>, i32),
     Fixed(Column<Fixed>, i32),
-    Instance(Column<Instance>, i32),
+    Challenge(Challenge),
     Neg(Box<Self>),
     Add(Box<Self>, Box<Self>),
     Mul(Box<Self>, Box<Self>),
@@ -32,22 +34,43 @@ impl<F: FieldExt> Query<F> {
         Self::from(1)
     }
 
+    fn two_to_the_64th() -> Self {
+        Self::from(1 << 32).square()
+    }
+
     pub fn run(&self, meta: &mut VirtualCells<'_, F>) -> Expression<F> {
         match self {
             Query::Constant(f) => Expression::Constant(*f),
             Query::Advice(c, r) => meta.query_advice(*c, Rotation(*r)),
             Query::Fixed(c, r) => meta.query_fixed(*c, Rotation(*r)),
-            Query::Instance(c, r) => meta.query_instance(*c, Rotation(*r)),
+            Query::Challenge(c) => meta.query_challenge(*c),
             Query::Neg(q) => Expression::Constant(F::zero()) - q.run(meta),
             Query::Add(q, u) => q.run(meta) + u.run(meta),
             Query::Mul(q, u) => q.run(meta) * u.run(meta),
         }
+    }
+
+    pub fn square(self) -> Self {
+        self.clone() * self
     }
 }
 
 impl<F: FieldExt> From<u64> for Query<F> {
     fn from(x: u64) -> Self {
         Self::Constant(F::from(x))
+    }
+}
+
+impl<F: FieldExt> From<Fr> for Query<F> {
+    fn from(x: Fr) -> Self {
+        let little_endian_bytes = x.to_repr();
+        let little_endian_limbs = little_endian_bytes
+            .as_slice()
+            .chunks_exact(8)
+            .map(|s| u64::from_le_bytes(s.try_into().unwrap()));
+        little_endian_limbs.rfold(Query::zero(), |result, limb| {
+            result * Query::two_to_the_64th() + limb
+        })
     }
 }
 

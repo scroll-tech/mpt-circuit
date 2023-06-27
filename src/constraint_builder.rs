@@ -1,4 +1,7 @@
-use halo2_proofs::{arithmetic::FieldExt, plonk::ConstraintSystem};
+use halo2_proofs::{
+    arithmetic::FieldExt,
+    plonk::{ConstraintSystem, SecondPhase},
+};
 
 mod binary_column;
 mod binary_query;
@@ -7,11 +10,10 @@ mod query;
 
 pub use binary_column::BinaryColumn;
 pub use binary_query::BinaryQuery;
-pub use column::{AdviceColumn, FixedColumn, SelectorColumn};
+pub use column::{AdviceColumn, FixedColumn, SecondPhaseAdviceColumn, SelectorColumn};
 pub use query::Query;
 
 pub struct ConstraintBuilder<F: FieldExt> {
-    // TODO: cs: &mut ConstraintSystem<F>...
     constraints: Vec<(&'static str, Query<F>)>,
     lookups: Vec<(&'static str, Vec<(Query<F>, Query<F>)>)>,
 
@@ -26,6 +28,13 @@ impl<F: FieldExt> ConstraintBuilder<F> {
 
             conditions: vec![every_row.current()],
         }
+    }
+
+    pub fn every_row_selector(&self) -> BinaryQuery<F> {
+        self.conditions
+            .first()
+            .expect("every_row selector should always be first condition")
+            .clone()
     }
 
     pub fn assert_zero(&mut self, name: &'static str, query: Query<F>) {
@@ -63,10 +72,32 @@ impl<F: FieldExt> ConstraintBuilder<F> {
         let condition = self
             .conditions
             .iter()
+            .skip(1) // Save a degree by skipping every row selector
             .fold(BinaryQuery::one(), |a, b| a.clone().and(b.clone()));
         let lookup = left
             .into_iter()
             .map(|q| q * condition.clone())
+            .zip(right.into_iter())
+            .collect();
+        self.lookups.push((name, lookup))
+    }
+
+    pub fn add_lookup_with_default<const N: usize>(
+        &mut self,
+        name: &'static str,
+        left: [Query<F>; N],
+        right: [Query<F>; N],
+        default: [Query<F>; N],
+    ) {
+        let condition = self
+            .conditions
+            .iter()
+            .skip(1) // Save a degree by skipping every row selector
+            .fold(BinaryQuery::one(), |a, b| a.clone().and(b.clone()));
+        let lookup = left
+            .into_iter()
+            .zip(default.into_iter())
+            .map(|(a, b)| condition.select(a, b))
             .zip(right.into_iter())
             .collect();
         self.lookups.push((name, lookup))
@@ -87,6 +118,13 @@ impl<F: FieldExt> ConstraintBuilder<F> {
         cs: &mut ConstraintSystem<F>,
     ) -> [AdviceColumn; N] {
         [0; N].map(|_| AdviceColumn(cs.advice_column()))
+    }
+
+    pub fn second_phase_advice_columns<const N: usize>(
+        &self,
+        cs: &mut ConstraintSystem<F>,
+    ) -> [SecondPhaseAdviceColumn; N] {
+        [0; N].map(|_| SecondPhaseAdviceColumn(cs.advice_column_in(SecondPhase)))
     }
 
     pub fn binary_columns<const N: usize>(

@@ -1,0 +1,67 @@
+{
+  "address": "0x0000000000000000000000000000000000000000",
+  "accountKey": "0x6448b64684ee39a823d5fe5fd52431dc81e4817bf2c3ea3cab9e239efbf59820",
+  "accountPath": [
+    {
+      "root": "0xd9c9aa90e270b62c12d75bb8dad905715af9da6f32f304af038622bfd62fb42f",
+      "leaf": {
+        "value": "0x7c1a502475f9034868aae191182df74701eee61654abd1f527dfe91df0e4e228",
+        "sibling": "0x6448b64684ee39a823d5fe5fd52431dc81e4817bf2c3ea3cab9e239efbf59820"
+      },
+      "pathPart": "0x0"
+    },
+    {
+      "root": "0xd9c9aa90e270b62c12d75bb8dad905715af9da6f32f304af038622bfd62fb42f",
+      "leaf": {
+        "value": "0x7c1a502475f9034868aae191182df74701eee61654abd1f527dfe91df0e4e228",
+        "sibling": "0x6448b64684ee39a823d5fe5fd52431dc81e4817bf2c3ea3cab9e239efbf59820"
+      },
+      "pathPart": "0x0"
+    }
+  ],
+  "accountUpdate": [
+    {
+      "nonce": 1,
+      "balance": "0x0",
+      "codeHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "poseidonCodeHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "codeSize": 0
+    },
+    {
+      "nonce": 1,
+      "balance": "0x0",
+      "codeHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "poseidonCodeHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "codeSize": 0
+    }
+  ],
+  "statePath": [
+    {
+      "root": "0x875a0cfbaf9d0f2baeb90af8f5af13d9e6fa05691e8a501e58a33bc785149f06",
+      "leaf": {
+        "value": "0x5ee65399c487bf756dd383c09a8b3c36a1a3882e8a7743c63098def53408d21b",
+        "sibling": "0x94928a0aac80ca8759435c5b5cffe3d718abc28a74d1efb5197aa20807cc422c"
+      },
+      "pathPart": "0x0"
+    },
+    {
+      "root": "0x875a0cfbaf9d0f2baeb90af8f5af13d9e6fa05691e8a501e58a33bc785149f06",
+      "leaf": {
+        "value": "0x5ee65399c487bf756dd383c09a8b3c36a1a3882e8a7743c63098def53408d21b",
+        "sibling": "0x94928a0aac80ca8759435c5b5cffe3d718abc28a74d1efb5197aa20807cc422c"
+      },
+      "pathPart": "0x0"
+    }
+  ],
+  "stateKey": "0x2c8d7d21f6912e6ce79d7c2bb183b145894a758d80a31d88acc6505529e1fb24",
+  "stateUpdate": [
+    {
+      "key": "0x00000000000000000000000000000000000000000000000000000000000007d0",
+      "value": "0x0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "key": "0x00000000000000000000000000000000000000000000000000000000000007d0",
+      "value": "0x0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ]
+}

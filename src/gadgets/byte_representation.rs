@@ -1,12 +1,15 @@
-use super::{byte_bit::RangeCheck256Lookup, is_zero::IsZeroGadget};
-use crate::constraint_builder::{
-    AdviceColumn, ConstraintBuilder, FixedColumn, Query, SelectorColumn,
+use super::{byte_bit::RangeCheck256Lookup, is_zero::IsZeroGadget, rlc_randomness::RlcRandomness};
+use crate::constraint_builder::{AdviceColumn, ConstraintBuilder, Query, SecondPhaseAdviceColumn};
+use ethers_core::types::{Address, H256};
+use halo2_proofs::{
+    arithmetic::FieldExt,
+    circuit::{Region, Value},
+    halo2curves::bn256::Fr,
+    plonk::ConstraintSystem,
 };
-use ethers_core::types::{Address, H256, U256};
-use halo2_proofs::{arithmetic::FieldExt, circuit::Region, plonk::ConstraintSystem};
 
 pub trait RlcLookup {
-    fn lookup<F: FieldExt>(&self) -> [Query<F>; 2];
+    fn lookup<F: FieldExt>(&self) -> [Query<F>; 3];
 }
 
 pub trait BytesLookup {
@@ -18,11 +21,9 @@ pub trait BytesLookup {
 // could get the intermediate values for free.
 #[derive(Clone)]
 pub struct ByteRepresentationConfig {
-    randomness: FixedColumn, // TODO: this should be an instance column.
-
     // lookup columns
     value: AdviceColumn,
-    rlc: AdviceColumn,
+    rlc: SecondPhaseAdviceColumn,
     index: AdviceColumn,
 
     // internal columns
@@ -30,9 +31,15 @@ pub struct ByteRepresentationConfig {
     index_is_zero: IsZeroGadget,
 }
 
+// WARNING: it is a soundness issue if the index lookup is >= 31 (i.e. the value can
+// overflow in the field if it has 32 or more bytes).
 impl RlcLookup for ByteRepresentationConfig {
-    fn lookup<F: FieldExt>(&self) -> [Query<F>; 2] {
-        [self.value.current(), self.rlc.current()]
+    fn lookup<F: FieldExt>(&self) -> [Query<F>; 3] {
+        [
+            self.value.current(),
+            self.index.current(),
+            self.rlc.current(),
+        ]
     }
 }
 
@@ -47,8 +54,10 @@ impl ByteRepresentationConfig {
         cs: &mut ConstraintSystem<F>,
         cb: &mut ConstraintBuilder<F>,
         range_check: &impl RangeCheck256Lookup,
+        randomness: &RlcRandomness,
     ) -> Self {
-        let ([], [randomness], [value, rlc, index, byte]) = cb.build_columns(cs);
+        let [value, index, byte] = cb.advice_columns(cs);
+        let [rlc] = cb.second_phase_advice_columns(cs);
         let index_is_zero = IsZeroGadget::configure(cs, cb, index);
 
         cb.assert_zero(
@@ -63,12 +72,11 @@ impl ByteRepresentationConfig {
         cb.assert_equal(
             "current rlc = previous rlc * randomness * (index == 0) + byte",
             rlc.current(),
-            rlc.previous() * randomness.current() * !index_is_zero.current() + byte.current(),
+            rlc.previous() * randomness.query() * !index_is_zero.current() + byte.current(),
         );
         cb.add_lookup("0 <= byte < 256", [byte.current()], range_check.lookup());
 
         Self {
-            randomness,
             value,
             rlc,
             index,
@@ -83,33 +91,28 @@ impl ByteRepresentationConfig {
         region: &mut Region<'_, F>,
         u64s: &[u64],
         u128s: &[u128],
-        addresses: &[Address],
-        hashes: &[H256],
-        words: &[U256],
+        frs: &[Fr],
+        randomness: Value<F>,
     ) {
-        let randomness = F::from(123123u64); // TODOOOOOOO
-
-        let byte_representations = addresses
+        let byte_representations = u64s
             .iter()
-            .map(address_to_big_endian)
-            .chain(u64s.iter().map(u64_to_big_endian))
+            .map(u64_to_big_endian)
             .chain(u128s.iter().map(u128_to_big_endian))
-            .chain(hashes.iter().map(h256_to_big_endian))
-            .chain(words.iter().map(u256_to_big_endian));
+            .chain(frs.iter().map(fr_to_big_endian));
 
         let mut offset = 0;
         for byte_representation in byte_representations {
             let mut value = F::zero();
-            let mut rlc = F::zero();
+            let mut rlc = Value::known(F::zero());
             for (index, byte) in byte_representation.iter().enumerate() {
                 let byte = F::from(u64::from(*byte));
-                value = value * F::from(256) + byte;
-                rlc = rlc * randomness + byte;
-
-                self.randomness.assign(region, offset, randomness);
-                self.value.assign(region, offset, value);
-                self.rlc.assign(region, offset, rlc);
                 self.byte.assign(region, offset, byte);
+
+                value = value * F::from(256) + byte;
+                self.value.assign(region, offset, value);
+
+                rlc = rlc * randomness + Value::known(byte);
+                self.rlc.assign(region, offset, rlc);
 
                 let index = u64::try_from(index).unwrap();
                 self.index.assign(region, offset, index);
@@ -133,19 +136,25 @@ fn address_to_big_endian(x: &Address) -> Vec<u8> {
     x.0.to_vec()
 }
 
-pub fn u256_to_big_endian(x: &U256) -> Vec<u8> {
-    let mut bytes = [0; 32];
-    x.to_big_endian(&mut bytes);
-    bytes.to_vec()
-}
-
 fn h256_to_big_endian(x: &H256) -> Vec<u8> {
     x.0.to_vec()
+}
+
+fn fr_to_big_endian(x: &Fr) -> Vec<u8> {
+    let mut bytes = x.to_bytes();
+    bytes.reverse();
+    // We only the 31 least significant bytes of x so that the value column will not overflow.
+    assert_eq!(bytes[0], 0);
+    if bytes[0] != 0 {
+        log::error!("Fr {:?} does not fit into 31 bytes", x);
+    }
+    bytes[1..].to_vec()
 }
 
 #[cfg(test)]
 mod test {
     use super::{super::byte_bit::ByteBitGadget, *};
+    use crate::constraint_builder::SelectorColumn;
     use halo2_proofs::{
         circuit::{Layouter, SimpleFloorPlanner},
         dev::MockProver,
@@ -157,13 +166,16 @@ mod test {
     struct TestCircuit {
         u64s: Vec<u64>,
         u128s: Vec<u128>,
-        addresses: Vec<Address>,
-        hashes: Vec<H256>, // this should never be used
-        words: Vec<U256>,  // this should never be used
+        frs: Vec<Fr>,
     }
 
     impl Circuit<Fr> for TestCircuit {
-        type Config = (ByteBitGadget, ByteRepresentationConfig);
+        type Config = (
+            SelectorColumn,
+            ByteBitGadget,
+            ByteRepresentationConfig,
+            RlcRandomness,
+        );
         type FloorPlanner = SimpleFloorPlanner;
 
         fn without_witnesses(&self) -> Self {
@@ -175,9 +187,11 @@ mod test {
             let mut cb = ConstraintBuilder::new(selector);
 
             let byte_bit = ByteBitGadget::configure(cs, &mut cb);
-            let byte_representation = ByteRepresentationConfig::configure(cs, &mut cb, &byte_bit);
+            let randomness = RlcRandomness::configure(cs);
+            let byte_representation =
+                ByteRepresentationConfig::configure(cs, &mut cb, &byte_bit, &randomness);
             cb.build(cs);
-            (byte_bit, byte_representation)
+            (selector, byte_bit, byte_representation, randomness)
         }
 
         fn synthesize(
@@ -185,17 +199,21 @@ mod test {
             config: Self::Config,
             mut layouter: impl Layouter<Fr>,
         ) -> Result<(), Error> {
+            let (selector, byte_bit, byte_representation, rlc_randomness) = config;
+            let randomness = rlc_randomness.value(&layouter);
             layouter.assign_region(
-                || "asdfawefasdf",
+                || "",
                 |mut region| {
-                    config.0.assign(&mut region);
-                    config.1.assign(
+                    for offset in 0..1024 {
+                        selector.enable(&mut region, offset);
+                    }
+                    byte_bit.assign(&mut region);
+                    byte_representation.assign(
                         &mut region,
                         &self.u64s,
                         &self.u128s,
-                        &self.addresses,
-                        &self.hashes,
-                        &self.words,
+                        &self.frs,
+                        randomness,
                     );
                     Ok(())
                 },
@@ -208,13 +226,24 @@ mod test {
         let circuit = TestCircuit {
             u64s: vec![u64::MAX],
             u128s: vec![0, 1, u128::MAX],
-            addresses: vec![Address::repeat_byte(34)],
-            hashes: vec![H256::repeat_byte(48)],
-            words: vec![U256::zero(), U256::from(123412123)],
+            frs: vec![Fr::from(2342)],
         };
         let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
+    }
 
-        // TODO test that intermediate values are in here....
+    #[test]
+    fn test_helpers() {
+        let mut x = vec![0; 8];
+        x[7] = 1;
+        assert_eq!(u64_to_big_endian(&1), x);
+
+        let mut y = vec![0; 16];
+        y[15] = 1;
+        assert_eq!(u128_to_big_endian(&1), y);
+
+        let mut z = vec![0; 31];
+        z[30] = 1;
+        assert_eq!(fr_to_big_endian(&Fr::one()), z);
     }
 }
