@@ -101,7 +101,9 @@ impl MptCircuitConfig {
                 // pad canonical_representation to fixed count
                 // notice each input cost 32 rows in canonical_representation, and inside
                 // assign one extra input is added
-                let keys = mpt_update_keys(proofs);
+                let mut keys = mpt_update_keys(proofs);
+                keys.sort();
+                keys.dedup();
                 let total_rep_size = n_rows / 32 - 1;
                 assert!(
                     total_rep_size >= keys.len(),
