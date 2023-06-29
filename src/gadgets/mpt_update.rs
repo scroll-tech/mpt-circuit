@@ -72,7 +72,7 @@ impl<F: FieldExt> MptUpdateLookup<F> for MptUpdateConfig {
         let is_start = || self.segment_type.current_matches(&[SegmentType::Start]);
         let old_root_rlc = self.second_phase_intermediate_values[0].current() * is_start();
         let new_root_rlc = self.second_phase_intermediate_values[1].current() * is_start();
-        let proof_type = self.proof_type.current();
+        let proof_type = self.proof_type.current() * is_start();
         let old_value = self.old_value.current() * is_start();
         let new_value = self.new_value.current() * is_start();
         let address = self.intermediate_values[0].current() * is_start();
@@ -325,7 +325,7 @@ impl MptUpdateConfig {
         randomness: Value<Fr>,
     ) -> usize {
         let mut n_rows = 0;
-        let mut offset = 0;
+        let mut offset = 1; // selector on first row is disabled.
         for proof in proofs {
             let proof_type = MPTProofType::from(proof.claim);
             let storage_key =
@@ -485,7 +485,7 @@ impl MptUpdateConfig {
                 self.intermediate_values[3].assign(region, offset, other_leaf_data_hash);
 
                 n_rows += proof.n_rows();
-                offset = n_rows;
+                offset = 1 + n_rows;
                 continue; // we don't need to assign any leaf rows for empty accounts
             }
 
@@ -615,7 +615,7 @@ impl MptUpdateConfig {
             }
             self.assign_storage(region, next_offset, &proof.storage, randomness);
             n_rows += proof.n_rows();
-            offset = n_rows;
+            offset = 1 + n_rows;
         }
         n_rows
     }
@@ -1749,7 +1749,7 @@ fn configure_empty_storage<F: FieldExt>(
                 poseidon,
             );
             cb.poseidon_lookup(
-                "old_hash == new_hash = h(key_hash, other_leaf_data_hash)",
+                "old_hash = new_hash = h(key_hash, other_leaf_data_hash)",
                 [
                     other_key_hash.current(),
                     other_leaf_data_hash.current(),
@@ -1848,7 +1848,7 @@ fn configure_empty_account<F: FieldExt>(
                             poseidon,
                         );
                         cb.poseidon_lookup(
-                            "old_hash == new_hash = h(key_hash, other_leaf_data_hash)",
+                            "old_hash = new_hash = h(key_hash, other_leaf_data_hash)",
                             [
                                 other_key_hash.current(),
                                 other_leaf_data_hash.current(),

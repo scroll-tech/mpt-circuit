@@ -18,6 +18,7 @@ use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::Layouter,
     halo2curves::bn256::Fr,
+    poly::Rotation,
     plonk::{Challenge, ConstraintSystem, Error, Expression, VirtualCells},
 };
 
@@ -93,7 +94,7 @@ impl MptCircuitConfig {
         layouter.assign_region(
             || "mpt circuit",
             |mut region| {
-                for offset in 0..n_rows {
+                for offset in 1..n_rows {
                     self.selector.enable(&mut region, offset);
                 }
 
@@ -127,7 +128,7 @@ impl MptCircuitConfig {
                     "mpt circuit requires {n_assigned_rows} rows > limit of {n_rows} rows"
                 );
 
-                for offset in n_assigned_rows..n_rows {
+                for offset in 1 + n_assigned_rows..n_rows {
                     self.mpt_update.assign_padding_row(&mut region, offset);
                 }
 
