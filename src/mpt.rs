@@ -18,7 +18,6 @@ use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::Layouter,
     halo2curves::bn256::Fr,
-    poly::Rotation,
     plonk::{Challenge, ConstraintSystem, Error, Expression, VirtualCells},
 };
 
