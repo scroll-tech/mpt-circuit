@@ -93,14 +93,16 @@ impl MptCircuitConfig {
         layouter.assign_region(
             || "mpt circuit",
             |mut region| {
-                for offset in 0..n_rows {
+                for offset in 1..n_rows {
                     self.selector.enable(&mut region, offset);
                 }
 
                 // pad canonical_representation to fixed count
                 // notice each input cost 32 rows in canonical_representation, and inside
                 // assign one extra input is added
-                let keys = mpt_update_keys(proofs);
+                let mut keys = mpt_update_keys(proofs);
+                keys.sort();
+                keys.dedup();
                 let total_rep_size = n_rows / 32 - 1;
                 assert!(
                     total_rep_size >= keys.len(),
@@ -127,7 +129,7 @@ impl MptCircuitConfig {
                     "mpt circuit requires {n_assigned_rows} rows > limit of {n_rows} rows"
                 );
 
-                for offset in n_assigned_rows..n_rows {
+                for offset in 1 + n_assigned_rows..n_rows {
                     self.mpt_update.assign_padding_row(&mut region, offset);
                 }
 
