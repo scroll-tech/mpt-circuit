@@ -480,6 +480,22 @@ mod test {
         assert_eq!(meta.degree(), 9);
     }
 
+    #[test]
+    fn create_revert() {
+        let updates = serde_json::from_str(include_str!("../tests/create_revert.json")).unwrap();
+        let circuit = TestCircuit::new(1 << 16, updates);
+        let prover = MockProver::<Fr>::run(18, &circuit, vec![]).unwrap();
+        assert_eq!(prover.verify(), Ok(()));
+    }
+
+    #[test]
+    fn keccak_code_hash_revert() {
+        let update = serde_json::from_str(include_str!("../tests/code_hash_revert.json")).unwrap();
+        let circuit = TestCircuit::new(1024, vec![update]);
+        let prover = MockProver::<Fr>::run(12, &circuit, vec![]).unwrap();
+        assert_eq!(prover.verify(), Ok(()));
+    }
+
     /*
     #[test]
     fn uniswapv2_factory_create_pair() {
