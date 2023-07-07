@@ -27,7 +27,13 @@ pub enum MPTProofType {
 
 impl From<Claim> for MPTProofType {
     fn from(claim: Claim) -> Self {
-        match claim.kind {
+        claim.kind.into()
+    }
+}
+
+impl From<ClaimKind> for MPTProofType {
+    fn from(kind: ClaimKind) -> Self {
+        match kind {
             ClaimKind::Nonce { .. } => MPTProofType::NonceChanged,
             ClaimKind::Balance { .. } => MPTProofType::BalanceChanged,
             ClaimKind::PoseidonCodeHash { .. } => MPTProofType::PoseidonCodeHashExists,
