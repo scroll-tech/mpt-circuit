@@ -200,11 +200,13 @@ impl From<(&MPTProofType, &SMTTrace)> for Claim {
     fn from((proof_type, trace): (&MPTProofType, &SMTTrace)) -> Self {
         let [old_root, new_root] = trace.account_path.clone().map(|path| fr(path.root));
         let address = trace.address.0.into();
+        let kind = ClaimKind::from((proof_type, trace));
+        assert_eq!(MPTProofType::from(kind), *proof_type);
         Self {
             new_root,
             old_root,
             address,
-            kind: ClaimKind::from((proof_type, trace)),
+            kind,
         }
     }
 }
