@@ -30,7 +30,11 @@ pub fn transitions(proof: MPTProofType) -> HashMap<SegmentType, Vec<SegmentType>
             ),
             (
                 SegmentType::AccountTrie,
-                vec![SegmentType::AccountTrie, SegmentType::AccountLeaf0],
+                vec![
+                    SegmentType::AccountTrie,
+                    SegmentType::AccountLeaf0,
+                    SegmentType::Start, // empty account proof
+                ],
             ),
             (SegmentType::AccountLeaf0, vec![SegmentType::AccountLeaf1]),
             (SegmentType::AccountLeaf1, vec![SegmentType::AccountLeaf2]),

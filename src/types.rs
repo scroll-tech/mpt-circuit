@@ -253,7 +253,31 @@ impl From<(&MPTProofType, &SMTTrace)> for ClaimKind {
         }
 
         match &trace.account_update {
-            [None, None] => ClaimKind::IsEmpty(trace.state_key.map(u256_from_hex)),
+            [None, None] => match *proof_type {
+                MPTProofType::NonceChanged => ClaimKind::Nonce {
+                    old: Some(0),
+                    new: Some(0),
+                },
+                MPTProofType::BalanceChanged => ClaimKind::Balance {
+                    old: Some(U256::zero()),
+                    new: Some(U256::zero()),
+                },
+                MPTProofType::AccountDoesNotExist => ClaimKind::IsEmpty(None),
+                MPTProofType::CodeHashExists => ClaimKind::CodeHash {
+                    old: Some(U256::zero()),
+                    new: Some(U256::zero()),
+                },
+                MPTProofType::CodeSizeExists => ClaimKind::CodeSize {
+                    old: Some(0),
+                    new: Some(0),
+                },
+                MPTProofType::StorageDoesNotExist => {
+                    ClaimKind::IsEmpty(Some(u256_from_hex(trace.state_key.unwrap())))
+                }
+                MPTProofType::PoseidonCodeHashExists => unreachable!(),
+                MPTProofType::StorageChanged => unreachable!(),
+                MPTProofType::AccountDestructed => unimplemented!(),
+            },
             [None, Some(new)] => {
                 if !new.nonce.is_zero() {
                     assert_eq!(*proof_type, MPTProofType::NonceChanged);
