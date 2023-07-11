@@ -1,3 +1,4 @@
+mod empty_node;
 mod path;
 mod segment;
 mod word_rlc;
@@ -269,9 +270,11 @@ impl MptUpdateConfig {
             let conditional_constraints = |cb: &mut ConstraintBuilder<F>| {
                 configure_segment_transitions(cb, &config.segment_type, proof_type);
                 match proof_type {
-                    MPTProofType::NonceChanged => configure_nonce(cb, &config, bytes),
-                    MPTProofType::BalanceChanged => configure_balance(cb, &config, rlc),
-                    MPTProofType::CodeSizeExists => configure_code_size(cb, &config, bytes),
+                    MPTProofType::NonceChanged => configure_nonce(cb, &config, bytes, poseidon),
+                    MPTProofType::BalanceChanged => configure_balance(cb, &config, poseidon, rlc),
+                    MPTProofType::CodeSizeExists => {
+                        configure_code_size(cb, &config, bytes, poseidon)
+                    }
                     MPTProofType::PoseidonCodeHashExists => {
                         configure_poseidon_code_hash(cb, &config)
                     }
@@ -1191,9 +1194,32 @@ fn configure_nonce<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
     bytes: &impl BytesLookup,
+    poseidon: &impl PoseidonLookup,
 ) {
     for variant in SegmentType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
+            SegmentType::AccountTrie => {
+                cb.condition(
+                    config.segment_type.next_matches(&[SegmentType::Start]),
+                    |cb| {
+                        let [.., key_equals_other_key, hash_is_zero] = config.is_zero_gadgets;
+                        let [_, _, other_key_hash, other_leaf_data_hash, ..] =
+                            config.intermediate_values;
+                        empty_node::configure(
+                            cb,
+                            config.key,
+                            config.other_key,
+                            key_equals_other_key,
+                            config.old_hash,
+                            config.new_hash,
+                            hash_is_zero,
+                            other_key_hash,
+                            other_leaf_data_hash,
+                            poseidon,
+                        );
+                    },
+                );
+            }
             SegmentType::AccountLeaf0 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
             }
@@ -1300,6 +1326,7 @@ fn configure_code_size<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
     bytes: &impl BytesLookup,
+    poseidon: &impl PoseidonLookup,
 ) {
     cb.assert(
         "new accounts have balance or nonce set first",
@@ -1309,6 +1336,28 @@ fn configure_code_size<F: FieldExt>(
     );
     for variant in SegmentType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
+            SegmentType::AccountTrie => {
+                cb.condition(
+                    config.segment_type.next_matches(&[SegmentType::Start]),
+                    |cb| {
+                        let [.., key_equals_other_key, hash_is_zero] = config.is_zero_gadgets;
+                        let [_, _, other_key_hash, other_leaf_data_hash, ..] =
+                            config.intermediate_values;
+                        empty_node::configure(
+                            cb,
+                            config.key,
+                            config.other_key,
+                            key_equals_other_key,
+                            config.old_hash,
+                            config.new_hash,
+                            hash_is_zero,
+                            other_key_hash,
+                            other_leaf_data_hash,
+                            poseidon,
+                        );
+                    },
+                );
+            }
             SegmentType::AccountLeaf0 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
             }
@@ -1395,10 +1444,33 @@ fn configure_code_size<F: FieldExt>(
 fn configure_balance<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
+    poseidon: &impl PoseidonLookup,
     rlc: &impl RlcLookup,
 ) {
     for variant in SegmentType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
+            SegmentType::AccountTrie => {
+                cb.condition(
+                    config.segment_type.next_matches(&[SegmentType::Start]),
+                    |cb| {
+                        let [.., key_equals_other_key, hash_is_zero] = config.is_zero_gadgets;
+                        let [_, _, other_key_hash, other_leaf_data_hash, ..] =
+                            config.intermediate_values;
+                        empty_node::configure(
+                            cb,
+                            config.key,
+                            config.other_key,
+                            key_equals_other_key,
+                            config.old_hash,
+                            config.new_hash,
+                            hash_is_zero,
+                            other_key_hash,
+                            other_leaf_data_hash,
+                            poseidon,
+                        );
+                    },
+                );
+            }
             SegmentType::AccountLeaf0 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
             }
@@ -1538,6 +1610,28 @@ fn configure_keccak_code_hash<F: FieldExt>(
     );
     for variant in SegmentType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
+            SegmentType::AccountTrie => {
+                cb.condition(
+                    config.segment_type.next_matches(&[SegmentType::Start]),
+                    |cb| {
+                        let [.., key_equals_other_key, hash_is_zero] = config.is_zero_gadgets;
+                        let [_, _, other_key_hash, other_leaf_data_hash, ..] =
+                            config.intermediate_values;
+                        empty_node::configure(
+                            cb,
+                            config.key,
+                            config.other_key,
+                            key_equals_other_key,
+                            config.old_hash,
+                            config.new_hash,
+                            hash_is_zero,
+                            other_key_hash,
+                            other_leaf_data_hash,
+                            poseidon,
+                        );
+                    },
+                );
+            }
             SegmentType::AccountLeaf0 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
             }
