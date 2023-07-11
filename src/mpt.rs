@@ -238,7 +238,13 @@ mod test {
             vec![(proof_type, serde_json::from_str(trace).unwrap())],
         );
         let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
-        assert_eq!(prover.verify(), Ok(()));
+        assert_eq!(
+            prover.verify(),
+            Ok(()),
+            "proof_type = {:?}, trace = {}",
+            proof_type,
+            trace
+        );
     }
 
     #[test]
@@ -494,6 +500,25 @@ mod test {
         let circuit = TestCircuit::new(1024, vec![update]);
         let prover = MockProver::<Fr>::run(12, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
+    }
+
+    #[test]
+    fn zero_value_empty_account_proofs() {
+        for proof_type in [
+            MPTProofType::BalanceChanged,
+            MPTProofType::NonceChanged,
+            MPTProofType::CodeSizeExists,
+            MPTProofType::CodeHashExists,
+        ] {
+            mock_prove(
+                proof_type,
+                include_str!("../tests/dual_code_hash/type_1_empty_account.json"),
+            );
+            mock_prove(
+                proof_type,
+                include_str!("../tests/dual_code_hash/type_2_empty_account.json"),
+            );
+        }
     }
 
     /*
