@@ -29,9 +29,9 @@ impl<T: IntoEnumIterator + Hash + Eq> OneHot<T> {
     }
 
     pub fn assign<F: FieldExt>(&self, region: &mut Region<'_, F>, offset: usize, value: T) {
-        self.columns
-            .get(&value)
-            .map(|c| c.assign(region, offset, true));
+        if let Some(c) = self.columns.get(&value) {
+            c.assign(region, offset, true)
+        }
     }
 
     pub fn previous_matches<F: FieldExt>(&self, values: &[T]) -> BinaryQuery<F> {
@@ -61,23 +61,21 @@ impl<T: IntoEnumIterator + Hash + Eq> OneHot<T> {
 
     pub fn current<F: FieldExt>(&self) -> Query<F> {
         T::iter().enumerate().fold(Query::zero(), |acc, (i, t)| {
-            acc.clone()
-                + Query::from(u64::try_from(i).unwrap())
-                    * self
-                        .columns
-                        .get(&t)
-                        .map_or_else(|| !self.sum(0), BinaryColumn::current)
+            acc + Query::from(u64::try_from(i).unwrap())
+                * self
+                    .columns
+                    .get(&t)
+                    .map_or_else(|| !self.sum(0), BinaryColumn::current)
         })
     }
 
     pub fn previous<F: FieldExt>(&self) -> Query<F> {
         T::iter().enumerate().fold(Query::zero(), |acc, (i, t)| {
-            acc.clone()
-                + Query::from(u64::try_from(i).unwrap())
-                    * self
-                        .columns
-                        .get(&t)
-                        .map_or_else(|| !self.sum(-1), BinaryColumn::previous)
+            acc + Query::from(u64::try_from(i).unwrap())
+                * self
+                    .columns
+                    .get(&t)
+                    .map_or_else(|| !self.sum(-1), BinaryColumn::current)
         })
     }
 
@@ -85,7 +83,7 @@ impl<T: IntoEnumIterator + Hash + Eq> OneHot<T> {
         BinaryQuery(
             self.columns
                 .values()
-                .fold(Query::zero(), |a: Query<F>, b| a.clone() + b.rotation(r)),
+                .fold(Query::zero(), |a: Query<F>, b| a + b.rotation(r)),
         )
     }
 

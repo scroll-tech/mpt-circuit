@@ -224,7 +224,7 @@ impl From<(&MPTProofType, &SMTTrace)> for ClaimKind {
                     if !(account_old == account_new
                         || (account_old.is_none() && account_new == &Some(Default::default())))
                     {
-                        assert_eq!(account_old, account_new, "{:?}", state_update);
+                        assert_eq!(account_old, account_new, "{state_update:?}");
                     }
                     let old_value = u256_from_hex(old.value);
                     let new_value = u256_from_hex(new.value);
@@ -283,7 +283,7 @@ impl From<(&MPTProofType, &SMTTrace)> for ClaimKind {
                     assert_eq!(*proof_type, MPTProofType::NonceChanged);
                     ClaimKind::Nonce {
                         old: None,
-                        new: Some(new.nonce.into()),
+                        new: Some(new.nonce),
                     }
                 } else if !new.balance.is_zero() {
                     assert_eq!(*proof_type, MPTProofType::BalanceChanged);
@@ -297,8 +297,8 @@ impl From<(&MPTProofType, &SMTTrace)> for ClaimKind {
             }
             [Some(old), Some(new)] => match *proof_type {
                 MPTProofType::NonceChanged => ClaimKind::Nonce {
-                    old: Some(old.nonce.into()),
-                    new: Some(new.nonce.into()),
+                    old: Some(old.nonce),
+                    new: Some(new.nonce),
                 },
                 MPTProofType::BalanceChanged => ClaimKind::Balance {
                     old: Some(u256_from_biguint(&old.balance)),
@@ -310,8 +310,8 @@ impl From<(&MPTProofType, &SMTTrace)> for ClaimKind {
                     new: Some(u256_from_biguint(&new.code_hash)),
                 },
                 MPTProofType::CodeSizeExists => ClaimKind::CodeSize {
-                    old: Some(old.code_size.into()),
-                    new: Some(new.code_size.into()),
+                    old: Some(old.code_size),
+                    new: Some(new.code_size),
                 },
                 MPTProofType::PoseidonCodeHashExists => ClaimKind::PoseidonCodeHash {
                     old: Some(big_uint_to_fr(&old.poseidon_code_hash)),
@@ -837,28 +837,28 @@ fn check_hash_traces_new(traces: &[(bool, Fr, Fr, Fr, bool, bool)]) {
 
                 // TODOOOOOO
             } else {
-                assert_eq!(*is_padding_open_next, false);
+                assert!(!*is_padding_open_next);
                 assert_eq!(hash(*sibling, *open), *next_open);
             }
 
             if *is_padding_close {
                 // TODOOOOOO
             } else {
-                assert_eq!(*is_padding_close_next, false);
+                assert!(!*is_padding_close_next);
                 assert_eq!(hash(*sibling, *close), *next_close);
             }
         } else {
             if *is_padding_open {
                 // TODOOOOOO
             } else {
-                assert_eq!(*is_padding_open_next, false);
+                assert!(!*is_padding_open_next);
                 assert_eq!(hash(*open, *sibling), *next_open);
             }
 
             if *is_padding_close {
                 // TODOOOOOO
             } else {
-                assert_eq!(*is_padding_close_next, false);
+                assert!(!*is_padding_close_next);
                 assert_eq!(hash(*close, *sibling), *next_close);
             }
         }
@@ -871,7 +871,7 @@ fn path_root(path: SMTPath) -> Fr {
     //     assert_eq!(hash(a, b), c)
     // }
 
-    let account_hash = if let Some(node) = path.clone().leaf {
+    let account_hash = if let Some(node) = path.leaf {
         hash(hash(Fr::one(), fr(node.sibling)), fr(node.value))
     } else {
         Fr::zero()
@@ -979,8 +979,8 @@ mod test {
 
     #[test]
     fn bit_trait() {
-        assert_eq!(Fr::one().bit(0), true);
-        assert_eq!(Fr::one().bit(1), false);
+        assert!(Fr::one().bit(0));
+        assert!(!Fr::one().bit(1));
     }
 
     #[test]
@@ -1058,12 +1058,12 @@ mod test {
 
     #[test]
     fn test_contains() {
-        assert_eq!(contains(&[true, true], Fr::from(0b11)), true);
-        assert_eq!(contains(&[], Fr::from(0b11)), true);
+        assert!(contains(&[true, true], Fr::from(0b11)));
+        assert!(contains(&[], Fr::from(0b11)));
 
-        assert_eq!(contains(&[false, false, false], Fr::zero()), true);
+        assert!(contains(&[false, false, false], Fr::zero()));
 
-        assert_eq!(contains(&[false, false, true], Fr::one()), true);
-        assert_eq!(contains(&[false, false, false], Fr::one()), false);
+        assert!(contains(&[false, false, true], Fr::one()));
+        assert!(!contains(&[false, false, false], Fr::one()));
     }
 }
