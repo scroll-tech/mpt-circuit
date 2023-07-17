@@ -520,17 +520,4 @@ mod test {
             );
         }
     }
-
-    /*
-    #[test]
-    fn uniswapv2_factory_create_pair() {
-        let updates = serde_json::from_str(include_str!(
-            "../../tests/mock_test_traces/uniswapv2_factory-createPair.json"
-        ))
-        .unwrap();
-        let circuit = TestCircuit::new(4096, updates);
-        let prover = MockProver::<Fr>::run(16, &circuit, vec![]).unwrap();
-        assert_eq!(prover.verify(), Ok(()));
-    }
-    */
 }
