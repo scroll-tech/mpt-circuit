@@ -1047,39 +1047,19 @@ fn configure_extension_old<F: FieldExt>(
             .segment_type
             .current_matches(&[SegmentType::StorageLeaf0]),
         |cb| {
-            let [.., key_minus_other_key, new_hash] = config.is_zero_values;
             let [.., key_equals_other_key, new_hash_is_zero] = config.is_zero_gadgets;
-            cb.assert_equal(
-                "key_minus_other_key = key - other key",
-                key_minus_other_key.current(),
-                config.key.current() - config.other_key.current(),
-            );
-            cb.assert_equal(
-                "is_zero_value is new_hash",
-                config.new_hash.current(),
-                new_hash.current(),
-            );
-            let new_is_type_1 = !key_equals_other_key.current();
-            let new_is_type_2 = new_hash_is_zero.current();
-
-            cb.assert_equal(
-                "Empty new account/storage leaf is either type 1 xor type 2",
-                Query::one(),
-                Query::from(new_is_type_1.clone()) + Query::from(new_is_type_2.clone()),
-            );
-
             let [.., other_key_hash, other_leaf_data_hash] = config.intermediate_values;
-            cb.condition(new_is_type_1, |cb| {
-                cb.poseidon_lookup(
-                    "previous old_hash = h(other_key_hash, other_leaf_data_hash)",
-                    [
-                        other_key_hash.current(),
-                        other_leaf_data_hash.current(),
-                        config.new_hash.previous(),
-                    ],
-                    poseidon,
-                );
-            });
+            empty_node::configure(
+                cb,
+                config.key,
+                config.other_key,
+                key_equals_other_key,
+                config.new_hash,
+                new_hash_is_zero,
+                other_key_hash,
+                other_leaf_data_hash,
+                poseidon,
+            );
         },
     );
 }
@@ -1812,43 +1792,21 @@ fn configure_empty_storage<F: FieldExt>(
     let is_final_segment = config.segment_type.next_matches(&[SegmentType::Start]);
     cb.condition(is_final_segment, |cb| {
         cb.assert_equal(
-            "key_minus_other_key = key - other key",
-            key_minus_other_key.current(),
-            config.key.current() - config.other_key.current(),
-        );
-        cb.assert_equal(
-            "hash == old_hash (== current_hash)",
+            "old_hash = new_hash",
             config.old_hash.current(),
-            hash.current(),
+            config.new_hash.current(),
         );
-        let is_type_1 = !key_equals_other_key.current();
-        let is_type_2 = hash_is_zero.current();
-        cb.assert_equal(
-            "Empty account is either type 1 xor type 2",
-            Query::one(),
-            Query::from(is_type_1.clone()) + Query::from(is_type_2),
+        empty_node::configure(
+            cb,
+            config.key,
+            config.other_key,
+            key_equals_other_key,
+            config.old_hash,
+            hash_is_zero,
+            other_key_hash,
+            other_leaf_data_hash,
+            poseidon,
         );
-
-        cb.condition(is_type_1, |cb| {
-            cb.poseidon_lookup(
-                "other_key_hash == h(1, other_key)",
-                [
-                    Query::one(),
-                    config.other_key.current(),
-                    other_key_hash.current(),
-                ],
-                poseidon,
-            );
-            cb.poseidon_lookup(
-                "old_hash = new_hash = h(key_hash, other_leaf_data_hash)",
-                [
-                    other_key_hash.current(),
-                    other_leaf_data_hash.current(),
-                    config.old_hash.current(),
-                ],
-                poseidon,
-            );
-        });
     });
 
     for variant in SegmentType::iter() {
@@ -1906,48 +1864,25 @@ fn configure_empty_account<F: FieldExt>(
             SegmentType::Start | SegmentType::AccountTrie => {
                 let is_final_segment = config.segment_type.next_matches(&[SegmentType::Start]);
                 cb.condition(is_final_segment, |cb| {
-                    let [.., key_minus_other_key, hash] = config.is_zero_values;
                     let [.., key_equals_other_key, hash_is_zero] = config.is_zero_gadgets;
+                    let [_, _, other_key_hash, other_leaf_data_hash, ..] =
+                        config.intermediate_values;
                     cb.assert_equal(
-                        "key_minus_other_key = key - other key",
-                        key_minus_other_key.current(),
-                        config.key.current() - config.other_key.current(),
-                    );
-                    cb.assert_equal(
-                        "hash == old_hash (== current_hash)",
+                        "new_hash = old_hash",
                         config.old_hash.current(),
-                        hash.current(),
+                        config.new_hash.current(),
                     );
-                    let is_type_1 = !key_equals_other_key.current();
-                    let is_type_2 = hash_is_zero.current();
-                    cb.assert_equal(
-                        "Empty account is either type 1 xor type 2",
-                        Query::one(),
-                        Query::from(is_type_1.clone()) + Query::from(is_type_2),
+                    empty_node::configure(
+                        cb,
+                        config.key,
+                        config.other_key,
+                        key_equals_other_key,
+                        config.new_hash,
+                        hash_is_zero,
+                        other_key_hash,
+                        other_leaf_data_hash,
+                        poseidon,
                     );
-
-                    cb.condition(is_type_1, |cb| {
-                        let [_, _, other_key_hash, other_leaf_data_hash, ..] =
-                            config.intermediate_values;
-                        cb.poseidon_lookup(
-                            "other_key_hash == h(1, other_key)",
-                            [
-                                Query::one(),
-                                config.other_key.current(),
-                                other_key_hash.current(),
-                            ],
-                            poseidon,
-                        );
-                        cb.poseidon_lookup(
-                            "old_hash = new_hash = h(key_hash, other_leaf_data_hash)",
-                            [
-                                other_key_hash.current(),
-                                other_leaf_data_hash.current(),
-                                config.old_hash.current(),
-                            ],
-                            poseidon,
-                        );
-                    });
                 });
             }
             _ => {}
