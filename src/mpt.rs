@@ -241,7 +241,13 @@ mod test {
             vec![(proof_type, serde_json::from_str(trace).unwrap())],
         );
         let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
-        assert_eq!(prover.verify(), Ok(()));
+        assert_eq!(
+            prover.verify(),
+            Ok(()),
+            "proof_type = {:?}, trace = {}",
+            proof_type,
+            trace
+        );
     }
 
     #[test]
@@ -483,16 +489,38 @@ mod test {
         assert_eq!(meta.degree(), 9);
     }
 
-    /*
     #[test]
-    fn uniswapv2_factory_create_pair() {
-        let updates = serde_json::from_str(include_str!(
-            "../../tests/mock_test_traces/uniswapv2_factory-createPair.json"
-        ))
-        .unwrap();
-        let circuit = TestCircuit::new(4096, updates);
-        let prover = MockProver::<Fr>::run(16, &circuit, vec![]).unwrap();
+    fn create_revert() {
+        let updates = serde_json::from_str(include_str!("../tests/create_revert.json")).unwrap();
+        let circuit = TestCircuit::new(1 << 16, updates);
+        let prover = MockProver::<Fr>::run(18, &circuit, vec![]).unwrap();
         assert_eq!(prover.verify(), Ok(()));
     }
-    */
+
+    #[test]
+    fn keccak_code_hash_revert() {
+        let update = serde_json::from_str(include_str!("../tests/code_hash_revert.json")).unwrap();
+        let circuit = TestCircuit::new(1024, vec![update]);
+        let prover = MockProver::<Fr>::run(12, &circuit, vec![]).unwrap();
+        assert_eq!(prover.verify(), Ok(()));
+    }
+
+    #[test]
+    fn zero_value_empty_account_proofs() {
+        for proof_type in [
+            MPTProofType::BalanceChanged,
+            MPTProofType::NonceChanged,
+            MPTProofType::CodeSizeExists,
+            MPTProofType::CodeHashExists,
+        ] {
+            mock_prove(
+                proof_type,
+                include_str!("../tests/dual_code_hash/type_1_empty_account.json"),
+            );
+            mock_prove(
+                proof_type,
+                include_str!("../tests/dual_code_hash/type_2_empty_account.json"),
+            );
+        }
+    }
 }

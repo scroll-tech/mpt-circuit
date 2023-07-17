@@ -200,11 +200,13 @@ impl From<(&MPTProofType, &SMTTrace)> for Claim {
     fn from((proof_type, trace): (&MPTProofType, &SMTTrace)) -> Self {
         let [old_root, new_root] = trace.account_path.clone().map(|path| fr(path.root));
         let address = trace.address.0.into();
+        let kind = ClaimKind::from((proof_type, trace));
+        assert_eq!(MPTProofType::from(kind), *proof_type);
         Self {
             new_root,
             old_root,
             address,
-            kind: ClaimKind::from((proof_type, trace)),
+            kind,
         }
     }
 }
@@ -251,7 +253,31 @@ impl From<(&MPTProofType, &SMTTrace)> for ClaimKind {
         }
 
         match &trace.account_update {
-            [None, None] => ClaimKind::IsEmpty(trace.state_key.map(u256_from_hex)),
+            [None, None] => match *proof_type {
+                MPTProofType::NonceChanged => ClaimKind::Nonce {
+                    old: Some(0),
+                    new: Some(0),
+                },
+                MPTProofType::BalanceChanged => ClaimKind::Balance {
+                    old: Some(U256::zero()),
+                    new: Some(U256::zero()),
+                },
+                MPTProofType::AccountDoesNotExist => ClaimKind::IsEmpty(None),
+                MPTProofType::CodeHashExists => ClaimKind::CodeHash {
+                    old: Some(U256::zero()),
+                    new: Some(U256::zero()),
+                },
+                MPTProofType::CodeSizeExists => ClaimKind::CodeSize {
+                    old: Some(0),
+                    new: Some(0),
+                },
+                MPTProofType::StorageDoesNotExist => {
+                    ClaimKind::IsEmpty(Some(u256_from_hex(trace.state_key.unwrap())))
+                }
+                MPTProofType::PoseidonCodeHashExists => unreachable!(),
+                MPTProofType::StorageChanged => unreachable!(),
+                MPTProofType::AccountDestructed => unimplemented!(),
+            },
             [None, Some(new)] => {
                 if !new.nonce.is_zero() {
                     assert_eq!(*proof_type, MPTProofType::NonceChanged);
