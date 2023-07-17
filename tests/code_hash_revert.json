@@ -1,0 +1,62 @@
+[
+  "CodeHashExists",
+  {
+    "address": "0x32071e173277530311c30133145e18f8da8ceff2",
+    "accountKey": "0x894ae59add2111878223c04ba4a8246b012048452ea33d14e5914b1966221515",
+    "accountPath": [
+      {
+        "root": "0x68225e6e7298fe85db2621c21168aedc6db1cca1527244396865d014ecb47b2d",
+        "path": [
+          {
+            "value": "0x01216d94984e13ff36205e985d72bb4ff0177d2d445203154c68866688f8de13",
+            "sibling": "0x17b981c42e2dad6f6fc6237fcd6353ab5f36295f81f61f249b898e23534de807"
+          },
+          {
+            "value": "0xcd1d62e83cf0eb1a76e7825ec9343198c5121f9437574b933e9ef886fa42e415",
+            "sibling": "0x79cd7602ee5d93e8ee4e6f7616af55865106e8bade1e07799cf7a4d0a49f5614"
+          },
+          {
+            "value": "0x4c2ae5b7bf3971afe941adcd4e15a439031598207676d37fe5291653222d4a00",
+            "sibling": "0x1c7969070147d68ff5acdcd2cd6c5e1a64f493dafe198d1d0cbdaa6958284803"
+          },
+          {
+            "value": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "sibling": "0x81e07940294655fc09802fd3702eb9341d72688174f3c09f1c15a9f9f7747022"
+          }
+        ],
+        "pathPart": "0x9"
+      },
+      {
+        "root": "0x68225e6e7298fe85db2621c21168aedc6db1cca1527244396865d014ecb47b2d",
+        "path": [
+          {
+            "value": "0x01216d94984e13ff36205e985d72bb4ff0177d2d445203154c68866688f8de13",
+            "sibling": "0x17b981c42e2dad6f6fc6237fcd6353ab5f36295f81f61f249b898e23534de807"
+          },
+          {
+            "value": "0xcd1d62e83cf0eb1a76e7825ec9343198c5121f9437574b933e9ef886fa42e415",
+            "sibling": "0x79cd7602ee5d93e8ee4e6f7616af55865106e8bade1e07799cf7a4d0a49f5614"
+          },
+          {
+            "value": "0x4c2ae5b7bf3971afe941adcd4e15a439031598207676d37fe5291653222d4a00",
+            "sibling": "0x1c7969070147d68ff5acdcd2cd6c5e1a64f493dafe198d1d0cbdaa6958284803"
+          },
+          {
+            "value": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "sibling": "0x81e07940294655fc09802fd3702eb9341d72688174f3c09f1c15a9f9f7747022"
+          }
+        ],
+        "pathPart": "0x9"
+      }
+    ],
+    "accountUpdate": [
+      null,
+      null
+    ],
+    "statePath": [
+      null,
+      null
+    ],
+    "commonStateRoot": "0x0000000000000000000000000000000000000000000000000000000000000000"
+  }
+]
