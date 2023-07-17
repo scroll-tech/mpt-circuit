@@ -1,9 +1,6 @@
+use crate::constraint_builder::{AdviceColumn, ConstraintBuilder, FixedColumn, Query};
 #[cfg(test)]
 use crate::util::hash as poseidon_hash;
-use crate::{
-    constraint_builder::{AdviceColumn, ConstraintBuilder, FixedColumn, Query},
-    types::HASH_ZERO_ZERO,
-};
 use halo2_proofs::{
     arithmetic::FieldExt,
     plonk::{Advice, Column, Fixed},

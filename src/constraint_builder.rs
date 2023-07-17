@@ -15,6 +15,7 @@ pub use query::Query;
 
 pub struct ConstraintBuilder<F: FieldExt> {
     constraints: Vec<(&'static str, Query<F>)>,
+    #[allow(clippy::type_complexity)]
     lookups: Vec<(&'static str, Vec<(Query<F>, Query<F>)>)>,
 
     conditions: Vec<BinaryQuery<F>>,
@@ -41,7 +42,7 @@ impl<F: FieldExt> ConstraintBuilder<F> {
         let condition = self
             .conditions
             .iter()
-            .fold(BinaryQuery::one(), |a, b| a.clone().and(b.clone()));
+            .fold(BinaryQuery::one(), |a, b| a.and(b.clone()));
         self.constraints.push((name, condition.condition(query)))
     }
 
@@ -73,7 +74,7 @@ impl<F: FieldExt> ConstraintBuilder<F> {
             .conditions
             .iter()
             .skip(1) // Save a degree by skipping every row selector
-            .fold(BinaryQuery::one(), |a, b| a.clone().and(b.clone()));
+            .fold(BinaryQuery::one(), |a, b| a.and(b.clone()));
         let lookup = left
             .into_iter()
             .map(|q| q * condition.clone())
@@ -93,7 +94,7 @@ impl<F: FieldExt> ConstraintBuilder<F> {
             .conditions
             .iter()
             .skip(1) // Save a degree by skipping every row selector
-            .fold(BinaryQuery::one(), |a, b| a.clone().and(b.clone()));
+            .fold(BinaryQuery::one(), |a, b| a.and(b.clone()));
         let lookup = left
             .into_iter()
             .zip(default.into_iter())
@@ -142,10 +143,10 @@ impl<F: FieldExt> ConstraintBuilder<F> {
         );
 
         for (name, query) in self.constraints {
-            cs.create_gate(&name, |meta| vec![query.run(meta)])
+            cs.create_gate(name, |meta| vec![query.run(meta)])
         }
         for (name, lookup) in self.lookups {
-            cs.lookup_any(&name, |meta| {
+            cs.lookup_any(name, |meta| {
                 lookup
                     .into_iter()
                     .map(|(left, right)| (left.run(meta), right.run(meta)))

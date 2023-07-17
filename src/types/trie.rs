@@ -15,6 +15,7 @@ pub struct TrieRow {
     pub path_type: PathType,
 }
 
+#[allow(clippy::len_without_is_empty)]
 #[derive(Clone, Debug)]
 pub struct TrieRows(pub Vec<TrieRow>);
 

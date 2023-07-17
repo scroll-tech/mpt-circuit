@@ -149,8 +149,8 @@ impl From<&SMTTrace> for AccountProof {
         );
 
         let [old_entry, new_entry] = &trace.account_update;
-        let old_leaf = AccountLeaf::new(address, &old_leaf, &old_entry);
-        let new_leaf = AccountLeaf::new(address, &new_leaf, &new_entry);
+        let old_leaf = AccountLeaf::new(address, &old_leaf, old_entry);
+        let new_leaf = AccountLeaf::new(address, &new_leaf, new_entry);
 
         let account_proof = Self {
             account_key: account_key(address),

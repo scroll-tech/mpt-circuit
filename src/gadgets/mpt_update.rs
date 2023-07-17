@@ -585,34 +585,31 @@ impl MptUpdateConfig {
             self.other_key.assign(region, offset, other_key);
             self.is_zero_values[2].assign(region, offset, key - other_key);
             self.is_zero_gadgets[2].assign(region, offset, key - other_key);
-            match proof.claim.kind {
-                ClaimKind::CodeHash { old, new } => {
-                    let [old_high, old_low, new_high, new_low, ..] = self.intermediate_values;
-                    let [old_rlc_high, old_rlc_low, new_rlc_high, new_rlc_low, ..] =
-                        self.second_phase_intermediate_values;
-                    if let Some(value) = old {
-                        assign_word_rlc(
-                            region,
-                            offset + 3,
-                            value,
-                            [old_high, old_low],
-                            [old_rlc_high, old_rlc_low],
-                            randomness,
-                        );
-                    }
-                    if let Some(value) = new {
-                        assign_word_rlc(
-                            region,
-                            offset + 3,
-                            value,
-                            [new_high, new_low],
-                            [new_rlc_high, new_rlc_low],
-                            randomness,
-                        );
-                    }
+            if let ClaimKind::CodeHash { old, new } = proof.claim.kind {
+                let [old_high, old_low, new_high, new_low, ..] = self.intermediate_values;
+                let [old_rlc_high, old_rlc_low, new_rlc_high, new_rlc_low, ..] =
+                    self.second_phase_intermediate_values;
+                if let Some(value) = old {
+                    assign_word_rlc(
+                        region,
+                        offset + 3,
+                        value,
+                        [old_high, old_low],
+                        [old_rlc_high, old_rlc_low],
+                        randomness,
+                    );
                 }
-                _ => (),
-            }
+                if let Some(value) = new {
+                    assign_word_rlc(
+                        region,
+                        offset + 3,
+                        value,
+                        [new_high, new_low],
+                        [new_rlc_high, new_rlc_low],
+                        randomness,
+                    );
+                }
+            };
             self.assign_storage(region, next_offset, &proof.storage, randomness);
             n_rows += proof.n_rows();
             offset = 1 + n_rows;
@@ -1062,7 +1059,7 @@ fn configure_extension_old<F: FieldExt>(
             cb.assert_equal(
                 "Empty new account/storage leaf is either type 1 xor type 2",
                 Query::one(),
-                Query::from(new_is_type_1.clone()) + Query::from(new_is_type_2.clone()),
+                Query::from(new_is_type_1.clone()) + Query::from(new_is_type_2),
             );
 
             let [.., other_key_hash, other_leaf_data_hash] = config.intermediate_values;
@@ -1168,7 +1165,7 @@ fn configure_extension_new<F: FieldExt>(
             cb.assert_equal(
                 "Empty old account/storage leaf is either type 1 xor type 2",
                 Query::one(),
-                Query::from(old_is_type_1.clone()) + Query::from(old_is_type_2.clone()),
+                Query::from(old_is_type_1.clone()) + Query::from(old_is_type_2),
             );
 
             let [.., other_key_hash, other_leaf_data_hash] = config.intermediate_values;

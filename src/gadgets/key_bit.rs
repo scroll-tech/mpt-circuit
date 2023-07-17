@@ -1,7 +1,6 @@
 use super::{
     byte_bit::{ByteBitLookup, RangeCheck256Lookup, RangeCheck8Lookup},
     canonical_representation::CanonicalRepresentationLookup,
-    rlc_randomness::RlcRandomness,
 };
 use crate::constraint_builder::{AdviceColumn, ConstraintBuilder, Query, SelectorColumn};
 use halo2_proofs::{
@@ -125,6 +124,7 @@ impl KeyBitLookup for KeyBitConfig {
 mod test {
     use super::super::{
         byte_bit::ByteBitGadget, canonical_representation::CanonicalRepresentationConfig,
+        rlc_randomness::RlcRandomness,
     };
     use super::*;
     use halo2_proofs::{

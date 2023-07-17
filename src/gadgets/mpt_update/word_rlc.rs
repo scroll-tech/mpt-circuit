@@ -48,11 +48,11 @@ pub fn configure<F: FieldExt>(
         [low.current(), Query::from(15), rlc_low.current()],
         rlc.lookup(),
     );
-    let randomness_raised_to_16 = randomness.clone().square().square().square().square();
+    let randomness_raised_to_16 = randomness.square().square().square().square();
     cb.assert_equal(
         "word_rlc = rlc(high) * randomness ^ 16 + rlc(low)",
         rlc_word.current(),
-        rlc_high.current() * randomness_raised_to_16.clone() + rlc_low.current(),
+        rlc_high.current() * randomness_raised_to_16 + rlc_low.current(),
     );
 }
 
