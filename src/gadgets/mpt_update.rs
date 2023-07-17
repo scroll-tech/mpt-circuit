@@ -1040,6 +1040,7 @@ fn configure_extension_old<F: FieldExt>(
             let [.., other_key_hash, other_leaf_data_hash] = config.intermediate_values;
             empty_node::configure(
                 cb,
+                config.new_value,
                 config.key,
                 config.other_key,
                 key_equals_other_key,
@@ -1126,6 +1127,7 @@ fn configure_extension_new<F: FieldExt>(
             let [.., other_key_hash, other_leaf_data_hash] = config.intermediate_values;
             empty_node::configure(
                 cb,
+                config.old_value,
                 config.key,
                 config.other_key,
                 key_equals_other_key,
@@ -1159,8 +1161,14 @@ fn configure_nonce<F: FieldExt>(
                             config.old_hash.current(),
                             config.new_hash.current(),
                         );
+                        cb.assert_equal(
+                            "old value = new value for empty account proof",
+                            config.old_value.current(),
+                            config.new_value.current(),
+                        );
                         empty_node::configure(
                             cb,
+                            config.old_value,
                             config.key,
                             config.other_key,
                             key_equals_other_key,
@@ -1301,8 +1309,14 @@ fn configure_code_size<F: FieldExt>(
                             config.old_hash.current(),
                             config.new_hash.current(),
                         );
+                        cb.assert_equal(
+                            "old value = new value for empty account proof",
+                            config.old_value.current(),
+                            config.new_value.current(),
+                        );
                         empty_node::configure(
                             cb,
+                            config.old_value,
                             config.key,
                             config.other_key,
                             key_equals_other_key,
@@ -1418,9 +1432,14 @@ fn configure_balance<F: FieldExt>(
                             config.old_hash.current(),
                             config.new_hash.current(),
                         );
-
+                        cb.assert_equal(
+                            "old value = new value for empty account proof",
+                            config.old_value.current(),
+                            config.new_value.current(),
+                        );
                         empty_node::configure(
                             cb,
+                            config.old_value,
                             config.key,
                             config.other_key,
                             key_equals_other_key,
@@ -1584,8 +1603,14 @@ fn configure_keccak_code_hash<F: FieldExt>(
                             config.old_hash.current(),
                             config.new_hash.current(),
                         );
+                        cb.assert_equal(
+                            "old value = new value for empty account proof",
+                            config.old_value.current(),
+                            config.new_value.current(),
+                        );
                         empty_node::configure(
                             cb,
+                            config.old_value,
                             config.key,
                             config.other_key,
                             key_equals_other_key,
@@ -1782,8 +1807,14 @@ fn configure_empty_storage<F: FieldExt>(
             config.old_hash.current(),
             config.new_hash.current(),
         );
+        cb.assert_equal(
+            "old value = new value for empty account proof",
+            config.old_value.current(),
+            config.new_value.current(),
+        );
         empty_node::configure(
             cb,
+            config.old_value,
             config.key,
             config.other_key,
             key_equals_other_key,
@@ -1858,8 +1889,14 @@ fn configure_empty_account<F: FieldExt>(
                         config.old_hash.current(),
                         config.new_hash.current(),
                     );
+                    cb.assert_equal(
+                        "old value = new value for empty account proof",
+                        config.old_value.current(),
+                        config.new_value.current(),
+                    );
                     empty_node::configure(
                         cb,
+                        config.old_value,
                         config.key,
                         config.other_key,
                         key_equals_other_key,

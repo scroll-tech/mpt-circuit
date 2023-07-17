@@ -1,11 +1,12 @@
 use crate::{
-    constraint_builder::{AdviceColumn, ConstraintBuilder, Query},
+    constraint_builder::{AdviceColumn, ConstraintBuilder, Query, SecondPhaseAdviceColumn},
     gadgets::{is_zero::IsZeroGadget, poseidon::PoseidonLookup},
 };
 use halo2_proofs::{arithmetic::FieldExt, circuit::Region, halo2curves::bn256::Fr};
 
 pub fn configure<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
+    value: SecondPhaseAdviceColumn,
     key: AdviceColumn,
     other_key: AdviceColumn,
     key_equals_other_key: IsZeroGadget,
@@ -15,6 +16,7 @@ pub fn configure<F: FieldExt>(
     other_leaf_data_hash: AdviceColumn,
     poseidon: &impl PoseidonLookup,
 ) {
+    cb.assert_zero("value is 0 for empty node", value.current());
     cb.assert_equal(
         "key_minus_other_key = key - other key",
         key_equals_other_key.value.current(),
