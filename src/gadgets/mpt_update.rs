@@ -1,4 +1,4 @@
-mod empty_node;
+mod nonexistence_proof;
 mod path;
 mod segment;
 mod word_rlc;
@@ -1038,7 +1038,7 @@ fn configure_extension_old<F: FieldExt>(
         |cb| {
             let [.., key_equals_other_key, new_hash_is_zero] = config.is_zero_gadgets;
             let [.., other_key_hash, other_leaf_data_hash] = config.intermediate_values;
-            empty_node::configure(
+            nonexistence_proof::configure(
                 cb,
                 config.new_value,
                 config.key,
@@ -1125,7 +1125,7 @@ fn configure_extension_new<F: FieldExt>(
         |cb| {
             let [.., key_equals_other_key, old_hash_is_zero] = config.is_zero_gadgets;
             let [.., other_key_hash, other_leaf_data_hash] = config.intermediate_values;
-            empty_node::configure(
+            nonexistence_proof::configure(
                 cb,
                 config.old_value,
                 config.key,
@@ -1166,7 +1166,7 @@ fn configure_nonce<F: FieldExt>(
                             config.old_value.current(),
                             config.new_value.current(),
                         );
-                        empty_node::configure(
+                        nonexistence_proof::configure(
                             cb,
                             config.old_value,
                             config.key,
@@ -1314,7 +1314,7 @@ fn configure_code_size<F: FieldExt>(
                             config.old_value.current(),
                             config.new_value.current(),
                         );
-                        empty_node::configure(
+                        nonexistence_proof::configure(
                             cb,
                             config.old_value,
                             config.key,
@@ -1437,7 +1437,7 @@ fn configure_balance<F: FieldExt>(
                             config.old_value.current(),
                             config.new_value.current(),
                         );
-                        empty_node::configure(
+                        nonexistence_proof::configure(
                             cb,
                             config.old_value,
                             config.key,
@@ -1608,7 +1608,7 @@ fn configure_keccak_code_hash<F: FieldExt>(
                             config.old_value.current(),
                             config.new_value.current(),
                         );
-                        empty_node::configure(
+                        nonexistence_proof::configure(
                             cb,
                             config.old_value,
                             config.key,
@@ -1812,7 +1812,7 @@ fn configure_empty_storage<F: FieldExt>(
             config.old_value.current(),
             config.new_value.current(),
         );
-        empty_node::configure(
+        nonexistence_proof::configure(
             cb,
             config.old_value,
             config.key,
@@ -1894,7 +1894,7 @@ fn configure_empty_account<F: FieldExt>(
                         config.old_value.current(),
                         config.new_value.current(),
                     );
-                    empty_node::configure(
+                    nonexistence_proof::configure(
                         cb,
                         config.old_value,
                         config.key,
