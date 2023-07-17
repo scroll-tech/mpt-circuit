@@ -9,8 +9,7 @@ pub fn configure<F: FieldExt>(
     key: AdviceColumn,
     other_key: AdviceColumn,
     key_equals_other_key: IsZeroGadget,
-    old_hash: AdviceColumn,
-    new_hash: AdviceColumn,
+    hash: AdviceColumn,
     hash_is_zero: IsZeroGadget,
     other_key_hash: AdviceColumn,
     other_leaf_data_hash: AdviceColumn,
@@ -22,14 +21,9 @@ pub fn configure<F: FieldExt>(
         key.current() - other_key.current(),
     );
     cb.assert_equal(
-        "old_hash == current_hash",
-        old_hash.current(),
-        new_hash.current(),
-    );
-    cb.assert_equal(
-        "hash_is_zero input == old_hash",
+        "hash_is_zero input == hash",
         hash_is_zero.value.current(),
-        old_hash.current(),
+        hash.current(),
     );
 
     let is_type_1 = !key_equals_other_key.current();
@@ -47,11 +41,11 @@ pub fn configure<F: FieldExt>(
             poseidon,
         );
         cb.poseidon_lookup(
-            "old_hash == new_hash = h(key_hash, other_leaf_data_hash)",
+            "hash == h(key_hash, other_leaf_data_hash)",
             [
                 other_key_hash.current(),
                 other_leaf_data_hash.current(),
-                old_hash.current(),
+                hash.current(),
             ],
             poseidon,
         );

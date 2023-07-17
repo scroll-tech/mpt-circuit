@@ -1153,39 +1153,19 @@ fn configure_extension_new<F: FieldExt>(
             .segment_type
             .current_matches(&[SegmentType::AccountLeaf0, SegmentType::StorageLeaf0]),
         |cb| {
-            let [.., key_minus_other_key, old_hash] = config.is_zero_values;
             let [.., key_equals_other_key, old_hash_is_zero] = config.is_zero_gadgets;
-            cb.assert_equal(
-                "key_minus_other_key = key - other key",
-                key_minus_other_key.current(),
-                config.key.current() - config.other_key.current(),
-            );
-            cb.assert_equal(
-                "is_zero_value is old_hash",
-                config.old_hash.current(),
-                old_hash.current(),
-            );
-            let old_is_type_1 = !key_equals_other_key.current();
-            let old_is_type_2 = old_hash_is_zero.current();
-
-            cb.assert_equal(
-                "Empty old account/storage leaf is either type 1 xor type 2",
-                Query::one(),
-                Query::from(old_is_type_1.clone()) + Query::from(old_is_type_2.clone()),
-            );
-
             let [.., other_key_hash, other_leaf_data_hash] = config.intermediate_values;
-            cb.condition(old_is_type_1, |cb| {
-                cb.poseidon_lookup(
-                    "previous old_hash = h(other_key_hash, other_leaf_data_hash)",
-                    [
-                        other_key_hash.current(),
-                        other_leaf_data_hash.current(),
-                        config.old_hash.previous(),
-                    ],
-                    poseidon,
-                );
-            });
+            empty_node::configure(
+                cb,
+                config.key,
+                config.other_key,
+                key_equals_other_key,
+                config.old_hash,
+                old_hash_is_zero,
+                other_key_hash,
+                other_leaf_data_hash,
+                poseidon,
+            );
         },
     );
 }
@@ -1205,13 +1185,17 @@ fn configure_nonce<F: FieldExt>(
                         let [.., key_equals_other_key, hash_is_zero] = config.is_zero_gadgets;
                         let [_, _, other_key_hash, other_leaf_data_hash, ..] =
                             config.intermediate_values;
+                        cb.assert_equal(
+                            "old hash = new hash for empty account proof",
+                            config.old_hash.current(),
+                            config.new_hash.current(),
+                        );
                         empty_node::configure(
                             cb,
                             config.key,
                             config.other_key,
                             key_equals_other_key,
                             config.old_hash,
-                            config.new_hash,
                             hash_is_zero,
                             other_key_hash,
                             other_leaf_data_hash,
@@ -1343,13 +1327,17 @@ fn configure_code_size<F: FieldExt>(
                         let [.., key_equals_other_key, hash_is_zero] = config.is_zero_gadgets;
                         let [_, _, other_key_hash, other_leaf_data_hash, ..] =
                             config.intermediate_values;
+                        cb.assert_equal(
+                            "old hash = new hash for empty account proof",
+                            config.old_hash.current(),
+                            config.new_hash.current(),
+                        );
                         empty_node::configure(
                             cb,
                             config.key,
                             config.other_key,
                             key_equals_other_key,
                             config.old_hash,
-                            config.new_hash,
                             hash_is_zero,
                             other_key_hash,
                             other_leaf_data_hash,
@@ -1456,13 +1444,18 @@ fn configure_balance<F: FieldExt>(
                         let [.., key_equals_other_key, hash_is_zero] = config.is_zero_gadgets;
                         let [_, _, other_key_hash, other_leaf_data_hash, ..] =
                             config.intermediate_values;
+                        cb.assert_equal(
+                            "old hash = new hash for empty account proof",
+                            config.old_hash.current(),
+                            config.new_hash.current(),
+                        );
+
                         empty_node::configure(
                             cb,
                             config.key,
                             config.other_key,
                             key_equals_other_key,
                             config.old_hash,
-                            config.new_hash,
                             hash_is_zero,
                             other_key_hash,
                             other_leaf_data_hash,
@@ -1617,13 +1610,17 @@ fn configure_keccak_code_hash<F: FieldExt>(
                         let [.., key_equals_other_key, hash_is_zero] = config.is_zero_gadgets;
                         let [_, _, other_key_hash, other_leaf_data_hash, ..] =
                             config.intermediate_values;
+                        cb.assert_equal(
+                            "old hash = new hash for empty account proof",
+                            config.old_hash.current(),
+                            config.new_hash.current(),
+                        );
                         empty_node::configure(
                             cb,
                             config.key,
                             config.other_key,
                             key_equals_other_key,
                             config.old_hash,
-                            config.new_hash,
                             hash_is_zero,
                             other_key_hash,
                             other_leaf_data_hash,
