@@ -32,6 +32,19 @@ impl IsZeroGadget {
         );
     }
 
+    // TODO: get rid of assign method in favor of it.
+    pub fn assign_value_and_inverse<F: FieldExt, T: Copy + TryInto<F>>(
+        &self,
+        region: &mut Region<'_, F>,
+        offset: usize,
+        value: T,
+    ) where
+        <T as TryInto<F>>::Error: Debug,
+    {
+        self.value.assign(region, offset, value);
+        self.assign(region, offset, value);
+    }
+
     pub fn configure<F: FieldExt>(
         cs: &mut ConstraintSystem<F>,
         cb: &mut ConstraintBuilder<F>,

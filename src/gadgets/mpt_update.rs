@@ -64,7 +64,6 @@ pub struct MptUpdateConfig {
 
     intermediate_values: [AdviceColumn; 10], // can be 4?
     second_phase_intermediate_values: [SecondPhaseAdviceColumn; 10], // 4?
-    is_zero_values: [AdviceColumn; 4],       // you can reduce this to 3
     is_zero_gadgets: [IsZeroGadget; 4],      // can be 3
 }
 
@@ -109,8 +108,9 @@ impl MptUpdateConfig {
         let intermediate_values: [AdviceColumn; 10] = cb.advice_columns(cs);
         let second_phase_intermediate_values: [SecondPhaseAdviceColumn; 10] =
             cb.second_phase_advice_columns(cs);
-        let is_zero_values = cb.advice_columns(cs);
-        let is_zero_gadgets = is_zero_values.map(|column| IsZeroGadget::configure(cs, cb, column));
+        let is_zero_gadgets = cb
+            .advice_columns(cs)
+            .map(|column| IsZeroGadget::configure(cs, cb, column));
 
         let segment_type = OneHot::configure(cs, cb);
         let path_type = OneHot::configure(cs, cb);
@@ -240,7 +240,6 @@ impl MptUpdateConfig {
             sibling,
             intermediate_values,
             second_phase_intermediate_values,
-            is_zero_values,
             is_zero_gadgets,
         };
 
@@ -479,10 +478,8 @@ impl MptUpdateConfig {
 
             if proof.old_account.is_none() && proof.new_account.is_none() {
                 offset -= 1;
-                self.is_zero_values[2].assign(region, offset, key - other_key);
-                self.is_zero_gadgets[2].assign(region, offset, key - other_key);
-                self.is_zero_values[3].assign(region, offset, final_old_hash);
-                self.is_zero_gadgets[3].assign(region, offset, final_old_hash);
+                self.is_zero_gadgets[2].assign_value_and_inverse(region, offset, key - other_key);
+                self.is_zero_gadgets[3].assign_value_and_inverse(region, offset, final_old_hash);
 
                 self.intermediate_values[2].assign(region, offset, other_key_hash);
                 self.intermediate_values[3].assign(region, offset, other_leaf_data_hash);
@@ -542,8 +539,7 @@ impl MptUpdateConfig {
                 izip!(segment_types, siblings, old_hashes, new_hashes, directions).enumerate()
             {
                 if i == 0 {
-                    self.is_zero_values[3].assign(region, offset, old_hash);
-                    self.is_zero_gadgets[3].assign(region, offset, old_hash);
+                    self.is_zero_gadgets[3].assign_value_and_inverse(region, offset, old_hash);
                 }
                 self.segment_type.assign(region, offset + i, segment_type);
                 self.path_type.assign(region, offset + i, leaf_path_type);
@@ -586,8 +582,7 @@ impl MptUpdateConfig {
             }
             self.key.assign(region, offset, key);
             self.other_key.assign(region, offset, other_key);
-            self.is_zero_values[2].assign(region, offset, key - other_key);
-            self.is_zero_gadgets[2].assign(region, offset, key - other_key);
+            self.is_zero_gadgets[2].assign_value_and_inverse(region, offset, key - other_key);
             match proof.claim.kind {
                 ClaimKind::CodeHash { old, new } => {
                     let [old_high, old_low, new_high, new_low, ..] = self.intermediate_values;
@@ -710,7 +705,6 @@ impl MptUpdateConfig {
     ) -> usize {
         let [_key_high, _key_low, other_key_hash, other_leaf_data_hash, ..] =
             self.intermediate_values;
-        let [.., key_minus_other_key, hash] = self.is_zero_values;
         let [.., key_equals_other_key, hash_is_zero] = self.is_zero_gadgets;
         match (old, new) {
             (
@@ -725,14 +719,12 @@ impl MptUpdateConfig {
             ) => {
                 assert!(key != other_key);
 
-                key_minus_other_key.assign(region, offset, key - other_key);
-                key_equals_other_key.assign(region, offset, key - other_key);
+                key_equals_other_key.assign_value_and_inverse(region, offset, key - other_key);
 
                 assert_eq!(new_key, old_key);
                 assert_eq!(old_value_hash, new_value_hash);
 
-                hash.assign(region, offset, old.hash());
-                hash_is_zero.assign(region, offset, old.hash());
+                hash_is_zero.assign_value_and_inverse(region, offset, old.hash());
 
                 other_key_hash.assign(region, offset, old.key_hash());
                 other_leaf_data_hash.assign(region, offset, *old_value_hash);
@@ -743,8 +735,7 @@ impl MptUpdateConfig {
                 assert_eq!(old.hash(), Fr::zero());
                 assert_eq!(new.hash(), Fr::zero());
 
-                key_minus_other_key.assign(region, offset, key - other_key);
-                key_equals_other_key.assign(region, offset, key - other_key);
+                key_equals_other_key.assign_value_and_inverse(region, offset, key - other_key);
             }
             (StorageLeaf::Entry { .. }, _) | (_, StorageLeaf::Entry { .. }) => return 0,
             (StorageLeaf::Leaf { .. }, StorageLeaf::Empty { .. })
@@ -826,14 +817,18 @@ impl MptUpdateConfig {
             );
         }
 
-        let [old_hash_minus_zero_storage_hash, new_hash_minus_zero_storage_hash, ..] =
-            self.is_zero_values;
         let [old_hash_is_zero_storage_hash, new_hash_is_zero_storage_hash, ..] =
             self.is_zero_gadgets;
-        old_hash_minus_zero_storage_hash.assign(region, offset, old_hash - *ZERO_STORAGE_HASH);
-        new_hash_minus_zero_storage_hash.assign(region, offset, new_hash - *ZERO_STORAGE_HASH);
-        old_hash_is_zero_storage_hash.assign(region, offset, old_hash - *ZERO_STORAGE_HASH);
-        new_hash_is_zero_storage_hash.assign(region, offset, new_hash - *ZERO_STORAGE_HASH);
+        old_hash_is_zero_storage_hash.assign_value_and_inverse(
+            region,
+            offset,
+            old_hash - *ZERO_STORAGE_HASH,
+        );
+        new_hash_is_zero_storage_hash.assign_value_and_inverse(
+            region,
+            offset,
+            new_hash - *ZERO_STORAGE_HASH,
+        );
 
         match path_type {
             PathType::Start => unreachable!(),
@@ -842,12 +837,9 @@ impl MptUpdateConfig {
                 let new_key = new.key();
                 let other_key = if key != new_key { new_key } else { old.key() };
 
-                let [.., key_minus_other_key, new_hash_column] = self.is_zero_values;
                 let [.., key_equals_other_key, new_hash_is_zero] = self.is_zero_gadgets;
-                key_minus_other_key.assign(region, offset, key - other_key);
-                new_hash_column.assign(region, offset, new_hash);
-                key_equals_other_key.assign(region, offset, key - other_key);
-                new_hash_is_zero.assign(region, offset, new_hash);
+                key_equals_other_key.assign_value_and_inverse(region, offset, key - other_key);
+                new_hash_is_zero.assign_value_and_inverse(region, offset, new_hash);
 
                 if key != other_key {
                     let [.., other_key_hash, other_leaf_data_hash] = self.intermediate_values;
@@ -859,12 +851,9 @@ impl MptUpdateConfig {
                 let old_key = old.key();
                 let other_key = if key != old_key { old_key } else { new.key() };
 
-                let [.., key_minus_other_key, old_hash_column] = self.is_zero_values;
                 let [.., key_equals_other_key, old_hash_is_zero] = self.is_zero_gadgets;
-                key_minus_other_key.assign(region, offset, key - other_key);
-                old_hash_column.assign(region, offset, old_hash);
-                key_equals_other_key.assign(region, offset, key - other_key);
-                old_hash_is_zero.assign(region, offset, old_hash);
+                key_equals_other_key.assign_value_and_inverse(region, offset, key - other_key);
+                old_hash_is_zero.assign_value_and_inverse(region, offset, old_hash);
 
                 if key != other_key {
                     let [.., other_key_hash, other_leaf_data_hash] = self.intermediate_values;
@@ -1729,18 +1718,16 @@ fn configure_storage<F: FieldExt>(
                     },
                 );
 
-                let [old_hash_minus_zero_storage_hash, new_hash_minus_zero_storage_hash, ..] =
-                    config.is_zero_values;
                 let [old_hash_is_zero_storage_hash, new_hash_is_zero_storage_hash, ..] =
                     config.is_zero_gadgets;
                 cb.assert_equal(
                     "old_hash_minus_zero_storage_hash = old_hash - hash(0, 0)",
-                    old_hash_minus_zero_storage_hash.current(),
+                    old_hash_is_zero_storage_hash.value.current(),
                     config.old_hash.current() - *ZERO_STORAGE_HASH,
                 );
                 cb.assert_equal(
                     "new_hash_minus_zero_storage_hash = new_hash - hash(0, 0)",
-                    new_hash_minus_zero_storage_hash.current(),
+                    new_hash_is_zero_storage_hash.value.current(),
                     config.new_hash.current() - *ZERO_STORAGE_HASH,
                 );
                 cb.assert(
@@ -1771,7 +1758,6 @@ fn configure_empty_storage<F: FieldExt>(
 ) {
     let [key_high, key_low, other_key_hash, other_leaf_data_hash, ..] = config.intermediate_values;
     let [rlc_key_high, rlc_key_low, ..] = config.second_phase_intermediate_values;
-    let [.., key_minus_other_key, hash] = config.is_zero_values;
     let [.., key_equals_other_key, hash_is_zero] = config.is_zero_gadgets;
 
     cb.assert_zero(
