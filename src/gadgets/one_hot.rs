@@ -1,6 +1,6 @@
 use crate::constraint_builder::{BinaryColumn, BinaryQuery, ConstraintBuilder, Query};
 use halo2_proofs::{arithmetic::FieldExt, circuit::Region, plonk::ConstraintSystem};
-use std::{cmp::Eq, collections::HashMap, hash::Hash};
+use std::{cmp::Eq, collections::BTreeMap, hash::Hash};
 use strum::IntoEnumIterator;
 
 // One hot encoding for an enum with T::COUNT variants with COUNT - 1 binary columns.
@@ -8,7 +8,7 @@ use strum::IntoEnumIterator;
 // is valid (it will represent the first variant).
 #[derive(Clone)]
 pub struct OneHot<T: Hash> {
-    columns: HashMap<T, BinaryColumn>,
+    columns: BTreeMap<T, BinaryColumn>,
 }
 
 impl<T: IntoEnumIterator + Hash + Eq> OneHot<T> {
@@ -16,7 +16,7 @@ impl<T: IntoEnumIterator + Hash + Eq> OneHot<T> {
         cs: &mut ConstraintSystem<F>,
         cb: &mut ConstraintBuilder<F>,
     ) -> Self {
-        let mut columns = HashMap::new();
+        let mut columns = BTreeMap::new();
         for variant in Self::nonfirst_variants() {
             columns.insert(variant, cb.binary_columns::<1>(cs)[0]);
         }
