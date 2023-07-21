@@ -229,18 +229,17 @@ Each circuit row will be assigned a PathType at witness generation. Along a path
 
 
 ### Type 1 and Type 2 non-existence proofs
-
-These cases of non-existence proofs do <b>not</b> really correspond to `MPTProofType::AccountDoesNotExist` or `MPTProofType::StorageDoesNotExist`, but are related to non-existence before writing into or after deletion from existing mpt. 
+Account and storage non-existence proofs are used not only for `MPTProofType::AccountDoesNotExist`  and `MPTProofType::StorageDoesNotExist`, but also for other `MPTProofType`'s when modifications to the mpt leads to leafs being added or deleted from the trie. Special cases occur when a call deploys a contract and is then reverted. In this case, the mpt circuit will accept non-existence proofs to show that e.g. the old and new value code size of the non-existent account are 0.
 
 There are 2 cases to constrain based on the path directed by the provided non-existing key (coming from hash of account address):
 
 - <b>Type 1 non-existence proof</b> (insert to append/delete from append): the path ended at a leaf node. Illustration figure shown below:
 ![AccountNotExist_Leaf](https://i.imgur.com/SyExuBC.png)
-In this case, due to our construction of the old and new paths of `SMTTrace`, the old path (when inserting)/new path (when deleting) must be directed to this leaf node. The prefix key provided by the old/new path must end at a bit position <i>before</i> the last bit of the leaf key that is to be proved non-exist. So we constrain that the non-existing account/storage must have its key that is not equal to the key at this leaf node. Circuit columns `other_key`, `other_key_hash`, `other_leafnode_hash` and an IsEqualGadget `key_equals_other_key` are used to provide witness to these constraints and to constrain.
+In this case, due to our construction of the old and new paths of `SMTTrace`, the old path (when inserting)/new path (when deleting) must be directed to this leaf node. The prefix key provided by the old/new path must end at a bit position <i>before</i> the last bit of the leaf key that is to be proved non-exist. So we constrain that the non-existing account/storage must have its key that is not equal to the key at this leaf node. Intermediate values are used to store `other_key`, `other_key_hash`, `other_leaf_hash`, along with an IsZeroGadget to show that `other_key != key`.
 
 - <b>Type 2 non-existence proof</b> (insert to fill/delete from fill): the path ended at an empty node. Illustration figure shown below:
 ![AccounNotExist_Empty](https://i.imgur.com/FLxg11Q.png)
-In this case, due to our construction of the old and new paths of `SMTTrace`, the old path (when inserting)/new path (when deleting) must be directed to this empty node. So we constrain the emptiness of these nodes. Circuit provides two IsZeroGadgets `old_hash_is_zero` and`new_hash_is_zero` to constrain this case.
+In this case, due to our construction of the old and new paths of `SMTTrace`, the old path (when inserting)/new path (when deleting) must be directed to this empty node. So we constrain the emptiness of these nodes. Circuit use two IsZeroGadgets to constrain this case.
 
 
 ### SegmentTypes
@@ -331,6 +330,7 @@ on rows with `MPTProofType::NonceChanged`:
         - `direction==1`
         - `key_prev==poisedon(address_lo, address_hi)` (see [here](https://www.notion.so/scrollzkp/zkTrie-Spec-deprecated-be31b03b7bcd4cdc8ece2dd3dca61928?pvs=4#2d4e62a92ba04ec98fc2586bf69a549f))
         - `sibling==poisedon(1, key_prev)`
+        - if next `SegmentType` is `Start`, then verify is an account non-existence proof and additionally that `old_value = new_value = 0`.
     -  `AccountLeaf1`
         - `direction==0`
     -  `AccountLeaf2`
@@ -371,3 +371,4 @@ on rows with `MPTProofType::PoisedonCodehashExists`:
 - same structure of constraints as in the `MPTProofType::NonceChanged` case. The only difference is that 
     - direction for `AccountLeaf0-4` becomes `[1,1]`
     - At `AccountLeaf1`, constrain that `old_hash==poisedon_code_hash (old_value)`  for `PathType::{Common, ExtensionOld}` and `new_hash==poisedon_code_hash (new_value)` for `PathType::{Common, ExtensionNew}`
+    - Note that we do not accept an account non-existence proof here, even when `old_value = new_value = 0`. This lookup should never occur in the mpt circuit because we require the state circuit converts these lookups into `MPTProofType::AccountDoesNotExist`.
