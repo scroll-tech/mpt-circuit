@@ -7,11 +7,11 @@ use strum::IntoEnumIterator;
 // It's useful to have 1 less column so that the default assigment for the gadget
 // is valid (it will represent the first variant).
 #[derive(Clone)]
-pub struct OneHot<T: Hash> {
+pub struct OneHot<T: Hash + PartialOrd + Ord> {
     columns: BTreeMap<T, BinaryColumn>,
 }
 
-impl<T: IntoEnumIterator + Hash + Eq> OneHot<T> {
+impl<T: IntoEnumIterator + Hash + Eq + PartialOrd + Ord> OneHot<T> {
     pub fn configure<F: FieldExt>(
         cs: &mut ConstraintSystem<F>,
         cb: &mut ConstraintBuilder<F>,

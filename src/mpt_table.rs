@@ -3,7 +3,9 @@ use serde::{Deserialize, Serialize};
 use strum_macros::EnumIter;
 
 /// The defination is greped from state-circuit
-#[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, EnumIter, Hash, Serialize, Deserialize,
+)]
 pub enum MPTProofType {
     /// nonce
     NonceChanged,
