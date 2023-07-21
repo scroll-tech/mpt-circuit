@@ -2,7 +2,7 @@ use crate::MPTProofType;
 use std::collections::HashMap;
 use strum_macros::EnumIter;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, EnumIter, Hash)]
 pub enum SegmentType {
     Start, // Boundary marker between updates
     AccountTrie,
