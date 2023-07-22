@@ -908,7 +908,7 @@ fn fr(x: HexBytes<32>) -> Fr {
 }
 
 pub fn hash(x: Fr, y: Fr) -> Fr {
-    Hashable::hash([x, y])
+    Hashable::hash_with_domain([x, y], Fr::zero())
 }
 
 fn storage_key_hash(key: U256) -> Fr {

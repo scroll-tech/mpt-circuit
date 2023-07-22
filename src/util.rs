@@ -12,7 +12,7 @@ pub(crate) fn fr(x: HexBytes<32>) -> Fr {
 }
 
 pub(crate) fn hash(x: Fr, y: Fr) -> Fr {
-    Hashable::hash([x, y])
+    Hashable::hash_with_domain([x, y], Fr::zero())
 }
 
 pub(crate) trait Bit {
