@@ -1924,9 +1924,9 @@ fn address_low(a: Address) -> u128 {
     u128::from(u32::from_be_bytes(low_bytes)) << 96
 }
 
-// ...
-pub fn hash_traces(proofs: &[Proof]) -> Vec<(Fr, Fr, Fr)> {
-    let mut hash_traces = vec![(Fr::zero(), Fr::zero(), *HASH_ZERO_ZERO)];
+// ... the return traces: ([inp;2], domain, hash)
+pub fn hash_traces(proofs: &[Proof]) -> Vec<([Fr; 2], Fr, Fr)> {
+    let mut hash_traces = vec![([Fr::zero(), Fr::zero()], Fr::zero(), *HASH_ZERO_ZERO)];
     for proof in proofs.iter() {
         let address_hash_traces = &proof.address_hash_traces;
         for (direction, old_hash, new_hash, sibling, is_padding_open, is_padding_close) in
@@ -1938,7 +1938,7 @@ pub fn hash_traces(proofs: &[Proof]) -> Vec<(Fr, Fr, Fr)> {
                 } else {
                     (old_hash, sibling)
                 };
-                hash_traces.push((*left, *right, hash(*left, *right)));
+                hash_traces.push(([*left, *right], Fr::zero(), hash(*left, *right)));
             }
             if !*is_padding_close {
                 let (left, right) = if *direction {
@@ -1946,7 +1946,7 @@ pub fn hash_traces(proofs: &[Proof]) -> Vec<(Fr, Fr, Fr)> {
                 } else {
                     (new_hash, sibling)
                 };
-                hash_traces.push((*left, *right, hash(*left, *right)));
+                hash_traces.push(([*left, *right], Fr::zero(), hash(*left, *right)));
             }
         }
         assert_eq!(
@@ -1959,19 +1959,31 @@ pub fn hash_traces(proofs: &[Proof]) -> Vec<(Fr, Fr, Fr)> {
         );
         let (storage_key_high, storage_key_low) = u256_hi_lo(&proof.claim.storage_key());
         hash_traces.push((
-            Fr::from_u128(storage_key_high),
-            Fr::from_u128(storage_key_low),
+            [
+                Fr::from_u128(storage_key_high),
+                Fr::from_u128(storage_key_low),
+            ],
+            Fr::from(0u64),
             hash(
                 Fr::from_u128(storage_key_high),
                 Fr::from_u128(storage_key_low),
             ),
         ));
-        hash_traces.extend(proof.storage.poseidon_lookups());
+        hash_traces.extend(
+            proof
+                .storage
+                .poseidon_lookups()
+                .into_iter()
+                .map(|(a, b, h)| ([a, b], Fr::zero(), h)),
+        );
 
         let key = account_key(proof.claim.address);
         hash_traces.push((
-            Fr::from_u128(address_high(proof.claim.address)),
-            Fr::from_u128(address_low(proof.claim.address)),
+            [
+                Fr::from_u128(address_high(proof.claim.address)),
+                Fr::from_u128(address_low(proof.claim.address)),
+            ],
+            Fr::from(0u64),
             key,
         ));
 
@@ -1981,20 +1993,24 @@ pub fn hash_traces(proofs: &[Proof]) -> Vec<(Fr, Fr, Fr)> {
             proof.new.key
         };
         if key != other_key {
-            hash_traces.push((Fr::one(), other_key, hash(Fr::one(), other_key)));
+            hash_traces.push((
+                [Fr::one(), other_key],
+                Fr::zero(),
+                hash(Fr::one(), other_key),
+            ));
         }
 
         if let Some(data_hash) = proof.old.leaf_data_hash {
             hash_traces.push((
-                proof.old.key_hash,
-                data_hash,
+                [proof.old.key_hash, data_hash],
+                Fr::zero(),
                 hash(proof.old.key_hash, data_hash),
             ));
         }
         if let Some(data_hash) = proof.new.leaf_data_hash {
             hash_traces.push((
-                proof.new.key_hash,
-                data_hash,
+                [proof.new.key_hash, data_hash],
+                Fr::zero(),
                 hash(proof.new.key_hash, data_hash),
             ));
         }
@@ -2004,7 +2020,7 @@ pub fn hash_traces(proofs: &[Proof]) -> Vec<(Fr, Fr, Fr)> {
         {
             for [left, right, digest] in account_leaf_hash_traces {
                 if hash(left, right) == digest {
-                    hash_traces.push((left, right, digest))
+                    hash_traces.push(([left, right], Fr::zero(), digest))
                 }
             }
         }
