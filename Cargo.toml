@@ -30,6 +30,8 @@ halo2_proofs = { git = "https://github.com/scroll-tech/halo2.git", branch = "dev
 print_layout = ["halo2_proofs/dev-graph"]
 
 [dev-dependencies]
+mpt-zktrie = { git = "https://github.com/scroll-tech/zkevm-circuits.git", branch = "feat/mpt_new_hash_scheme" }
+# mpt-zktrie = { path = "../scroll-circuits/zktrie" }
 rand_chacha = "0.3.0"
 plotters = "0.3"
 bencher = "0.1"

@@ -395,7 +395,7 @@ impl MptUpdateConfig {
             let mut previous_new_hash = proof.claim.new_root;
             for (
                 depth,
-                (direction, old_hash, new_hash, sibling, is_padding_open, is_padding_close),
+                (direction, _, old_hash, new_hash, sibling, is_padding_open, is_padding_close),
             ) in proof.address_hash_traces.iter().rev().enumerate()
             {
                 self.depth
@@ -462,7 +462,7 @@ impl MptUpdateConfig {
             let final_path_type = proof
                 .address_hash_traces
                 .first()
-                .map(|(_, _, _, _, is_padding_open, is_padding_close)| {
+                .map(|(_, _, _, _, _, is_padding_open, is_padding_close)| {
                     match (*is_padding_open, *is_padding_close) {
                         (false, false) => PathType::Common,
                         (false, true) => PathType::ExtensionOld,
@@ -473,7 +473,7 @@ impl MptUpdateConfig {
                 .unwrap_or(PathType::Common);
             let (final_old_hash, final_new_hash) = match proof.address_hash_traces.first() {
                 None => (proof.old.hash(), proof.new.hash()),
-                Some((_, old_hash, new_hash, _, _, _)) => (*old_hash, *new_hash),
+                Some((_, _, old_hash, new_hash, _, _, _)) => (*old_hash, *new_hash),
             };
 
             if proof.old_account.is_none() && proof.new_account.is_none() {
@@ -1929,7 +1929,7 @@ pub fn hash_traces(proofs: &[Proof]) -> Vec<([Fr; 2], Fr, Fr)> {
     let mut hash_traces = vec![([Fr::zero(), Fr::zero()], Fr::zero(), *HASH_ZERO_ZERO)];
     for proof in proofs.iter() {
         let address_hash_traces = &proof.address_hash_traces;
-        for (direction, old_hash, new_hash, sibling, is_padding_open, is_padding_close) in
+        for (direction, _, old_hash, new_hash, sibling, is_padding_open, is_padding_close) in
             address_hash_traces.iter().rev()
         {
             if !*is_padding_open {
@@ -2032,7 +2032,7 @@ pub fn hash_traces(proofs: &[Proof]) -> Vec<([Fr; 2], Fr, Fr)> {
 pub fn key_bit_lookups(proofs: &[Proof]) -> Vec<(Fr, usize, bool)> {
     let mut lookups = vec![(Fr::zero(), 0, false), (Fr::one(), 0, true)];
     for proof in proofs.iter() {
-        for (i, (direction, _, _, _, is_padding_open, is_padding_close)) in
+        for (i, (direction, _, _, _, _, is_padding_open, is_padding_close)) in
             proof.address_hash_traces.iter().rev().enumerate()
         {
             match (is_padding_open, is_padding_close) {

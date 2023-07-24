@@ -5,6 +5,8 @@
 pub mod constraint_builder;
 pub mod gadgets;
 mod mpt_table;
+#[cfg(test)]
+mod test;
 pub mod types;
 mod util;
 

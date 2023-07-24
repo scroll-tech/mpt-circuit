@@ -157,7 +157,7 @@ impl LeafNode {
 pub struct Proof {
     pub claim: Claim,
     // direction, open value, close value, sibling, is_padding_open, is_padding_close
-    pub address_hash_traces: Vec<(bool, Fr, Fr, Fr, bool, bool)>,
+    pub address_hash_traces: Vec<(bool, HashDomain, Fr, Fr, Fr, bool, bool)>,
 
     // TODO: make this optional
     leafs: [Option<LeafNode>; 2],
@@ -500,7 +500,7 @@ fn get_internal_hash_traces(
     leaf_hashes: [Fr; 2],
     open_hash_traces: &[SMTNode],
     close_hash_traces: &[SMTNode],
-) -> Vec<(bool, Fr, Fr, Fr, bool, bool)> {
+) -> Vec<(bool, HashDomain, Fr, Fr, Fr, bool, bool)> {
     let mut address_hash_traces = vec![];
     for (i, e) in open_hash_traces
         .iter()
@@ -510,8 +510,10 @@ fn get_internal_hash_traces(
         address_hash_traces.push(match e {
             EitherOrBoth::Both(open, close) => {
                 assert_eq!(open.sibling, close.sibling);
+                assert_eq!(open.node_type, close.node_type);
                 (
                     key.bit(i),
+                    HashDomain::try_from(open.node_type).unwrap(),
                     fr(open.value),
                     fr(close.value),
                     fr(open.sibling),
@@ -521,6 +523,7 @@ fn get_internal_hash_traces(
             }
             EitherOrBoth::Left(open) => (
                 key.bit(i),
+                HashDomain::try_from(open.node_type).unwrap(),
                 fr(open.value),
                 leaf_hashes[1],
                 fr(open.sibling),
@@ -529,6 +532,7 @@ fn get_internal_hash_traces(
             ),
             EitherOrBoth::Right(close) => (
                 key.bit(i),
+                HashDomain::try_from(close.node_type).unwrap(),
                 leaf_hashes[0],
                 fr(close.value),
                 fr(close.sibling),
@@ -761,7 +765,7 @@ impl Proof {
 
         // directions match account key.
         let account_key = account_key(self.claim.address);
-        for (i, (direction, _, _, _, _, _)) in self.address_hash_traces.iter().enumerate() {
+        for (i, (direction, _, _, _, _, _, _)) in self.address_hash_traces.iter().enumerate() {
             assert_eq!(
                 *direction,
                 account_key.bit(self.address_hash_traces.len() - i - 1)
@@ -769,7 +773,7 @@ impl Proof {
         }
 
         // old and new roots are correct
-        if let Some((direction, open, close, sibling, _is_padding_open, _is_padding_close)) =
+        if let Some((direction, _, open, close, sibling, _is_padding_open, _is_padding_close)) =
             self.address_hash_traces.last()
         {
             if *direction {
@@ -787,12 +791,12 @@ impl Proof {
         // going to have to add an is padding row or something?
         assert_eq!(
             self.old_account_hash_traces[5][2],
-            self.address_hash_traces.get(0).unwrap().1
+            self.address_hash_traces.get(0).unwrap().2
         );
 
         assert_eq!(
             self.new_account_hash_traces[5][2],
-            self.address_hash_traces.get(0).unwrap().2
+            self.address_hash_traces.get(0).unwrap().3
         );
         // if this still the case????
 
@@ -804,7 +808,7 @@ impl Proof {
                 hash(Fr::one(), self.leafs[0].unwrap().key),
                 self.leafs[0].unwrap().value_hash
             ),
-            self.old_account_hash_traces[5][2],
+            self.old_account_hash_traces[5][3],
         );
         assert_eq!(
             hash(
@@ -861,13 +865,13 @@ fn check_hash_traces(traces: &[(bool, Fr, Fr, Fr)]) {
     }
 }
 
-fn check_hash_traces_new(traces: &[(bool, Fr, Fr, Fr, bool, bool)]) {
+fn check_hash_traces_new(traces: &[(bool, HashDomain, Fr, Fr, Fr, bool, bool)]) {
     let current_hash_traces = traces.iter();
     let mut next_hash_traces = traces.iter();
     next_hash_traces.next();
     for (
-        (direction, open, close, sibling, is_padding_open, is_padding_close),
-        (_, next_open, next_close, _, is_padding_open_next, is_padding_close_next),
+        (direction, _, open, close, sibling, is_padding_open, is_padding_close),
+        (_, _, next_open, next_close, _, is_padding_open_next, is_padding_close_next),
     ) in current_hash_traces.zip(next_hash_traces)
     {
         if *direction {
