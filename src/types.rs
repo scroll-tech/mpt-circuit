@@ -22,6 +22,44 @@ pub use constants::HASH_ZERO_ZERO;
 use storage::StorageProof;
 
 #[derive(Clone, Copy, Debug)]
+pub enum HashDomain {
+    NodeTypeEmpty = 4,
+    NodeTypeLeaf = 5,
+    NodeTypeBranch0 = 6,
+    NodeTypeBranch1 = 7,
+    NodeTypeBranch2 = 8,
+    NodeTypeBranch3 = 9,
+}
+
+impl TryFrom<u64> for HashDomain {
+    type Error = &'static str;
+    fn try_from(x: u64) -> Result<Self, Self::Error> {
+        match x {
+            4 => Ok(Self::NodeTypeEmpty),
+            5 => Ok(Self::NodeTypeLeaf),
+            6 => Ok(Self::NodeTypeBranch0),
+            7 => Ok(Self::NodeTypeBranch1),
+            8 => Ok(Self::NodeTypeBranch2),
+            9 => Ok(Self::NodeTypeBranch3),
+            _ => Err("input out of range for HashDomain"),
+        }
+    }
+}
+
+impl Into<u64> for HashDomain {
+    fn into(self) -> u64 {
+        match self {
+            Self::NodeTypeEmpty => 4,
+            Self::NodeTypeLeaf => 5,
+            Self::NodeTypeBranch0 => 6,
+            Self::NodeTypeBranch1 => 7,
+            Self::NodeTypeBranch2 => 8,
+            Self::NodeTypeBranch3 => 9,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
 pub struct Claim {
     pub old_root: Fr,
     pub new_root: Fr,
