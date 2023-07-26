@@ -2,7 +2,7 @@ use crate::{
     gadgets::mpt_update::PathType,
     serde::{AccountData, HexBytes, SMTNode, SMTPath, SMTTrace},
     util::{
-        account_key, check_domain_consistency, domain_hash, fr_from_biguint, hash, rlc, temp_hash,
+        account_key, check_domain_consistency, domain_hash, fr_from_biguint, rlc, temp_hash,
         u256_from_biguint, u256_from_hex, u256_to_big_endian,
     },
     MPTProofType,
@@ -13,11 +13,9 @@ use itertools::{EitherOrBoth, Itertools};
 use num_bigint::BigUint;
 use num_traits::identities::Zero;
 
-mod account;
-mod constants;
+// mod account;
 pub mod storage;
 pub mod trie;
-pub use constants::HASH_ZERO_ZERO;
 use storage::StorageProof;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -48,6 +46,13 @@ impl TryFrom<u64> for HashDomain {
             // 512 => Ok(Self::)
             _ => Err("input out of range for HashDomain"),
         }
+    }
+}
+
+impl Into<Fr> for HashDomain {
+    fn into(self) -> Fr {
+        let x: u64 = self.into();
+        x.into()
     }
 }
 
@@ -154,12 +159,6 @@ struct LeafNode {
     value_hash: Fr,
 }
 
-impl LeafNode {
-    fn hash(&self) -> Fr {
-        hash(hash(Fr::one(), self.key), self.value_hash)
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct Proof {
     pub claim: Claim,
@@ -234,7 +233,7 @@ pub struct Path {
 impl Path {
     pub fn hash(&self) -> Fr {
         if let Some(data_hash) = self.leaf_data_hash {
-            hash(self.key_hash, data_hash)
+            domain_hash(self.key_hash, data_hash, HashDomain::NodeTypeLeaf)
         } else {
             Fr::zero()
         }
@@ -684,27 +683,6 @@ fn empty_account_hash_traces(leaf: Option<LeafNode>) -> [[Fr; 3]; 7] {
     account_hash_traces
 }
 
-fn storage_key_value_hash_traces(key: U256, value: U256) -> [[Fr; 3]; 3] {
-    let (key_high, key_low) = split_word(key);
-    let (value_high, value_low) = split_word(value);
-    let h0 = hash(key_high, key_low);
-    let h1 = hash(value_high, value_low);
-    dbg!(
-        hash(key_high, key_low),
-        hash(value_high, value_low),
-        hash(Fr::one(), hash(key_high, key_low)),
-        hash(Fr::one(), hash(value_high, value_low)),
-        hash(h0, h1),
-        hash(h1, h0),
-    );
-
-    let mut hash_traces = [[Fr::zero(); 3]; 3];
-    hash_traces[0] = [key_high, key_low, h0];
-    hash_traces[1] = [value_high, value_low, h1];
-    hash_traces[2] = [h0, h1, hash(h0, h1)];
-    hash_traces
-}
-
 impl Proof {
     pub fn old_account_leaf_hashes(&self) -> Option<Vec<Fr>> {
         // TODO: make old_account_hash_traces optional
@@ -994,23 +972,6 @@ impl Proof {
     }
 }
 
-fn check_hash_traces(traces: &[(bool, Fr, Fr, Fr)]) {
-    let current_hash_traces = traces.iter();
-    let mut next_hash_traces = traces.iter();
-    next_hash_traces.next();
-    for ((direction, open, close, sibling), (_, next_open, next_close, _)) in
-        current_hash_traces.zip(next_hash_traces)
-    {
-        if *direction {
-            assert_eq!(hash(*sibling, *open), *next_open);
-            assert_eq!(hash(*sibling, *close), *next_close);
-        } else {
-            assert_eq!(hash(*open, *sibling), *next_open);
-            assert_eq!(hash(*close, *sibling), *next_close);
-        }
-    }
-}
-
 fn check_hash_traces_new(traces: &[(bool, HashDomain, Fr, Fr, Fr, bool, bool)]) {
     let mut previous_path_type: Option<PathType> = None;
 
@@ -1090,32 +1051,6 @@ fn check_hash_traces_new(traces: &[(bool, HashDomain, Fr, Fr, Fr, bool, bool)]) 
 
         previous_path_type = Some(path_type);
     }
-}
-
-fn path_root(path: SMTPath) -> Fr {
-    // let parse: SMTPathParse<Fr> = SMTPathParse::try_from(&path).unwrap();
-    // for (a, b, c) in parse.0.hash_traces {
-    //     assert_eq!(hash(a, b), c)
-    // }
-
-    let account_hash = if let Some(node) = path.leaf {
-        hash(hash(Fr::one(), fr(node.sibling)), fr(node.value))
-    } else {
-        Fr::zero()
-    };
-
-    let directions = bits(path.path_part.clone().try_into().unwrap(), path.path.len());
-    let mut digest = account_hash;
-    for (&bit, node) in directions.iter().zip(path.path.iter().rev()) {
-        assert_eq!(digest, fr(node.value));
-        digest = if bit {
-            hash(fr(node.sibling), digest)
-        } else {
-            hash(digest, fr(node.sibling))
-        };
-    }
-    assert_eq!(digest, fr(path.root));
-    fr(path.root)
 }
 
 fn bits(x: usize, len: usize) -> Vec<bool> {
@@ -1236,14 +1171,6 @@ mod test {
                 let address = Address::from(trace.address.0);
                 assert_eq!(fr(trace.account_key), account_key(address));
             }
-        }
-    }
-
-    fn storage_roots(trace: &SMTTrace) -> [Fr; 2] {
-        if let Some(root) = trace.common_state_root {
-            [root, root].map(fr)
-        } else {
-            trace.state_path.clone().map(|p| path_root(p.unwrap()))
         }
     }
 

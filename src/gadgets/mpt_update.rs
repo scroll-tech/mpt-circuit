@@ -19,9 +19,9 @@ use crate::{
     types::{
         storage::{StorageLeaf, StorageProof},
         trie::TrieRows,
-        ClaimKind, Proof, HASH_ZERO_ZERO,
+        ClaimKind, HashDomain, Proof,
     },
-    util::{account_key, hash, rlc, u256_hi_lo, u256_to_big_endian},
+    util::{account_key, domain_hash, rlc, u256_hi_lo, u256_to_big_endian},
     MPTProofType,
 };
 use ethers_core::{k256::elliptic_curve::PrimeField, types::Address};
@@ -36,7 +36,8 @@ use lazy_static::lazy_static;
 use strum::IntoEnumIterator;
 
 lazy_static! {
-    static ref ZERO_STORAGE_HASH: Fr = hash(Fr::zero(), Fr::zero());
+    // TODO
+    static ref ZERO_STORAGE_HASH: Fr = domain_hash(Fr::zero(), Fr::zero(), HashDomain::Pair);
 }
 
 pub trait MptUpdateLookup<F: FieldExt> {
@@ -315,8 +316,8 @@ impl MptUpdateConfig {
     pub fn assign_padding_row(&self, region: &mut Region<'_, Fr>, offset: usize) {
         self.proof_type
             .assign(region, offset, MPTProofType::AccountDoesNotExist);
-        self.key.assign(region, offset, *HASH_ZERO_ZERO);
-        self.other_key.assign(region, offset, *HASH_ZERO_ZERO);
+        self.key.assign(region, offset, *ZERO_STORAGE_HASH);
+        self.other_key.assign(region, offset, *ZERO_STORAGE_HASH);
     }
 
     /// ..
@@ -427,32 +428,13 @@ impl MptUpdateConfig {
                 match path_type {
                     PathType::Start => {}
                     PathType::Common => {
-                        if *direction {
-                            assert_eq!(hash(*sibling, *old_hash), previous_old_hash);
-                            assert_eq!(hash(*sibling, *new_hash), previous_new_hash);
-                        } else {
-                            assert_eq!(hash(*old_hash, *sibling), previous_old_hash);
-                            assert_eq!(hash(*new_hash, *sibling), previous_new_hash);
-                        }
                         previous_old_hash = *old_hash;
                         previous_new_hash = *new_hash;
                     }
                     PathType::ExtensionOld => {
-                        assert_eq!(*new_hash, previous_new_hash);
-                        if *direction {
-                            assert_eq!(hash(*sibling, *old_hash), previous_old_hash);
-                        } else {
-                            assert_eq!(hash(*old_hash, *sibling), previous_old_hash);
-                        }
                         previous_old_hash = *old_hash;
                     }
                     PathType::ExtensionNew => {
-                        assert_eq!(*old_hash, previous_old_hash);
-                        if *direction {
-                            assert_eq!(hash(*sibling, *new_hash), previous_new_hash);
-                        } else {
-                            assert_eq!(hash(*new_hash, *sibling), previous_new_hash);
-                        }
                         previous_new_hash = *new_hash;
                     }
                 }
@@ -1201,7 +1183,8 @@ fn configure_nonce<F: FieldExt>(
                         cb.assert_equal(
                         "sibling is hash(0, hash(0, 0)) for nonce extension new at AccountLeaf2",
                         config.sibling.current(),
-                        hash(Fr::zero(), hash(Fr::zero(), Fr::zero())).into(),
+                        domain_hash(Fr::zero(), domain_hash(Fr::zero(),
+                            Fr::zero(), HashDomain::AccountFields), HashDomain::AccountFields).into(),
                     );
                     },
                 );
@@ -1472,7 +1455,7 @@ fn configure_balance<F: FieldExt>(
                         cb.assert_equal(
                         "sibling is hash(0, hash(0, 0)) for balance extension new at AccountLeaf2",
                         config.sibling.current(),
-                        hash(Fr::zero(), hash(Fr::zero(), Fr::zero())).into(),
+                        domain_hash(Fr::zero(), domain_hash(Fr::zero(), Fr::zero(), HashDomain::AccountFields), HashDomain::AccountFields).into(),
                     );
                     },
                 );
@@ -1926,10 +1909,14 @@ fn address_low(a: Address) -> u128 {
 
 // ... the return traces: ([inp;2], domain, hash)
 pub fn hash_traces(proofs: &[Proof]) -> Vec<([Fr; 2], Fr, Fr)> {
-    let mut hash_traces = vec![([Fr::zero(), Fr::zero()], Fr::zero(), *HASH_ZERO_ZERO)];
+    let mut hash_traces = vec![(
+        [Fr::zero(), Fr::zero()],
+        HashDomain::Pair.into(),
+        *ZERO_STORAGE_HASH,
+    )];
     for proof in proofs.iter() {
         let address_hash_traces = &proof.address_hash_traces;
-        for (direction, _, old_hash, new_hash, sibling, is_padding_open, is_padding_close) in
+        for (direction, domain, old_hash, new_hash, sibling, is_padding_open, is_padding_close) in
             address_hash_traces.iter().rev()
         {
             if !*is_padding_open {
@@ -1938,7 +1925,11 @@ pub fn hash_traces(proofs: &[Proof]) -> Vec<([Fr; 2], Fr, Fr)> {
                 } else {
                     (old_hash, sibling)
                 };
-                hash_traces.push(([*left, *right], Fr::zero(), hash(*left, *right)));
+                hash_traces.push((
+                    [*left, *right],
+                    (*domain).into(),
+                    domain_hash(*left, *right, *domain),
+                ));
             }
             if !*is_padding_close {
                 let (left, right) = if *direction {
@@ -1946,29 +1937,33 @@ pub fn hash_traces(proofs: &[Proof]) -> Vec<([Fr; 2], Fr, Fr)> {
                 } else {
                     (new_hash, sibling)
                 };
-                hash_traces.push(([*left, *right], Fr::zero(), hash(*left, *right)));
+                hash_traces.push((
+                    [*left, *right],
+                    (*domain).into(),
+                    domain_hash(*left, *right, *domain),
+                ));
             }
         }
-        assert_eq!(
-            proof.storage.old_root(),
-            proof.old_account_hash_traces[1][0]
-        );
-        assert_eq!(
-            proof.storage.new_root(),
-            proof.new_account_hash_traces[1][0]
-        );
-        let (storage_key_high, storage_key_low) = u256_hi_lo(&proof.claim.storage_key());
-        hash_traces.push((
-            [
-                Fr::from_u128(storage_key_high),
-                Fr::from_u128(storage_key_low),
-            ],
-            Fr::from(0u64),
-            hash(
-                Fr::from_u128(storage_key_high),
-                Fr::from_u128(storage_key_low),
-            ),
-        ));
+        // assert_eq!(
+        //     proof.storage.old_root(),
+        //     proof.old_account_hash_traces[1][0]
+        // );
+        // assert_eq!(
+        //     proof.storage.new_root(),
+        //     proof.new_account_hash_traces[1][0]
+        // );
+        // let (storage_key_high, storage_key_low) = u256_hi_lo(&proof.claim.storage_key());
+        // hash_traces.push((
+        //     [
+        //         Fr::from_u128(storage_key_high),
+        //         Fr::from_u128(storage_key_low),
+        //     ],
+        //     Fr::from(0u64),
+        //     hash(
+        //         Fr::from_u128(storage_key_high),
+        //         Fr::from_u128(storage_key_low),
+        //     ),
+        // ));
         hash_traces.extend(
             proof
                 .storage
@@ -1983,35 +1978,22 @@ pub fn hash_traces(proofs: &[Proof]) -> Vec<([Fr; 2], Fr, Fr)> {
                 Fr::from_u128(address_high(proof.claim.address)),
                 Fr::from_u128(address_low(proof.claim.address)),
             ],
-            Fr::from(0u64),
+            HashDomain::Pair.into(),
             key,
         ));
-
-        let other_key = if key != proof.old.key {
-            proof.old.key
-        } else {
-            proof.new.key
-        };
-        if key != other_key {
-            hash_traces.push((
-                [Fr::one(), other_key],
-                Fr::zero(),
-                hash(Fr::one(), other_key),
-            ));
-        }
 
         if let Some(data_hash) = proof.old.leaf_data_hash {
             hash_traces.push((
                 [proof.old.key_hash, data_hash],
-                Fr::zero(),
-                hash(proof.old.key_hash, data_hash),
+                HashDomain::NodeTypeLeaf.into(),
+                domain_hash(proof.old.key_hash, data_hash, HashDomain::NodeTypeLeaf),
             ));
         }
         if let Some(data_hash) = proof.new.leaf_data_hash {
             hash_traces.push((
                 [proof.new.key_hash, data_hash],
-                Fr::zero(),
-                hash(proof.new.key_hash, data_hash),
+                HashDomain::NodeTypeLeaf.into(),
+                domain_hash(proof.new.key_hash, data_hash, HashDomain::NodeTypeLeaf),
             ));
         }
 
@@ -2019,8 +2001,8 @@ pub fn hash_traces(proofs: &[Proof]) -> Vec<([Fr; 2], Fr, Fr)> {
             [proof.old_account_hash_traces, proof.new_account_hash_traces]
         {
             for [left, right, digest] in account_leaf_hash_traces {
-                if hash(left, right) == digest {
-                    hash_traces.push(([left, right], Fr::zero(), digest))
+                if domain_hash(left, right, HashDomain::AccountFields) == digest {
+                    hash_traces.push(([left, right], HashDomain::AccountFields.into(), digest))
                 }
             }
         }

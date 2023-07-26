@@ -1,6 +1,17 @@
-use crate::{serde::SMTTrace, types::Proof, MPTProofType};
+use crate::{
+    gadgets::poseidon::PoseidonTable, hash_traces, serde::SMTTrace, types::Proof, MPTProofType,
+    MptCircuitConfig,
+};
 use ethers_core::types::{Address, U256};
+use halo2_proofs::{
+    circuit::{Layouter, SimpleFloorPlanner},
+    dev::MockProver,
+    halo2curves::bn256::Fr,
+    plonk::{Circuit, ConstraintSystem, Error, FirstPhase},
+};
 use mpt_zktrie::state::{builder::HASH_SCHEME_DONE, witness::WitnessGenerator, ZktrieState};
+
+const N_ROWS: usize = 1024;
 
 fn initial_generator() -> WitnessGenerator {
     assert!(*HASH_SCHEME_DONE);
@@ -43,6 +54,68 @@ fn reverse(trace: SMTTrace) -> SMTTrace {
     reversed
 }
 
+#[derive(Clone, Debug, Default)]
+struct TestCircuit {
+    n_rows: usize,
+    proofs: Vec<Proof>,
+}
+
+impl TestCircuit {
+    fn new(n_rows: usize, traces: Vec<(MPTProofType, SMTTrace)>) -> Self {
+        Self {
+            n_rows,
+            proofs: traces.into_iter().map(Proof::from).collect(),
+        }
+    }
+}
+
+impl Circuit<Fr> for TestCircuit {
+    type Config = (PoseidonTable, MptCircuitConfig);
+    type FloorPlanner = SimpleFloorPlanner;
+
+    fn without_witnesses(&self) -> Self {
+        Self::default()
+    }
+
+    fn configure(cs: &mut ConstraintSystem<Fr>) -> Self::Config {
+        let poseidon = PoseidonTable::configure(cs);
+        let challenge = cs.challenge_usable_after(FirstPhase);
+        let mpt_circuit_config = MptCircuitConfig::configure(cs, challenge, &poseidon);
+        (poseidon, mpt_circuit_config)
+    }
+
+    fn synthesize(
+        &self,
+        config: Self::Config,
+        mut layouter: impl Layouter<Fr>,
+    ) -> Result<(), Error> {
+        let (poseidon, mpt_circuit_config) = config;
+        mpt_circuit_config.assign(&mut layouter, &self.proofs, self.n_rows)?;
+        layouter.assign_region(
+            || "load poseidon table",
+            |mut region| {
+                poseidon.load(&mut region, &hash_traces(&self.proofs));
+                Ok(())
+            },
+        )
+    }
+}
+
+fn mock_prove(proof_type: MPTProofType, trace: &str) {
+    let circuit = TestCircuit::new(
+        N_ROWS,
+        vec![(proof_type, serde_json::from_str(trace).unwrap())],
+    );
+    let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
+    assert_eq!(
+        prover.verify(),
+        Ok(()),
+        "proof_type = {:?}, trace = {}",
+        proof_type,
+        trace
+    );
+}
+
 #[test]
 fn empty_account_type_1() {
     let mut generator = initial_generator();
@@ -67,8 +140,13 @@ fn empty_account_type_1() {
         assert!(path.leaf.is_some(), "account is not type 1");
     }
 
-    let proof = Proof::from((MPTProofType::AccountDoesNotExist, trace));
+    let proof = Proof::from((MPTProofType::AccountDoesNotExist, trace.clone()));
     proof.check();
+
+    mock_prove(
+        MPTProofType::AccountDoesNotExist,
+        &include_str!("traces/empty_account_type_1.json"),
+    );
 }
 
 #[test]

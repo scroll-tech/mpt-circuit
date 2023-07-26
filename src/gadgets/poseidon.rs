@@ -1,6 +1,6 @@
 use crate::constraint_builder::{AdviceColumn, ConstraintBuilder, FixedColumn, Query};
 #[cfg(test)]
-use crate::util::hash as poseidon_hash;
+use crate::util::temp_hash;
 use halo2_proofs::{
     arithmetic::FieldExt,
     plonk::{Advice, Column, Fixed},
@@ -87,7 +87,7 @@ impl PoseidonTable {
     pub fn load(&self, region: &mut Region<'_, Fr>, hash_traces: &[([Fr; 2], Fr, Fr)]) {
         for (offset, hash_trace) in hash_traces.iter().enumerate() {
             assert!(
-                poseidon_hash(hash_trace.0[0], hash_trace.0[1]) == hash_trace.2,
+                temp_hash(hash_trace.0[0], hash_trace.0[1], hash_trace.1) == hash_trace.2,
                 "{:?}",
                 (hash_trace.0, hash_trace.1, hash_trace.2)
             );

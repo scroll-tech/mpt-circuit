@@ -11,10 +11,6 @@ pub(crate) fn fr(x: HexBytes<32>) -> Fr {
     Fr::from_bytes(&x.0).unwrap()
 }
 
-pub(crate) fn hash(x: Fr, y: Fr) -> Fr {
-    panic!("migrating away from thisssss")
-}
-
 pub fn domain_hash(x: Fr, y: Fr, domain: HashDomain) -> Fr {
     Hashable::hash_with_domain([x, y], Fr::from(Into::<u64>::into(domain)))
     // Hashable::hash_with_domain([x, y], domain)
