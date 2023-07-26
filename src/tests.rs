@@ -32,6 +32,8 @@ fn empty_account_type_1() {
     assert_eq!(
         format!("{}\n", json),
         include_str!("traces/empty_account_type_1.json"),
+        "{}",
+        json
     );
     let trace: SMTTrace = serde_json::from_str(&json).unwrap();
 
@@ -40,6 +42,29 @@ fn empty_account_type_1() {
     }
 
     let proof = Proof::from((MPTProofType::AccountDoesNotExist, trace));
+    proof.check();
+}
+
+#[test]
+fn existing_account_balance_update() {
+    let mut generator = intital_generator();
+    let trace = generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::BalanceChanged,
+        Address::repeat_byte(2),
+        U256::from(1231412),
+        U256::one(),
+        None,
+    );
+
+    let json = serde_json::to_string_pretty(&trace).unwrap();
+    assert_eq!(
+        format!("{}\n", json),
+        include_str!("traces/existing_account_balance_update.json"),
+        "{}",
+        json
+    );
+    let trace: SMTTrace = serde_json::from_str(&json).unwrap();
+    let proof = Proof::from((MPTProofType::BalanceChanged, trace));
     proof.check();
 }
 

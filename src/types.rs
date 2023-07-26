@@ -28,7 +28,7 @@ pub enum HashDomain {
     NodeTypeBranch2 = 8,
     NodeTypeBranch3 = 9,
     Pair = 512,
-    AccountFields = 2048,
+    AccountFields = 5 * 256,
     // Test = 1
     // TwoElements for keys, storage value, and keccak code hash, = 512
     // Five(Six?)Elements for account fields....
@@ -60,7 +60,7 @@ impl Into<u64> for HashDomain {
             Self::NodeTypeBranch2 => 8,
             Self::NodeTypeBranch3 => 9,
             Self::Pair => 2 * 256,
-            AccountFields => 4 * 256,
+            AccountFields => 5 * 256,
         }
     }
 }
@@ -406,7 +406,9 @@ impl From<(MPTProofType, SMTTrace)> for Proof {
         };
         dbg!("6");
 
+        dbg!(leafs);
         dbg!(leaf_hashes);
+        dbg!(key);
         assert_eq!(old_account_hash_traces[5][2], leaf_hashes[0]);
         assert_eq!(new_account_hash_traces[5][2], leaf_hashes[1]);
 
@@ -494,22 +496,22 @@ fn account_hash_traces(address: Address, account: AccountData, storage_root: Fr)
     // let real_account: Account<Fr> = (&account, storage_root).try_into().unwrap();
 
     let (codehash_hi, codehash_lo) = hi_lo(account.code_hash);
-    let h1 = hash(codehash_hi, codehash_lo);
-    let h2 = hash(storage_root, h1);
+    let h1 = domain_hash(codehash_hi, codehash_lo, HashDomain::Pair);
+    let h2 = domain_hash(storage_root, h1, HashDomain::AccountFields);
 
     dbg!("account_hash_traces 1");
     let nonce_and_codesize =
         Fr::from(account.nonce) + Fr::from(account.code_size) * Fr::from(1 << 32).square();
     let balance = big_uint_to_fr(&account.balance);
-    let h3 = hash(nonce_and_codesize, balance);
+    let h3 = domain_hash(nonce_and_codesize, balance, HashDomain::AccountFields);
 
-    let h4 = hash(h3, h2);
+    let h4 = domain_hash(h3, h2, HashDomain::AccountFields);
 
     let account_key = account_key(address);
-    let h5 = hash(Fr::one(), account_key);
+    // let h5 = hash(Fr::one(), account_key);
 
     let poseidon_codehash = big_uint_to_fr(&account.poseidon_code_hash);
-    let account_hash = hash(h4, poseidon_codehash);
+    let account_hash = domain_hash(h4, poseidon_codehash, HashDomain::AccountFields);
 
     let mut account_hash_traces = [[Fr::zero(); 3]; 7];
     account_hash_traces[0] = [codehash_hi, codehash_lo, h1];
@@ -517,11 +519,17 @@ fn account_hash_traces(address: Address, account: AccountData, storage_root: Fr)
     account_hash_traces[2] = [nonce_and_codesize, balance, h3];
     account_hash_traces[3] = [h3, h2, h4]; //
     account_hash_traces[4] = [h4, poseidon_codehash, account_hash];
-    account_hash_traces[5] = [Fr::one(), account_key, h5]; // this should be the sibling?
-    account_hash_traces[6] = [h5, account_hash, hash(h5, account_hash)];
+    account_hash_traces[5] = [
+        account_key,
+        account_hash,
+        domain_hash(account_key, account_hash, HashDomain::NodeTypeEmpty),
+    ]; // this should be the sibling?
+       // account_hash_traces[6] = [h5, account_hash, hash(h5, account_hash)];
 
     // h4 is value of node?
     // assert_eq!(real_account.account_hash(), account_hash);
+
+    dbg!(account_key, account_hash);
 
     account_hash_traces
 }
@@ -883,15 +891,15 @@ impl Proof {
                 self.leafs[0].unwrap().value_hash,
                 HashDomain::NodeTypeEmpty,
             ),
-            self.old_account_hash_traces[5][2], // is this right???
+            self.old_account_hash_traces[5][2],
         );
         assert_eq!(
             domain_hash(
-                self.leafs[0].unwrap().key,
-                self.leafs[0].unwrap().value_hash,
+                self.leafs[1].unwrap().key,
+                self.leafs[1].unwrap().value_hash,
                 HashDomain::NodeTypeEmpty,
             ),
-            self.new_account_hash_traces[5][2], // is this right???
+            self.new_account_hash_traces[5][2],
         );
 
         // // storage poseidon hashes are correct
