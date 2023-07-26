@@ -38,7 +38,7 @@ pub fn configure<F: FieldExt>(
         [
             high.current(),
             low.current(),
-            HashDomain::Pair.into(),
+            Query::from(u64::from(HashDomain::Pair)),
             word_hash.current(),
         ],
         poseidon,

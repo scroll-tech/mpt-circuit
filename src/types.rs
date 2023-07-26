@@ -1,5 +1,4 @@
 use crate::{
-    constraint_builder::Query,
     gadgets::mpt_update::PathType,
     serde::{AccountData, HexBytes, SMTNode, SMTPath, SMTTrace},
     util::{
@@ -50,32 +49,24 @@ impl TryFrom<u64> for HashDomain {
     }
 }
 
-impl Into<Fr> for HashDomain {
-    fn into(self) -> Fr {
-        let x: u64 = self.into();
-        x.into()
+impl From<HashDomain> for Fr {
+    fn from(h: HashDomain) -> Self {
+        Self::from(u64::from(h))
     }
 }
 
-impl Into<u64> for HashDomain {
-    fn into(self) -> u64 {
-        match self {
-            Self::NodeTypeEmpty => 4,
-            Self::NodeTypeLeaf => 5,
-            Self::NodeTypeBranch0 => 6,
-            Self::NodeTypeBranch1 => 7,
-            Self::NodeTypeBranch2 => 8,
-            Self::NodeTypeBranch3 => 9,
-            Self::Pair => 2 * 256,
-            Self::AccountFields => 5 * 256,
+impl From<HashDomain> for u64 {
+    fn from(h: HashDomain) -> Self {
+        match h {
+            HashDomain::NodeTypeEmpty => 4,
+            HashDomain::NodeTypeLeaf => 5,
+            HashDomain::NodeTypeBranch0 => 6,
+            HashDomain::NodeTypeBranch1 => 7,
+            HashDomain::NodeTypeBranch2 => 8,
+            HashDomain::NodeTypeBranch3 => 9,
+            HashDomain::Pair => 2 * 256,
+            HashDomain::AccountFields => 5 * 256,
         }
-    }
-}
-
-impl<F: FieldExt> Into<Query<F>> for HashDomain {
-    fn into(self) -> Query<F> {
-        let x: u64 = self.into();
-        Query::from(x)
     }
 }
 

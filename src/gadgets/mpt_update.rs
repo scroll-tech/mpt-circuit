@@ -137,7 +137,7 @@ impl MptUpdateConfig {
                 [
                     address_high.current(),
                     address_low,
-                    HashDomain::Pair.into(),
+                    Query::from(u64::from(HashDomain::Pair)),
                     key.current(),
                 ],
                 poseidon,
@@ -1433,7 +1433,7 @@ fn configure_balance<F: FieldExt>(
                 cb.assert_equal(
                     "balance AccountLeaf0 domain is NodeTypeLeaf",
                     config.domain.current(),
-                    HashDomain::NodeTypeEmpty.into(),
+                    Query::from(u64::from(HashDomain::NodeTypeEmpty)),
                 );
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
             }
@@ -1441,7 +1441,7 @@ fn configure_balance<F: FieldExt>(
                 cb.assert_equal(
                     "balance AccountLeaf1 domain is AccountFields",
                     config.domain.current(),
-                    HashDomain::AccountFields.into(),
+                    Query::from(u64::from(HashDomain::AccountFields)),
                 );
                 cb.assert_zero("direction is 0", config.direction.current());
                 cb.condition(

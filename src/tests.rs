@@ -529,15 +529,13 @@ fn empty_account_type_2() {
         // 0xb3e9ff02c109b1d6aefa774523aaf5bef1207226e85a3726ecb505227ad1e621
 
         let json = serde_json::to_string_pretty(&trace).unwrap();
-        let trace: SMTTrace = serde_json::from_str(&json).unwrap();
-
+        let _trace: SMTTrace = serde_json::from_str(&json).unwrap();
 
         // for path in &trace.account_path {
         //     assert!(path.leaf.is_some() || path.path.is_empty())
         // }
         panic!();
     }
-
 
     // let proof = Proof::from((MPTProofType::AccountDoesNotExist, trace));
     panic!();

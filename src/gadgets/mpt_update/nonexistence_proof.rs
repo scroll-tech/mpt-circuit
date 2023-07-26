@@ -42,7 +42,7 @@ pub fn configure<F: FieldExt>(
             [
                 other_key.current(),
                 other_leaf_data_hash.current(),
-                HashDomain::NodeTypeEmpty.into(),
+                Query::from(u64::from(HashDomain::NodeTypeEmpty)),
                 hash.current(),
             ],
             poseidon,
