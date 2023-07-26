@@ -46,6 +46,8 @@ pub trait MptUpdateLookup<F: FieldExt> {
 
 #[derive(Clone)]
 pub struct MptUpdateConfig {
+    domain: AdviceColumn,
+
     old_hash: AdviceColumn,
     new_hash: AdviceColumn,
     old_value: SecondPhaseAdviceColumn,
@@ -104,7 +106,8 @@ impl MptUpdateConfig {
     ) -> Self {
         let proof_type: OneHot<MPTProofType> = OneHot::configure(cs, cb);
         let [storage_key_rlc, old_value, new_value] = cb.second_phase_advice_columns(cs);
-        let [old_hash, new_hash, depth, key, other_key, direction, sibling] = cb.advice_columns(cs);
+        let [domain, old_hash, new_hash, depth, key, other_key, direction, sibling] =
+            cb.advice_columns(cs);
 
         let intermediate_values: [AdviceColumn; 10] = cb.advice_columns(cs);
         let second_phase_intermediate_values: [SecondPhaseAdviceColumn; 10] =
@@ -221,6 +224,7 @@ impl MptUpdateConfig {
 
         let config = Self {
             key,
+            domain,
             old_hash,
             new_hash,
             proof_type,
@@ -338,18 +342,18 @@ impl MptUpdateConfig {
             }
 
             let key = account_key(proof.claim.address);
-            let (other_key, other_key_hash, other_leaf_data_hash) =
+            let (other_key, other_leaf_data_hash) =
                 // checking if type 1 or type 2
                 if proof.old.key != key {
                     assert!(proof.new.key == key || proof.new.key == proof.old.key);
-                    (proof.old.key, proof.old.key_hash, proof.old.leaf_data_hash.unwrap())
+                    (proof.old.key, proof.old.leaf_data_hash.unwrap())
                 } else if proof.new.key != key {
                     assert!(proof.old.key == key);
-                    (proof.new.key, proof.new.key_hash, proof.new.leaf_data_hash.unwrap())
+                    (proof.new.key, proof.new.leaf_data_hash.unwrap())
                 } else {
                     // neither is a type 1 path
                     // handle type 0 and type 2 paths here:
-                    (proof.old.key, proof.old.key_hash, proof.new.leaf_data_hash.unwrap_or_default())
+                    (proof.old.key, proof.new.leaf_data_hash.unwrap_or_default())
                 };
             // Assign start row
             self.segment_type.assign(region, offset, SegmentType::Start);
@@ -390,7 +394,7 @@ impl MptUpdateConfig {
             let mut previous_new_hash = proof.claim.new_root;
             for (
                 depth,
-                (direction, _, old_hash, new_hash, sibling, is_padding_open, is_padding_close),
+                (direction, domain, old_hash, new_hash, sibling, is_padding_open, is_padding_close),
             ) in proof.address_hash_traces.iter().rev().enumerate()
             {
                 self.depth
@@ -415,6 +419,7 @@ impl MptUpdateConfig {
                 self.old_hash.assign(region, offset, *old_hash);
                 self.new_hash.assign(region, offset, *new_hash);
                 self.direction.assign(region, offset, *direction);
+                self.domain.assign(region, offset, domain.into_u64());
 
                 self.key.assign(region, offset, key);
                 self.other_key.assign(region, offset, other_key);
@@ -457,7 +462,7 @@ impl MptUpdateConfig {
                 self.is_zero_gadgets[2].assign_value_and_inverse(region, offset, key - other_key);
                 self.is_zero_gadgets[3].assign_value_and_inverse(region, offset, final_old_hash);
 
-                self.intermediate_values[2].assign(region, offset, other_key_hash);
+                // self.intermediate_values[2].assign(region, offset, other_key);
                 self.intermediate_values[3].assign(region, offset, other_leaf_data_hash);
 
                 n_rows += proof.n_rows();
@@ -528,9 +533,9 @@ impl MptUpdateConfig {
 
                 match segment_type {
                     SegmentType::AccountLeaf0 => {
-                        let [.., other_key_hash_column, other_leaf_data_hash_column] =
+                        let [.., other_key_column, other_leaf_data_hash_column] =
                             self.intermediate_values;
-                        other_key_hash_column.assign(region, offset, other_key_hash);
+                        other_key_column.assign(region, offset, other_key);
                         other_leaf_data_hash_column.assign(region, offset, other_leaf_data_hash);
                     }
                     SegmentType::AccountLeaf3 => {
@@ -816,7 +821,7 @@ impl MptUpdateConfig {
 
                 if key != other_key {
                     let [.., other_key_hash, other_leaf_data_hash] = self.intermediate_values;
-                    // other_key_hash.assign(region, offset, new.key_hash());
+                    // other_key_hash.assign(region, offset, new.key_hash());// think this is still needed?
                     other_leaf_data_hash.assign(region, offset, new.value_hash());
                 }
             }
@@ -897,7 +902,7 @@ fn configure_common_path<F: FieldExt>(
         [
             old_left(config),
             old_right(config),
-            Query::one(),
+            config.domain.current(),
             config.old_hash.previous(),
         ],
         poseidon,
@@ -907,7 +912,7 @@ fn configure_common_path<F: FieldExt>(
         [
             new_left(config),
             new_right(config),
-            Query::one(),
+            config.domain.current(),
             config.new_hash.previous(),
         ],
         poseidon,
@@ -972,7 +977,7 @@ fn configure_extension_old<F: FieldExt>(
         [
             old_left(config),
             old_right(config),
-            Query::one(),
+            config.domain.current(),
             config.old_hash.previous(),
         ],
         poseidon,
@@ -1013,7 +1018,7 @@ fn configure_extension_old<F: FieldExt>(
             .current_matches(&[SegmentType::StorageLeaf0]),
         |cb| {
             let [.., key_equals_other_key, new_hash_is_zero] = config.is_zero_gadgets;
-            let [.., other_key_hash, other_leaf_data_hash] = config.intermediate_values;
+            let [.., other_leaf_data_hash] = config.intermediate_values;
             nonexistence_proof::configure(
                 cb,
                 config.new_value,
@@ -1022,7 +1027,6 @@ fn configure_extension_old<F: FieldExt>(
                 key_equals_other_key,
                 config.new_hash,
                 new_hash_is_zero,
-                other_key_hash,
                 other_leaf_data_hash,
                 poseidon,
             );
@@ -1057,7 +1061,7 @@ fn configure_extension_new<F: FieldExt>(
         [
             new_left(config),
             new_right(config),
-            Query::one(),
+            config.domain.current(),
             config.new_hash.previous(),
         ],
         poseidon,
@@ -1101,7 +1105,7 @@ fn configure_extension_new<F: FieldExt>(
             .current_matches(&[SegmentType::AccountLeaf0, SegmentType::StorageLeaf0]),
         |cb| {
             let [.., key_equals_other_key, old_hash_is_zero] = config.is_zero_gadgets;
-            let [.., other_key_hash, other_leaf_data_hash] = config.intermediate_values;
+            let [.., other_leaf_data_hash] = config.intermediate_values;
             nonexistence_proof::configure(
                 cb,
                 config.old_value,
@@ -1110,7 +1114,6 @@ fn configure_extension_new<F: FieldExt>(
                 key_equals_other_key,
                 config.old_hash,
                 old_hash_is_zero,
-                other_key_hash,
                 other_leaf_data_hash,
                 poseidon,
             );
@@ -1131,8 +1134,7 @@ fn configure_nonce<F: FieldExt>(
                     config.segment_type.next_matches(&[SegmentType::Start]),
                     |cb| {
                         let [.., key_equals_other_key, hash_is_zero] = config.is_zero_gadgets;
-                        let [_, _, other_key_hash, other_leaf_data_hash, ..] =
-                            config.intermediate_values;
+                        let [_, _, _, other_leaf_data_hash, ..] = config.intermediate_values;
                         cb.assert_equal(
                             "old hash = new hash for empty account proof",
                             config.old_hash.current(),
@@ -1151,7 +1153,6 @@ fn configure_nonce<F: FieldExt>(
                             key_equals_other_key,
                             config.old_hash,
                             hash_is_zero,
-                            other_key_hash,
                             other_leaf_data_hash,
                             poseidon,
                         );
@@ -1280,8 +1281,7 @@ fn configure_code_size<F: FieldExt>(
                     config.segment_type.next_matches(&[SegmentType::Start]),
                     |cb| {
                         let [.., key_equals_other_key, hash_is_zero] = config.is_zero_gadgets;
-                        let [_, _, other_key_hash, other_leaf_data_hash, ..] =
-                            config.intermediate_values;
+                        let [_, _, _, other_leaf_data_hash, ..] = config.intermediate_values;
                         cb.assert_equal(
                             "old hash = new hash for empty account proof",
                             config.old_hash.current(),
@@ -1300,7 +1300,6 @@ fn configure_code_size<F: FieldExt>(
                             key_equals_other_key,
                             config.old_hash,
                             hash_is_zero,
-                            other_key_hash,
                             other_leaf_data_hash,
                             poseidon,
                         );
@@ -1403,8 +1402,7 @@ fn configure_balance<F: FieldExt>(
                     config.segment_type.next_matches(&[SegmentType::Start]),
                     |cb| {
                         let [.., key_equals_other_key, hash_is_zero] = config.is_zero_gadgets;
-                        let [_, _, other_key_hash, other_leaf_data_hash, ..] =
-                            config.intermediate_values;
+                        let [_, _, _, other_leaf_data_hash, ..] = config.intermediate_values;
                         cb.assert_equal(
                             "old hash = new hash for empty account proof",
                             config.old_hash.current(),
@@ -1423,7 +1421,6 @@ fn configure_balance<F: FieldExt>(
                             key_equals_other_key,
                             config.old_hash,
                             hash_is_zero,
-                            other_key_hash,
                             other_leaf_data_hash,
                             poseidon,
                         );
@@ -1574,7 +1571,7 @@ fn configure_keccak_code_hash<F: FieldExt>(
                     config.segment_type.next_matches(&[SegmentType::Start]),
                     |cb| {
                         let [.., key_equals_other_key, hash_is_zero] = config.is_zero_gadgets;
-                        let [_, _, other_key_hash, other_leaf_data_hash, ..] =
+                        let [_, _, _, other_key_hash, other_leaf_data_hash, ..] =
                             config.intermediate_values;
                         cb.assert_equal(
                             "old hash = new hash for empty account proof",
@@ -1594,7 +1591,6 @@ fn configure_keccak_code_hash<F: FieldExt>(
                             key_equals_other_key,
                             config.old_hash,
                             hash_is_zero,
-                            other_key_hash,
                             other_leaf_data_hash,
                             poseidon,
                         );
@@ -1759,7 +1755,7 @@ fn configure_empty_storage<F: FieldExt>(
     rlc: &impl RlcLookup,
     randomness: Query<F>,
 ) {
-    let [key_high, key_low, other_key_hash, other_leaf_data_hash, ..] = config.intermediate_values;
+    let [key_high, key_low, _, other_leaf_data_hash, ..] = config.intermediate_values;
     let [rlc_key_high, rlc_key_low, ..] = config.second_phase_intermediate_values;
     let [.., key_equals_other_key, hash_is_zero] = config.is_zero_gadgets;
 
@@ -1798,7 +1794,6 @@ fn configure_empty_storage<F: FieldExt>(
             key_equals_other_key,
             config.old_hash,
             hash_is_zero,
-            other_key_hash,
             other_leaf_data_hash,
             poseidon,
         );
@@ -1860,8 +1855,7 @@ fn configure_empty_account<F: FieldExt>(
                 let is_final_segment = config.segment_type.next_matches(&[SegmentType::Start]);
                 cb.condition(is_final_segment, |cb| {
                     let [.., key_equals_other_key, hash_is_zero] = config.is_zero_gadgets;
-                    let [_, _, other_key_hash, other_leaf_data_hash, ..] =
-                        config.intermediate_values;
+                    let [_, _, _, other_leaf_data_hash, ..] = config.intermediate_values;
                     cb.assert_equal(
                         "new_hash = old_hash",
                         config.old_hash.current(),
@@ -1880,7 +1874,6 @@ fn configure_empty_account<F: FieldExt>(
                         key_equals_other_key,
                         config.new_hash,
                         hash_is_zero,
-                        other_key_hash,
                         other_leaf_data_hash,
                         poseidon,
                     );
@@ -1982,16 +1975,16 @@ pub fn hash_traces(proofs: &[Proof]) -> Vec<([Fr; 2], Fr, Fr)> {
 
         if let Some(data_hash) = proof.old.leaf_data_hash {
             hash_traces.push((
-                [proof.old.key_hash, data_hash],
-                HashDomain::NodeTypeLeaf.into(),
-                domain_hash(proof.old.key_hash, data_hash, HashDomain::NodeTypeLeaf),
+                [proof.old.key, data_hash],
+                HashDomain::NodeTypeEmpty.into(),
+                domain_hash(proof.old.key, data_hash, HashDomain::NodeTypeEmpty),
             ));
         }
         if let Some(data_hash) = proof.new.leaf_data_hash {
             hash_traces.push((
-                [proof.new.key_hash, data_hash],
-                HashDomain::NodeTypeLeaf.into(),
-                domain_hash(proof.new.key_hash, data_hash, HashDomain::NodeTypeLeaf),
+                [proof.new.key, data_hash],
+                HashDomain::NodeTypeEmpty.into(),
+                domain_hash(proof.new.key, data_hash, HashDomain::NodeTypeEmpty),
             ));
         }
 

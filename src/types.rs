@@ -79,6 +79,12 @@ impl<F: FieldExt> Into<Query<F>> for HashDomain {
     }
 }
 
+impl HashDomain {
+    pub fn into_u64(&self) -> u64 {
+        (*self).into()
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Claim {
     pub old_root: Fr,
@@ -233,15 +239,14 @@ impl Proof {
 
 #[derive(Clone, Debug)]
 pub struct Path {
-    pub key: Fr,
-    pub key_hash: Fr, // Hash(1, key) for type 0 and type 1, 0 for type 2.
+    pub key: Fr,                    // pair hash of address or storage key
     pub leaf_data_hash: Option<Fr>, // leaf data hash for type 0 and type 1, None for type 2.
 }
 
 impl Path {
     pub fn hash(&self) -> Fr {
         if let Some(data_hash) = self.leaf_data_hash {
-            domain_hash(self.key_hash, data_hash, HashDomain::NodeTypeLeaf)
+            domain_hash(self.key, data_hash, HashDomain::NodeTypeLeaf)
         } else {
             Fr::zero()
         }
@@ -460,22 +465,14 @@ impl From<(MPTProofType, SMTTrace)> for Proof {
             // The account_key(address) if the account exists
             // else: path.leaf.sibling if it's a type 1 non-existence proof
             // otherwise account_key(address) if it's a type 2 non-existence proof
-            let (key, key_hash) = path.leaf.map_or_else(
-                || {
-                    let k = account_key(claim.address);
-                    (k, domain_hash(Fr::one(), k, HashDomain::NodeTypeLeaf))
-                },
-                |l| {
-                    let k = fr(l.sibling);
-                    (k, domain_hash(Fr::one(), k, HashDomain::NodeTypeLeaf))
-                },
-            );
+            let key = path
+                .leaf
+                .map_or_else(|| account_key(claim.address), |l| fr(l.sibling));
 
             let leaf_data_hash = path.leaf.map(|leaf| fr(leaf.value));
 
             Path {
                 key,
-                key_hash,
                 leaf_data_hash,
             }
         });
