@@ -3,7 +3,7 @@ use crate::{
     gadgets::{is_zero::IsZeroGadget, poseidon::PoseidonLookup},
     types::HashDomain,
 };
-use halo2_proofs::{arithmetic::FieldExt, circuit::Region, halo2curves::bn256::Fr};
+use halo2_proofs::arithmetic::FieldExt;
 
 pub fn configure<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,

@@ -1,6 +1,8 @@
+#[cfg(test)]
+use crate::types::{Bit, PathType};
 use crate::{
     serde::{SMTNode, SMTTrace, StateData},
-    types::{trie::TrieRows, Bit, HashDomain, PathType},
+    types::{trie::TrieRows, HashDomain},
     util::{domain_hash, fr, storage_key_hash, u256_from_hex, u256_hi_lo},
 };
 use ethers_core::types::U256;
@@ -125,7 +127,7 @@ impl StorageProof {
     #[cfg(test)]
     pub fn check(&self) {
         if let Self::Update {
-            key,
+            key: _,
             trie_rows,
             old_leaf,
             new_leaf,

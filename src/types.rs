@@ -3,7 +3,7 @@ use crate::{
     gadgets::mpt_update::PathType,
     serde::{AccountData, HexBytes, SMTNode, SMTPath, SMTTrace},
     util::{
-        account_key, check_domain_consistency, domain_hash, fr_from_biguint, rlc, temp_hash,
+        account_key, check_domain_consistency, domain_hash, fr_from_biguint, rlc,
         u256_from_biguint, u256_from_hex, u256_to_big_endian,
     },
     MPTProofType,
@@ -67,7 +67,7 @@ impl Into<u64> for HashDomain {
             Self::NodeTypeBranch2 => 8,
             Self::NodeTypeBranch3 => 9,
             Self::Pair => 2 * 256,
-            AccountFields => 5 * 256,
+            Self::AccountFields => 5 * 256,
         }
     }
 }
@@ -927,7 +927,7 @@ fn check_hash_traces_new(traces: &[(bool, HashDomain, Fr, Fr, Fr, bool, bool)]) 
     next_hash_traces.next();
     for (
         (direction, domain, open, close, sibling, is_padding_open, is_padding_close),
-        (_, next_domain, next_open, next_close, _, is_padding_open_next, is_padding_close_next),
+        (_, _, next_open, next_close, _, _, _),
     ) in current_hash_traces.zip(next_hash_traces)
     {
         let path_type = match (is_padding_open, is_padding_close) {

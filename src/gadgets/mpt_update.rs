@@ -687,8 +687,7 @@ impl MptUpdateConfig {
         old: &StorageLeaf,
         new: &StorageLeaf,
     ) -> usize {
-        let [_key_high, _key_low, other_key_hash, other_leaf_data_hash, ..] =
-            self.intermediate_values;
+        let [_, _, _, other_leaf_data_hash, ..] = self.intermediate_values;
         let [.., key_equals_other_key, hash_is_zero] = self.is_zero_gadgets;
         match (old, new) {
             (
@@ -710,7 +709,6 @@ impl MptUpdateConfig {
 
                 hash_is_zero.assign_value_and_inverse(region, offset, old.hash());
 
-                // other_key_hash.assign(region, offset, old.key_hash());
                 other_leaf_data_hash.assign(region, offset, *old_value_hash);
             }
             (StorageLeaf::Empty { .. }, StorageLeaf::Empty { .. }) => {
@@ -826,8 +824,7 @@ impl MptUpdateConfig {
                 new_hash_is_zero.assign_value_and_inverse(region, offset, new_hash);
 
                 if key != other_key {
-                    let [.., other_key_hash, other_leaf_data_hash] = self.intermediate_values;
-                    // other_key_hash.assign(region, offset, new.key_hash());// think this is still needed?
+                    let [.., other_leaf_data_hash] = self.intermediate_values;
                     other_leaf_data_hash.assign(region, offset, new.value_hash());
                 }
             }
@@ -840,8 +837,7 @@ impl MptUpdateConfig {
                 old_hash_is_zero.assign_value_and_inverse(region, offset, old_hash);
 
                 if key != other_key {
-                    let [.., other_key_hash, other_leaf_data_hash] = self.intermediate_values;
-                    // other_key_hash.assign(region, offset, old.key_hash());
+                    let [.., other_leaf_data_hash] = self.intermediate_values;
                     other_leaf_data_hash.assign(region, offset, old.value_hash());
                 }
             }
@@ -1587,8 +1583,7 @@ fn configure_keccak_code_hash<F: FieldExt>(
                     config.segment_type.next_matches(&[SegmentType::Start]),
                     |cb| {
                         let [.., key_equals_other_key, hash_is_zero] = config.is_zero_gadgets;
-                        let [_, _, _, other_key_hash, other_leaf_data_hash, ..] =
-                            config.intermediate_values;
+                        let [_, _, _, _, other_leaf_data_hash, ..] = config.intermediate_values;
                         cb.assert_equal(
                             "old hash = new hash for empty account proof",
                             config.old_hash.current(),
