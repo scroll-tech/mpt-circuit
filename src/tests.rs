@@ -518,7 +518,6 @@ fn insert_into_singleton_storage_trie() {
 fn empty_account_type_2() {
     // i = 20 should be type 2?
     for i in 104..255 {
-        dbg!(i);
         let mut generator = initial_generator();
         let trace = generator.handle_new_state(
             mpt_zktrie::mpt_circuits::MPTProofType::BalanceChanged,
@@ -532,7 +531,6 @@ fn empty_account_type_2() {
         let json = serde_json::to_string_pretty(&trace).unwrap();
         let trace: SMTTrace = serde_json::from_str(&json).unwrap();
 
-        dbg!(trace.clone());
 
         // for path in &trace.account_path {
         //     assert!(path.leaf.is_some() || path.path.is_empty())
@@ -540,7 +538,6 @@ fn empty_account_type_2() {
         panic!();
     }
 
-    // dbg!(trace.clone());
 
     // let proof = Proof::from((MPTProofType::AccountDoesNotExist, trace));
     panic!();

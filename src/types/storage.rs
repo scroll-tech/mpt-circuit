@@ -262,7 +262,6 @@ impl StorageLeaf {
 
 impl From<&SMTTrace> for StorageProof {
     fn from(trace: &SMTTrace) -> Self {
-        dbg!("StorageProof 1");
         if let Some(root) = trace.common_state_root {
             return Self::Root(fr(root));
         }
@@ -270,7 +269,6 @@ impl From<&SMTTrace> for StorageProof {
         let [old_path, new_path] = &trace.state_path;
         let old_leaf = old_path.as_ref().unwrap().leaf;
         let new_leaf = new_path.as_ref().unwrap().leaf;
-        dbg!("StorageProof 1.5");
         let trie_rows = TrieRows::new(
             key,
             &old_path.as_ref().unwrap().path,
@@ -278,7 +276,6 @@ impl From<&SMTTrace> for StorageProof {
             old_leaf,
             new_leaf,
         );
-        dbg!("StorageProof 2");
 
         let [old_entry, new_entry] = trace.state_update.unwrap().map(Option::unwrap);
         let old_leaf = StorageLeaf::new(key, &old_leaf, &old_entry);
@@ -290,7 +287,6 @@ impl From<&SMTTrace> for StorageProof {
             old_leaf,
             new_leaf,
         };
-        dbg!("StorageProof 3");
         assert_eq!(
             storage_proof.old_root(),
             fr(old_path.as_ref().unwrap().root)
@@ -299,7 +295,6 @@ impl From<&SMTTrace> for StorageProof {
             storage_proof.new_root(),
             fr(new_path.as_ref().unwrap().root)
         );
-        dbg!("StorageProof 4");
         storage_proof
     }
 }

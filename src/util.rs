@@ -84,7 +84,6 @@ pub fn rlc(be_bytes: &[u8], randomness: Fr) -> Fr {
     let x = be_bytes.iter().fold(Fr::zero(), |acc, byte| {
         randomness * acc + Fr::from(u64::from(*byte))
     });
-    // dbg!(x);
     x
 }
 
@@ -115,7 +114,6 @@ pub fn account_key(address: Address) -> Fr {
 
     let address_high = Fr::from_u128(u128::from_be_bytes(high_bytes));
     let address_low = Fr::from_u128(u128::from(u32::from_be_bytes(low_bytes)) << 96);
-    // dbg!(domain_hash(address_high, address_low, HashDomain::Pair));
     domain_hash(address_high, address_low, HashDomain::Pair)
 }
 

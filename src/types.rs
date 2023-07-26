@@ -258,10 +258,7 @@ impl From<(&MPTProofType, &SMTTrace)> for Claim {
         let [old_root, new_root] = trace.account_path.clone().map(|path| fr(path.root));
         let address = trace.address.0.into();
         let kind = ClaimKind::from((proof_type, trace));
-        dbg!(kind);
         assert_eq!(MPTProofType::from(kind), *proof_type);
-        dbg!(MPTProofType::from(kind), *proof_type);
-        // panic!();
         Self {
             new_root,
             old_root,
@@ -419,47 +416,30 @@ impl From<(&MPTProofType, &SMTTrace)> for ClaimKind {
 impl From<(MPTProofType, SMTTrace)> for Proof {
     fn from((proof, trace): (MPTProofType, SMTTrace)) -> Self {
         let claim = Claim::from((&proof, &trace));
-        dbg!("from 1");
 
         let storage = StorageProof::from(&trace);
-        dbg!("from 2");
 
         let key = account_key(claim.address);
         assert_eq!(key, fr(trace.account_key));
-        dbg!("from 2.5");
         let leafs = trace.account_path.clone().map(get_leaf);
-        dbg!("from 2.6");
         let [open_hash_traces, close_hash_traces] =
             trace.account_path.clone().map(|path| path.path);
         let leaf_hashes = trace.account_path.clone().map(leaf_hash);
-        dbg!(leaf_hashes);
-        dbg!("from 3");
         let address_hash_traces =
             get_internal_hash_traces(key, leaf_hashes, &open_hash_traces, &close_hash_traces);
-        dbg!("check hash_traces");
         check_hash_traces_new(&address_hash_traces);
-        dbg!("4");
 
-        dbg!(address_hash_traces.clone());
         let [old_account, new_account] = trace.account_update;
         let old_account_hash_traces = match old_account.clone() {
             None => empty_account_hash_traces(leafs[0]),
             Some(account) => account_hash_traces(claim.address, account, storage.old_root()),
         };
-        dbg!("5");
         let new_account_hash_traces = match new_account.clone() {
             None => empty_account_hash_traces(leafs[1]),
             Some(account) => account_hash_traces(claim.address, account, storage.new_root()),
         };
-        dbg!("6");
-
-        dbg!(leafs);
-        dbg!(leaf_hashes);
-        dbg!(key);
         assert_eq!(old_account_hash_traces[5][2], leaf_hashes[0]);
         assert_eq!(new_account_hash_traces[5][2], leaf_hashes[1]);
-
-        dbg!("7");
 
         let [old, new] = trace.account_path.map(|path| {
             // The account_key(address) if the account exists
@@ -476,8 +456,6 @@ impl From<(MPTProofType, SMTTrace)> for Proof {
                 leaf_data_hash,
             }
         });
-
-        dbg!("8");
 
         let old_account = match old_account {
             Some(account_data) => {
@@ -496,7 +474,6 @@ impl From<(MPTProofType, SMTTrace)> for Proof {
             None => None,
         };
 
-        dbg!("9");
         Self {
             claim,
             address_hash_traces,
@@ -578,7 +555,6 @@ fn get_internal_hash_traces(
                 assert_eq!(open.sibling, close.sibling);
                 let open_domain = HashDomain::try_from(open.node_type).unwrap();
                 let close_domain = HashDomain::try_from(close.node_type).unwrap();
-                dbg!(open_domain, close_domain);
 
                 let domain = if open_domain != close_domain {
                     // This can only happen when inserting or deleting a node.
@@ -817,7 +793,6 @@ impl Proof {
 
         // poseidon hashes are correct
         check_hash_traces_new(&self.address_hash_traces);
-        dbg!("check 1");
 
         // directions match account key.
         let account_key = account_key(self.claim.address);
@@ -827,8 +802,6 @@ impl Proof {
                 account_key.bit(self.address_hash_traces.len() - i - 1)
             );
         }
-
-        dbg!("check 2");
 
         // old and new roots are correct
         if let Some((
@@ -851,13 +824,10 @@ impl Proof {
         } else {
             panic!("no hash traces!!!!");
         }
-        dbg!("check 3");
 
         // this suggests we want something that keeps 1/2 unchanged if something....
         // going to have to add an is padding row or something?
 
-        dbg!(self.old_account_hash_traces);
-        dbg!(self.address_hash_traces.clone());
         assert_eq!(
             self.old_account_hash_traces[5][2],
             self.address_hash_traces.get(0).unwrap().2
@@ -868,8 +838,6 @@ impl Proof {
             self.address_hash_traces.get(0).unwrap().3
         );
         // if this still the case????
-
-        dbg!(self.old_account_hash_traces, self.leafs);
 
         // TODO: handle none here.
         assert_eq!(
