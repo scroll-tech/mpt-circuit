@@ -1,18 +1,16 @@
-use ethers_core::types::{Address, U256};
-use halo2_proofs::{arithmetic::FieldExt, halo2curves::bn256::Fr};
-use hash_circuit::hash::Hashable;
-use itertools::{EitherOrBoth, Itertools};
-use num_bigint::BigUint;
-use num_traits::identities::Zero;
-
 use crate::{
-    // operation::{Account, SMTPathParse},
     serde::{AccountData, HexBytes, SMTNode, SMTPath, SMTTrace},
     util::{
-        account_key, fr_from_biguint, rlc, u256_from_biguint, u256_from_hex, u256_to_big_endian,
+        account_key, domain_hash, fr_from_biguint, hash, rlc, temp_hash, u256_from_biguint,
+        u256_from_hex, u256_to_big_endian,
     },
     MPTProofType,
 };
+use ethers_core::types::{Address, U256};
+use halo2_proofs::{arithmetic::FieldExt, halo2curves::bn256::Fr};
+use itertools::{EitherOrBoth, Itertools};
+use num_bigint::BigUint;
+use num_traits::identities::Zero;
 
 mod account;
 mod constants;
@@ -23,12 +21,17 @@ use storage::StorageProof;
 
 #[derive(Clone, Copy, Debug)]
 pub enum HashDomain {
-    NodeTypeEmpty = 4,
-    NodeTypeLeaf = 5,
+    NodeTypeEmpty = 4, // this is not needed? // it is somehow used for leaf domain hashes?
+    NodeTypeLeaf = 5,  // Rename to Leaf...
     NodeTypeBranch0 = 6,
     NodeTypeBranch1 = 7,
     NodeTypeBranch2 = 8,
     NodeTypeBranch3 = 9,
+    Pair = 512,
+    AccountFields = 2048,
+    // Test = 1
+    // TwoElements for keys, storage value, and keccak code hash, = 512
+    // Five(Six?)Elements for account fields....
 }
 
 impl TryFrom<u64> for HashDomain {
@@ -41,6 +44,7 @@ impl TryFrom<u64> for HashDomain {
             7 => Ok(Self::NodeTypeBranch1),
             8 => Ok(Self::NodeTypeBranch2),
             9 => Ok(Self::NodeTypeBranch3),
+            // 512 => Ok(Self::)
             _ => Err("input out of range for HashDomain"),
         }
     }
@@ -55,6 +59,8 @@ impl Into<u64> for HashDomain {
             Self::NodeTypeBranch1 => 7,
             Self::NodeTypeBranch2 => 8,
             Self::NodeTypeBranch3 => 9,
+            Self::Pair => 2 * 256,
+            AccountFields => 4 * 256,
         }
     }
 }
@@ -366,26 +372,45 @@ impl From<(&MPTProofType, &SMTTrace)> for ClaimKind {
 impl From<(MPTProofType, SMTTrace)> for Proof {
     fn from((proof, trace): (MPTProofType, SMTTrace)) -> Self {
         let claim = Claim::from((&proof, &trace));
+        dbg!("from 1");
 
         let storage = StorageProof::from(&trace);
+        dbg!("from 2");
 
         let key = account_key(claim.address);
+        assert_eq!(key, fr(trace.account_key));
+        dbg!("from 2.5");
         let leafs = trace.account_path.clone().map(get_leaf);
+        dbg!("from 2.6");
         let [open_hash_traces, close_hash_traces] =
             trace.account_path.clone().map(|path| path.path);
         let leaf_hashes = trace.account_path.clone().map(leaf_hash);
+        dbg!(leaf_hashes);
+        dbg!("from 3");
         let address_hash_traces =
             get_internal_hash_traces(key, leaf_hashes, &open_hash_traces, &close_hash_traces);
+        dbg!("check hash_traces");
+        check_hash_traces_new(&address_hash_traces);
+        dbg!("4");
 
+        dbg!(address_hash_traces.clone());
         let [old_account, new_account] = trace.account_update;
         let old_account_hash_traces = match old_account.clone() {
             None => empty_account_hash_traces(leafs[0]),
             Some(account) => account_hash_traces(claim.address, account, storage.old_root()),
         };
+        dbg!("5");
         let new_account_hash_traces = match new_account.clone() {
             None => empty_account_hash_traces(leafs[1]),
             Some(account) => account_hash_traces(claim.address, account, storage.new_root()),
         };
+        dbg!("6");
+
+        dbg!(leaf_hashes);
+        assert_eq!(old_account_hash_traces[5][2], leaf_hashes[0]);
+        assert_eq!(new_account_hash_traces[5][2], leaf_hashes[1]);
+
+        dbg!("7");
 
         let [old, new] = trace.account_path.map(|path| {
             // The account_key(address) if the account exists
@@ -394,11 +419,11 @@ impl From<(MPTProofType, SMTTrace)> for Proof {
             let (key, key_hash) = path.leaf.map_or_else(
                 || {
                     let k = account_key(claim.address);
-                    (k, hash(Fr::one(), k))
+                    (k, domain_hash(Fr::one(), k, HashDomain::NodeTypeLeaf))
                 },
                 |l| {
                     let k = fr(l.sibling);
-                    (k, hash(Fr::one(), k))
+                    (k, domain_hash(Fr::one(), k, HashDomain::NodeTypeLeaf))
                 },
             );
 
@@ -410,6 +435,8 @@ impl From<(MPTProofType, SMTTrace)> for Proof {
                 leaf_data_hash,
             }
         });
+
+        dbg!("8");
 
         let old_account = match old_account {
             Some(account_data) => {
@@ -427,6 +454,8 @@ impl From<(MPTProofType, SMTTrace)> for Proof {
             }
             None => None,
         };
+
+        dbg!("9");
         Self {
             claim,
             address_hash_traces,
@@ -452,7 +481,7 @@ fn get_leaf(path: SMTPath) -> Option<LeafNode> {
 
 fn leaf_hash(path: SMTPath) -> Fr {
     if let Some(leaf) = path.leaf {
-        hash(hash(Fr::one(), fr(leaf.sibling)), fr(leaf.value))
+        domain_hash(fr(leaf.sibling), fr(leaf.value), HashDomain::NodeTypeEmpty)
     } else {
         // assert_eq!(path, SMTPath::default());
         Fr::zero()
@@ -460,6 +489,7 @@ fn leaf_hash(path: SMTPath) -> Fr {
 }
 
 fn account_hash_traces(address: Address, account: AccountData, storage_root: Fr) -> [[Fr; 3]; 7] {
+    dbg!("account_hash_traces 0");
     // h5 is sibling of node?
     // let real_account: Account<Fr> = (&account, storage_root).try_into().unwrap();
 
@@ -467,6 +497,7 @@ fn account_hash_traces(address: Address, account: AccountData, storage_root: Fr)
     let h1 = hash(codehash_hi, codehash_lo);
     let h2 = hash(storage_root, h1);
 
+    dbg!("account_hash_traces 1");
     let nonce_and_codesize =
         Fr::from(account.nonce) + Fr::from(account.code_size) * Fr::from(1 << 32).square();
     let balance = big_uint_to_fr(&account.balance);
@@ -547,11 +578,40 @@ fn get_internal_hash_traces(
 
 fn empty_account_hash_traces(leaf: Option<LeafNode>) -> [[Fr; 3]; 7] {
     let mut account_hash_traces = [[Fr::zero(); 3]; 7];
+    dbg!("empty_account_hash_traces 0");
+
+    // 0x29830d19fd895697907ec7976a217848b690dc5942d38337d69cc42f583ac617
+    // 0x02f96e518ffa759a1a4fa8c3f8f4093e8bc81a0a2bd04e1e79187ca238596f93
 
     if let Some(l) = leaf {
-        let h5 = hash(Fr::one(), l.key);
-        account_hash_traces[5] = [Fr::one(), l.key, h5];
-        account_hash_traces[6] = [h5, l.value_hash, hash(h5, l.value_hash)];
+        // let h5 = domain_hash(Fr::one(), l.key, HashDomain::NodeTypeLeaf);
+
+        // let a = domain_hash(Fr::one(), l.key, HashDomain::NodeTypeLeaf);
+        // let b = domain_hash(Fr::one(), l.key, HashDomain::Pair);
+
+        // let c = domain_hash(a, l.value_hash, HashDomain::NodeTypeLeaf);
+        // let d = domain_hash(b, l.value_hash, HashDomain::NodeTypeLeaf);
+        // let e = temp_hash(l.key, l.value_hash, Fr::from(5)); // this one is correct?
+        // let f = temp_hash(l.value_hash, l.key, Fr::from(5));
+        // dbg!(l);
+        // dbg!(a, b, c, d, e, f);
+
+        // for i in 0..1024 {
+        //     dbg!(temp_hash(l.key, l.value_hash, Fr::from(i)));
+        // }
+        // panic!();
+
+        // TODO: domain should not be EmptyNode!!!!!
+        account_hash_traces[5] = [
+            l.key,
+            l.value_hash,
+            domain_hash(l.key, l.value_hash, HashDomain::NodeTypeEmpty),
+        ];
+        // account_hash_traces[6] = [
+        //     h5,
+        //     l.value_hash,
+        //     domain_hash(h5, l.value_hash, HashDomain::NodeTypeLeaf),
+        // ];
     }
 
     account_hash_traces
@@ -759,9 +819,10 @@ impl Proof {
 
     // fn new_account_leaf_hashes(&self) -> Vec<Fr> {}
     // fn account_leaf_siblings(&self) -> Vec<Fr> {}
-    fn check(&self) {
+    pub fn check(&self) {
         // poseidon hashes are correct
         check_hash_traces_new(&self.address_hash_traces);
+        dbg!("check 1");
 
         // directions match account key.
         let account_key = account_key(self.claim.address);
@@ -772,23 +833,36 @@ impl Proof {
             );
         }
 
+        dbg!("check 2");
+
         // old and new roots are correct
-        if let Some((direction, _, open, close, sibling, _is_padding_open, _is_padding_close)) =
-            self.address_hash_traces.last()
+        if let Some((
+            direction,
+            domain,
+            open,
+            close,
+            sibling,
+            _is_padding_open,
+            _is_padding_close,
+        )) = self.address_hash_traces.last()
         {
             if *direction {
-                assert_eq!(hash(*sibling, *open), self.claim.old_root);
-                assert_eq!(hash(*sibling, *close), self.claim.new_root);
+                assert_eq!(domain_hash(*sibling, *open, *domain), self.claim.old_root);
+                assert_eq!(domain_hash(*sibling, *close, *domain), self.claim.new_root);
             } else {
-                assert_eq!(hash(*open, *sibling), self.claim.old_root);
-                assert_eq!(hash(*close, *sibling), self.claim.new_root);
+                assert_eq!(domain_hash(*open, *sibling, *domain), self.claim.old_root);
+                assert_eq!(domain_hash(*close, *sibling, *domain), self.claim.new_root);
             }
         } else {
             panic!("no hash traces!!!!");
         }
+        dbg!("check 3");
 
         // this suggests we want something that keeps 1/2 unchanged if something....
         // going to have to add an is padding row or something?
+
+        dbg!(self.old_account_hash_traces);
+        dbg!(self.address_hash_traces.clone());
         assert_eq!(
             self.old_account_hash_traces[5][2],
             self.address_hash_traces.get(0).unwrap().2
@@ -804,18 +878,20 @@ impl Proof {
 
         // TODO: handle none here.
         assert_eq!(
-            hash(
-                hash(Fr::one(), self.leafs[0].unwrap().key),
-                self.leafs[0].unwrap().value_hash
+            domain_hash(
+                self.leafs[0].unwrap().key,
+                self.leafs[0].unwrap().value_hash,
+                HashDomain::NodeTypeEmpty,
             ),
-            self.old_account_hash_traces[5][3],
+            self.old_account_hash_traces[5][2], // is this right???
         );
         assert_eq!(
-            hash(
-                hash(Fr::one(), self.leafs[1].unwrap().key),
-                self.leafs[1].unwrap().value_hash
+            domain_hash(
+                self.leafs[0].unwrap().key,
+                self.leafs[0].unwrap().value_hash,
+                HashDomain::NodeTypeEmpty,
             ),
-            self.new_account_hash_traces[5][2],
+            self.new_account_hash_traces[5][2], // is this right???
         );
 
         // // storage poseidon hashes are correct
@@ -870,38 +946,61 @@ fn check_hash_traces_new(traces: &[(bool, HashDomain, Fr, Fr, Fr, bool, bool)]) 
     let mut next_hash_traces = traces.iter();
     next_hash_traces.next();
     for (
-        (direction, _, open, close, sibling, is_padding_open, is_padding_close),
-        (_, _, next_open, next_close, _, is_padding_open_next, is_padding_close_next),
+        (direction, domain, open, close, sibling, is_padding_open, is_padding_close),
+        (_, next_domain, next_open, next_close, _, is_padding_open_next, is_padding_close_next),
     ) in current_hash_traces.zip(next_hash_traces)
     {
+        dbg!(domain, next_domain);
+        let x: u64 = (*domain).into();
+        dbg!(x);
         if *direction {
             if *is_padding_open {
 
                 // TODOOOOOO
             } else {
                 assert!(!*is_padding_open_next);
-                assert_eq!(hash(*sibling, *open), *next_open);
+                assert_eq!(domain_hash(*sibling, *open, *domain), *next_open);
             }
 
             if *is_padding_close {
                 // TODOOOOOO
             } else {
                 assert!(!*is_padding_close_next);
-                assert_eq!(hash(*sibling, *close), *next_close);
+                assert_eq!(
+                    domain_hash(*sibling, *close, *domain),
+                    *next_close,
+                    "noooooo"
+                );
             }
         } else {
             if *is_padding_open {
                 // TODOOOOOO
             } else {
                 assert!(!*is_padding_open_next);
-                assert_eq!(hash(*open, *sibling), *next_open);
+                // assert_eq!(domain_hash(*open, *sibling, *next_domain), *next_open);
+
+                // for i in 0..1024 {
+                //     dbg!(i, domain);
+                //     if temp_hash(*open, *sibling, Fr::from(i)) == *next_close {
+                //         assert_eq!(domain_hash(*open, *sibling, *domain), *next_close, "???");
+                //         panic!("{}", i);
+                //     }
+
+                // }
+                // panic!("noooooo");
+
+                assert_eq!(
+                    domain_hash(*open, *sibling, *domain),
+                    *next_close,
+                    "noooooo"
+                );
             }
 
             if *is_padding_close {
                 // TODOOOOOO
             } else {
                 assert!(!*is_padding_close_next);
-                assert_eq!(hash(*close, *sibling), *next_close);
+                assert_eq!(domain_hash(*close, *sibling, *domain), *next_close);
             }
         }
     }
@@ -949,13 +1048,9 @@ fn fr(x: HexBytes<32>) -> Fr {
     Fr::from_bytes(&x.0).unwrap()
 }
 
-pub fn hash(x: Fr, y: Fr) -> Fr {
-    Hashable::hash_with_domain([x, y], Fr::zero())
-}
-
 fn storage_key_hash(key: U256) -> Fr {
     let (high, low) = split_word(key);
-    hash(high, low)
+    domain_hash(high, low, HashDomain::NodeTypeLeaf)
 }
 
 fn split_word(x: U256) -> (Fr, Fr) {

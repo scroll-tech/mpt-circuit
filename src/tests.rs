@@ -1,0 +1,76 @@
+use crate::{serde::SMTTrace, types::Proof, MPTProofType};
+use ethers_core::types::{Address, U256};
+use mpt_zktrie::state::{builder::HASH_SCHEME_DONE, witness::WitnessGenerator, ZktrieState};
+
+fn intital_generator() -> WitnessGenerator {
+    assert!(*HASH_SCHEME_DONE);
+    let mut generator = WitnessGenerator::from(&ZktrieState::default());
+    for i in 1..10 {
+        generator.handle_new_state(
+            mpt_zktrie::mpt_circuits::MPTProofType::BalanceChanged,
+            Address::repeat_byte(i),
+            U256::one(),
+            U256::zero(),
+            None,
+        );
+    }
+    generator
+}
+
+#[test]
+fn empty_account_type_1() {
+    let mut generator = intital_generator();
+    let trace = generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::AccountDoesNotExist,
+        Address::zero(),
+        U256::zero(),
+        U256::zero(),
+        None,
+    );
+
+    let json = serde_json::to_string_pretty(&trace).unwrap();
+    assert_eq!(
+        format!("{}\n", json),
+        include_str!("traces/empty_account_type_1.json"),
+    );
+    let trace: SMTTrace = serde_json::from_str(&json).unwrap();
+
+    for path in &trace.account_path {
+        assert!(path.leaf.is_some(), "account is not type 1");
+    }
+
+    let proof = Proof::from((MPTProofType::AccountDoesNotExist, trace));
+    proof.check();
+}
+
+#[ignore = "type 2 empty account proofs are incomplete"]
+#[test]
+fn empty_account_type_2() {
+    for i in 104..255 {
+        dbg!(i);
+        let mut generator = intital_generator();
+        let trace = generator.handle_new_state(
+            mpt_zktrie::mpt_circuits::MPTProofType::BalanceChanged,
+            Address::repeat_byte(i),
+            U256::one(),
+            U256::zero(),
+            None,
+        );
+        // 0xb3e9ff02c109b1d6aefa774523aaf5bef1207226e85a3726ecb505227ad1e621
+
+        let json = serde_json::to_string_pretty(&trace).unwrap();
+        let trace: SMTTrace = serde_json::from_str(&json).unwrap();
+
+        dbg!(trace.clone());
+
+        // for path in &trace.account_path {
+        //     assert!(path.leaf.is_some() || path.path.is_empty())
+        // }
+        panic!();
+    }
+
+    // dbg!(trace.clone());
+
+    // let proof = Proof::from((MPTProofType::AccountDoesNotExist, trace));
+    panic!();
+}

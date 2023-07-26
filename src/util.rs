@@ -1,4 +1,5 @@
 use crate::serde::HexBytes;
+use crate::types::HashDomain;
 use ethers_core::{
     k256::elliptic_curve::PrimeField,
     types::{Address, U256},
@@ -12,7 +13,16 @@ pub(crate) fn fr(x: HexBytes<32>) -> Fr {
 }
 
 pub(crate) fn hash(x: Fr, y: Fr) -> Fr {
-    Hashable::hash_with_domain([x, y], Fr::zero())
+    panic!("migrating away from thisssss")
+}
+
+pub fn domain_hash(x: Fr, y: Fr, domain: HashDomain) -> Fr {
+    Hashable::hash_with_domain([x, y], Fr::from(Into::<u64>::into(domain)))
+    // Hashable::hash_with_domain([x, y], domain)
+}
+
+pub fn temp_hash(x: Fr, y: Fr, domain: Fr) -> Fr {
+    Hashable::hash_with_domain([x, y], domain)
 }
 
 pub(crate) trait Bit {
@@ -101,7 +111,7 @@ pub fn u256_to_big_endian(x: &U256) -> Vec<u8> {
 
 pub fn storage_key_hash(key: U256) -> Fr {
     let (high, low) = split_word(key);
-    hash(high, low)
+    domain_hash(high, low, HashDomain::NodeTypeLeaf)
 }
 
 pub fn account_key(address: Address) -> Fr {
@@ -110,7 +120,8 @@ pub fn account_key(address: Address) -> Fr {
 
     let address_high = Fr::from_u128(u128::from_be_bytes(high_bytes));
     let address_low = Fr::from_u128(u128::from(u32::from_be_bytes(low_bytes)) << 96);
-    hash(address_high, address_low)
+    // dbg!(domain_hash(address_high, address_low, HashDomain::Pair));
+    domain_hash(address_high, address_low, HashDomain::Pair)
 }
 
 #[cfg(test)]
