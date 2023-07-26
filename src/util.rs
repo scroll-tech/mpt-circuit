@@ -1,5 +1,4 @@
-use crate::serde::HexBytes;
-use crate::types::HashDomain;
+use crate::{serde::HexBytes, types::HashDomain};
 use ethers_core::{
     k256::elliptic_curve::PrimeField,
     types::{Address, U256},
@@ -111,7 +110,7 @@ pub fn u256_to_big_endian(x: &U256) -> Vec<u8> {
 
 pub fn storage_key_hash(key: U256) -> Fr {
     let (high, low) = split_word(key);
-    domain_hash(high, low, HashDomain::NodeTypeLeaf)
+    domain_hash(high, low, HashDomain::Pair)
 }
 
 pub fn account_key(address: Address) -> Fr {
@@ -122,6 +121,21 @@ pub fn account_key(address: Address) -> Fr {
     let address_low = Fr::from_u128(u128::from(u32::from_be_bytes(low_bytes)) << 96);
     // dbg!(domain_hash(address_high, address_low, HashDomain::Pair));
     domain_hash(address_high, address_low, HashDomain::Pair)
+}
+
+// Sanity check that before and after branch types match the direction
+pub fn check_domain_consistency(before: HashDomain, after: HashDomain, direction: bool) {
+    if direction {
+        assert!(
+            before == HashDomain::NodeTypeBranch0 && after == HashDomain::NodeTypeBranch1
+                || before == HashDomain::NodeTypeBranch2 && after == HashDomain::NodeTypeBranch3
+        );
+    } else {
+        assert!(
+            before == HashDomain::NodeTypeBranch0 && after == HashDomain::NodeTypeBranch2
+                || before == HashDomain::NodeTypeBranch1 && after == HashDomain::NodeTypeBranch3
+        );
+    }
 }
 
 #[cfg(test)]

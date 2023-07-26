@@ -2,8 +2,8 @@ use crate::{
     gadgets::mpt_update::PathType,
     serde::{AccountData, HexBytes, SMTNode, SMTPath, SMTTrace},
     util::{
-        account_key, domain_hash, fr_from_biguint, hash, rlc, temp_hash, u256_from_biguint,
-        u256_from_hex, u256_to_big_endian,
+        account_key, check_domain_consistency, domain_hash, fr_from_biguint, hash, rlc, temp_hash,
+        u256_from_biguint, u256_from_hex, u256_to_big_endian,
     },
     MPTProofType,
 };
@@ -569,20 +569,6 @@ fn account_hash_traces(address: Address, account: AccountData, storage_root: Fr)
     account_hash_traces
 }
 
-fn check_domain_consistency(before: HashDomain, after: HashDomain, direction: bool) {
-    if direction {
-        assert!(
-            before == HashDomain::NodeTypeBranch0 && after == HashDomain::NodeTypeBranch1
-                || before == HashDomain::NodeTypeBranch2 && after == HashDomain::NodeTypeBranch3
-        );
-    } else {
-        assert!(
-            before == HashDomain::NodeTypeBranch0 && after == HashDomain::NodeTypeBranch2
-                || before == HashDomain::NodeTypeBranch1 && after == HashDomain::NodeTypeBranch3
-        );
-    }
-}
-
 fn get_internal_hash_traces(
     key: Fr,
     leaf_hashes: [Fr; 2],
@@ -900,7 +886,10 @@ impl Proof {
 
     // fn new_account_leaf_hashes(&self) -> Vec<Fr> {}
     // fn account_leaf_siblings(&self) -> Vec<Fr> {}
+    #[cfg(test)]
     pub fn check(&self) {
+        self.storage.check();
+
         // poseidon hashes are correct
         check_hash_traces_new(&self.address_hash_traces);
         dbg!("check 1");

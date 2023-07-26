@@ -223,6 +223,111 @@ fn existing_account_poseidon_codehash_update() {
     proof.check();
 }
 
+#[test]
+fn existing_storage_update() {
+    let mut generator = intital_generator();
+
+    for i in 40..60 {
+        generator.handle_new_state(
+            mpt_zktrie::mpt_circuits::MPTProofType::StorageChanged,
+            Address::repeat_byte(1),
+            U256::one(),
+            U256::zero(),
+            Some(U256::from(i)),
+        );
+    }
+
+    let trace = generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::StorageChanged,
+        Address::repeat_byte(1),
+        U256::from(20),
+        U256::one(),
+        Some(U256::from(40)),
+    );
+
+    let json = serde_json::to_string_pretty(&trace).unwrap();
+    assert_eq!(
+        format!("{}\n", json),
+        include_str!("traces/existing_storage_update.json"),
+        "{}",
+        json
+    );
+    let trace: SMTTrace = serde_json::from_str(&json).unwrap();
+    let proof = Proof::from((MPTProofType::StorageChanged, trace));
+    proof.check();
+}
+
+#[test]
+fn empty_storage_type_1_update() {
+    let mut generator = intital_generator();
+
+    for i in 40..60 {
+        generator.handle_new_state(
+            mpt_zktrie::mpt_circuits::MPTProofType::StorageChanged,
+            Address::repeat_byte(1),
+            U256::one(),
+            U256::zero(),
+            Some(U256::from(i)),
+        );
+    }
+
+    // 0 is type 1
+    let trace = generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::StorageChanged,
+        Address::repeat_byte(1),
+        U256::from(307),
+        U256::zero(),
+        Some(U256::from(23412321)),
+    );
+    dbg!(trace.state_path[0].clone().unwrap());
+    assert!(
+        trace.state_path[0].clone().unwrap().leaf.is_some(),
+        "old storage entry is not type 1"
+    );
+
+    let json = serde_json::to_string_pretty(&trace).unwrap();
+    assert_eq!(
+        format!("{}\n", json),
+        include_str!("traces/empty_storage_type_1_update.json"),
+        "{}",
+        json
+    );
+    let trace: SMTTrace = serde_json::from_str(&json).unwrap();
+    let proof = Proof::from((MPTProofType::StorageChanged, trace));
+    proof.check();
+}
+
+#[test]
+fn insert_into_singleton_storage_trie() {
+    let mut generator = intital_generator();
+    generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::StorageChanged,
+        Address::repeat_byte(1),
+        U256([1, 2, 3, 4]),
+        U256::zero(),
+        Some(U256([10, 20, 30, 40])),
+    );
+
+    let trace = generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::StorageChanged,
+        Address::repeat_byte(1),
+        U256([5, 6, 7, 8]),
+        U256::zero(),
+        Some(U256([50, 60, 70, 80])),
+    );
+
+    let json = serde_json::to_string_pretty(&trace).unwrap();
+    assert_eq!(
+        format!("{}\n", json),
+        include_str!("traces/insert_into_singleton_storage_trie.json"),
+        "{}",
+        json
+    );
+    let trace: SMTTrace = serde_json::from_str(&json).unwrap();
+    let proof = Proof::from((MPTProofType::StorageChanged, trace));
+    proof.check();
+}
+
 #[ignore = "type 2 empty account proofs are incomplete"]
 #[test]
 fn empty_account_type_2() {

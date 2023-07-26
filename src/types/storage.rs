@@ -1,7 +1,7 @@
 use crate::{
     serde::{SMTNode, SMTTrace, StateData},
-    types::trie::TrieRows,
-    util::{fr, hash, storage_key_hash, u256_from_hex, u256_hi_lo},
+    types::{trie::TrieRows, Bit, HashDomain, PathType},
+    util::{domain_hash, fr, storage_key_hash, u256_from_hex, u256_hi_lo},
 };
 use ethers_core::types::U256;
 use halo2_proofs::{arithmetic::FieldExt, halo2curves::bn256::Fr};
@@ -121,6 +121,45 @@ impl StorageProof {
             }
         }
     }
+
+    #[cfg(test)]
+    pub fn check(&self) {
+        if let Self::Update {
+            key,
+            trie_rows,
+            old_leaf,
+            new_leaf,
+        } = self
+        {
+            // Check that trie rows are consistent and produce claimed roots.
+            trie_rows.check(self.old_root(), self.new_root());
+
+            // Check that directions match old and new keys.
+            for (i, row) in trie_rows.0.iter().enumerate() {
+                let old_key = old_leaf.key();
+                let new_key = new_leaf.key();
+                match row.path_type {
+                    PathType::Start => unreachable!(),
+                    PathType::Common => {
+                        assert_eq!(row.direction, old_key.bit(i));
+                        assert_eq!(row.direction, new_key.bit(i));
+                    }
+                    PathType::ExtensionOld => {
+                        assert_eq!(row.direction, old_key.bit(i));
+                    }
+                    PathType::ExtensionNew => {
+                        assert_eq!(row.direction, new_key.bit(i));
+                    }
+                }
+            }
+
+            // Check that final trie_row values match leaf hashes
+            if let Some(row) = trie_rows.0.last() {
+                assert_eq!(old_leaf.hash(), row.old);
+                assert_eq!(new_leaf.hash(), row.new);
+            }
+        }
+    }
 }
 
 impl StorageLeaf {
@@ -166,10 +205,6 @@ impl StorageLeaf {
         }
     }
 
-    pub fn key_hash(&self) -> Fr {
-        hash(Fr::one(), self.key())
-    }
-
     // maybe make this an option?
     pub fn value(&self) -> U256 {
         match self {
@@ -192,7 +227,7 @@ impl StorageLeaf {
             Self::Leaf { value_hash, .. } => *value_hash,
             Self::Entry { .. } => {
                 let (high, low) = u256_hi_lo(&self.value());
-                hash(Fr::from_u128(high), Fr::from_u128(low))
+                domain_hash(Fr::from_u128(high), Fr::from_u128(low), HashDomain::Pair)
             }
         }
     }
@@ -201,23 +236,21 @@ impl StorageLeaf {
         if let Self::Empty { .. } = self {
             Fr::zero()
         } else {
-            hash(self.key_hash(), self.value_hash())
+            domain_hash(self.key(), self.value_hash(), HashDomain::NodeTypeEmpty)
         }
     }
 
     fn poseidon_lookups(&self) -> Vec<(Fr, Fr, Fr)> {
-        let mut lookups = vec![(Fr::one(), self.key(), self.key_hash())];
+        let mut lookups = vec![];
         match self {
             Self::Empty { .. } => (),
-            Self::Leaf { value_hash, .. } => {
-                lookups.push((self.key_hash(), *value_hash, self.hash()))
-            }
+            Self::Leaf { value_hash, .. } => lookups.push((self.key(), *value_hash, self.hash())),
             Self::Entry { storage_key, .. } => {
                 let (key_high, key_low) = u256_hi_lo(storage_key);
                 lookups.extend(vec![
                     (Fr::from_u128(key_high), Fr::from_u128(key_low), self.key()),
                     (self.value_high(), self.value_low(), self.value_hash()),
-                    (self.key_hash(), self.value_hash(), self.hash()),
+                    (self.key(), self.value_hash(), self.hash()),
                 ]);
             }
         }
@@ -227,6 +260,7 @@ impl StorageLeaf {
 
 impl From<&SMTTrace> for StorageProof {
     fn from(trace: &SMTTrace) -> Self {
+        dbg!("StorageProof 1");
         if let Some(root) = trace.common_state_root {
             return Self::Root(fr(root));
         }
@@ -234,6 +268,7 @@ impl From<&SMTTrace> for StorageProof {
         let [old_path, new_path] = &trace.state_path;
         let old_leaf = old_path.as_ref().unwrap().leaf;
         let new_leaf = new_path.as_ref().unwrap().leaf;
+        dbg!("StorageProof 1.5");
         let trie_rows = TrieRows::new(
             key,
             &old_path.as_ref().unwrap().path,
@@ -241,6 +276,7 @@ impl From<&SMTTrace> for StorageProof {
             old_leaf,
             new_leaf,
         );
+        dbg!("StorageProof 2");
 
         let [old_entry, new_entry] = trace.state_update.unwrap().map(Option::unwrap);
         let old_leaf = StorageLeaf::new(key, &old_leaf, &old_entry);
@@ -252,6 +288,7 @@ impl From<&SMTTrace> for StorageProof {
             old_leaf,
             new_leaf,
         };
+        dbg!("StorageProof 3");
         assert_eq!(
             storage_proof.old_root(),
             fr(old_path.as_ref().unwrap().root)
@@ -260,6 +297,7 @@ impl From<&SMTTrace> for StorageProof {
             storage_proof.new_root(),
             fr(new_path.as_ref().unwrap().root)
         );
+        dbg!("StorageProof 4");
         storage_proof
     }
 }

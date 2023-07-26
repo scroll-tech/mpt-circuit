@@ -723,7 +723,7 @@ impl MptUpdateConfig {
 
                 hash_is_zero.assign_value_and_inverse(region, offset, old.hash());
 
-                other_key_hash.assign(region, offset, old.key_hash());
+                // other_key_hash.assign(region, offset, old.key_hash());
                 other_leaf_data_hash.assign(region, offset, *old_value_hash);
             }
             (StorageLeaf::Empty { .. }, StorageLeaf::Empty { .. }) => {
@@ -774,8 +774,8 @@ impl MptUpdateConfig {
 
         let sibling = match path_type {
             PathType::Start => unreachable!(),
-            PathType::Common | PathType::ExtensionOld => old.key_hash(),
-            PathType::ExtensionNew => new.key_hash(),
+            PathType::Common | PathType::ExtensionOld => old.key(),
+            PathType::ExtensionNew => new.key(),
         };
         self.sibling.assign(region, offset, sibling);
 
@@ -840,7 +840,7 @@ impl MptUpdateConfig {
 
                 if key != other_key {
                     let [.., other_key_hash, other_leaf_data_hash] = self.intermediate_values;
-                    other_key_hash.assign(region, offset, new.key_hash());
+                    // other_key_hash.assign(region, offset, new.key_hash());
                     other_leaf_data_hash.assign(region, offset, new.value_hash());
                 }
             }
@@ -854,7 +854,7 @@ impl MptUpdateConfig {
 
                 if key != other_key {
                     let [.., other_key_hash, other_leaf_data_hash] = self.intermediate_values;
-                    other_key_hash.assign(region, offset, old.key_hash());
+                    // other_key_hash.assign(region, offset, old.key_hash());
                     other_leaf_data_hash.assign(region, offset, old.value_hash());
                 }
             }
