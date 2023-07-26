@@ -519,8 +519,14 @@ impl MptUpdateConfig {
             for (i, (segment_type, sibling, old_hash, new_hash, direction)) in
                 izip!(segment_types, siblings, old_hashes, new_hashes, directions).enumerate()
             {
+                // leaf0 and leaf1 have problems....
                 if i == 0 {
                     self.is_zero_gadgets[3].assign_value_and_inverse(region, offset, old_hash);
+                    self.domain
+                        .assign(region, offset + i, HashDomain::NodeTypeEmpty.into_u64());
+                } else {
+                    self.domain
+                        .assign(region, offset + i, HashDomain::AccountFields.into_u64());
                 }
                 self.segment_type.assign(region, offset + i, segment_type);
                 self.path_type.assign(region, offset + i, leaf_path_type);
@@ -1428,9 +1434,19 @@ fn configure_balance<F: FieldExt>(
                 );
             }
             SegmentType::AccountLeaf0 => {
+                cb.assert_equal(
+                    "balance AccountLeaf0 domain is NodeTypeLeaf",
+                    config.domain.current(),
+                    HashDomain::NodeTypeEmpty.into(),
+                );
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
             }
             SegmentType::AccountLeaf1 => {
+                cb.assert_equal(
+                    "balance AccountLeaf1 domain is AccountFields",
+                    config.domain.current(),
+                    HashDomain::AccountFields.into(),
+                );
                 cb.assert_zero("direction is 0", config.direction.current());
                 cb.condition(
                     config.path_type.current_matches(&[PathType::ExtensionNew]),
@@ -1935,26 +1951,6 @@ pub fn hash_traces(proofs: &[Proof]) -> Vec<([Fr; 2], Fr, Fr)> {
                 ));
             }
         }
-        // assert_eq!(
-        //     proof.storage.old_root(),
-        //     proof.old_account_hash_traces[1][0]
-        // );
-        // assert_eq!(
-        //     proof.storage.new_root(),
-        //     proof.new_account_hash_traces[1][0]
-        // );
-        // let (storage_key_high, storage_key_low) = u256_hi_lo(&proof.claim.storage_key());
-        // hash_traces.push((
-        //     [
-        //         Fr::from_u128(storage_key_high),
-        //         Fr::from_u128(storage_key_low),
-        //     ],
-        //     Fr::from(0u64),
-        //     hash(
-        //         Fr::from_u128(storage_key_high),
-        //         Fr::from_u128(storage_key_low),
-        //     ),
-        // ));
         hash_traces.extend(
             proof
                 .storage
@@ -1994,6 +1990,10 @@ pub fn hash_traces(proofs: &[Proof]) -> Vec<([Fr; 2], Fr, Fr)> {
             for [left, right, digest] in account_leaf_hash_traces {
                 if domain_hash(left, right, HashDomain::AccountFields) == digest {
                     hash_traces.push(([left, right], HashDomain::AccountFields.into(), digest))
+                } else if domain_hash(left, right, HashDomain::NodeTypeEmpty) == digest {
+                    hash_traces.push(([left, right], HashDomain::NodeTypeEmpty.into(), digest))
+                } else if domain_hash(left, right, HashDomain::Pair) == digest {
+                    hash_traces.push(([left, right], HashDomain::Pair.into(), digest))
                 }
             }
         }

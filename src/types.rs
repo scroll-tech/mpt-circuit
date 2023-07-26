@@ -182,8 +182,8 @@ pub struct Proof {
     // TODO: make this optional
     leafs: [Option<LeafNode>; 2],
 
-    pub old_account_hash_traces: [[Fr; 3]; 7],
-    pub new_account_hash_traces: [[Fr; 3]; 7],
+    pub old_account_hash_traces: [[Fr; 3]; 6],
+    pub new_account_hash_traces: [[Fr; 3]; 6],
 
     pub storage: StorageProof,
 
@@ -529,16 +529,11 @@ fn leaf_hash(path: SMTPath) -> Fr {
     }
 }
 
-fn account_hash_traces(address: Address, account: AccountData, storage_root: Fr) -> [[Fr; 3]; 7] {
-    dbg!("account_hash_traces 0");
-    // h5 is sibling of node?
-    // let real_account: Account<Fr> = (&account, storage_root).try_into().unwrap();
-
+fn account_hash_traces(address: Address, account: AccountData, storage_root: Fr) -> [[Fr; 3]; 6] {
     let (codehash_hi, codehash_lo) = hi_lo(account.code_hash);
     let h1 = domain_hash(codehash_hi, codehash_lo, HashDomain::Pair);
     let h2 = domain_hash(storage_root, h1, HashDomain::AccountFields);
 
-    dbg!("account_hash_traces 1");
     let nonce_and_codesize =
         Fr::from(account.nonce) + Fr::from(account.code_size) * Fr::from(1 << 32).square();
     let balance = big_uint_to_fr(&account.balance);
@@ -547,12 +542,11 @@ fn account_hash_traces(address: Address, account: AccountData, storage_root: Fr)
     let h4 = domain_hash(h3, h2, HashDomain::AccountFields);
 
     let account_key = account_key(address);
-    // let h5 = hash(Fr::one(), account_key);
 
     let poseidon_codehash = big_uint_to_fr(&account.poseidon_code_hash);
     let account_hash = domain_hash(h4, poseidon_codehash, HashDomain::AccountFields);
 
-    let mut account_hash_traces = [[Fr::zero(); 3]; 7];
+    let mut account_hash_traces = [[Fr::zero(); 3]; 6];
     account_hash_traces[0] = [codehash_hi, codehash_lo, h1];
     account_hash_traces[1] = [storage_root, h1, h2];
     account_hash_traces[2] = [nonce_and_codesize, balance, h3];
@@ -562,14 +556,7 @@ fn account_hash_traces(address: Address, account: AccountData, storage_root: Fr)
         account_key,
         account_hash,
         domain_hash(account_key, account_hash, HashDomain::NodeTypeEmpty),
-    ]; // this should be the sibling?
-       // account_hash_traces[6] = [h5, account_hash, hash(h5, account_hash)];
-
-    // h4 is value of node?
-    // assert_eq!(real_account.account_hash(), account_hash);
-
-    dbg!(account_key, account_hash);
-
+    ];
     account_hash_traces
 }
 
@@ -647,44 +634,15 @@ fn get_internal_hash_traces(
     address_hash_traces
 }
 
-fn empty_account_hash_traces(leaf: Option<LeafNode>) -> [[Fr; 3]; 7] {
-    let mut account_hash_traces = [[Fr::zero(); 3]; 7];
-    dbg!("empty_account_hash_traces 0");
-
-    // 0x29830d19fd895697907ec7976a217848b690dc5942d38337d69cc42f583ac617
-    // 0x02f96e518ffa759a1a4fa8c3f8f4093e8bc81a0a2bd04e1e79187ca238596f93
-
+fn empty_account_hash_traces(leaf: Option<LeafNode>) -> [[Fr; 3]; 6] {
+    let mut account_hash_traces = [[Fr::zero(); 3]; 6];
     if let Some(l) = leaf {
-        // let h5 = domain_hash(Fr::one(), l.key, HashDomain::NodeTypeLeaf);
-
-        // let a = domain_hash(Fr::one(), l.key, HashDomain::NodeTypeLeaf);
-        // let b = domain_hash(Fr::one(), l.key, HashDomain::Pair);
-
-        // let c = domain_hash(a, l.value_hash, HashDomain::NodeTypeLeaf);
-        // let d = domain_hash(b, l.value_hash, HashDomain::NodeTypeLeaf);
-        // let e = temp_hash(l.key, l.value_hash, Fr::from(5)); // this one is correct?
-        // let f = temp_hash(l.value_hash, l.key, Fr::from(5));
-        // dbg!(l);
-        // dbg!(a, b, c, d, e, f);
-
-        // for i in 0..1024 {
-        //     dbg!(temp_hash(l.key, l.value_hash, Fr::from(i)));
-        // }
-        // panic!();
-
-        // TODO: domain should not be EmptyNode!!!!!
         account_hash_traces[5] = [
             l.key,
             l.value_hash,
             domain_hash(l.key, l.value_hash, HashDomain::NodeTypeEmpty),
         ];
-        // account_hash_traces[6] = [
-        //     h5,
-        //     l.value_hash,
-        //     domain_hash(h5, l.value_hash, HashDomain::NodeTypeLeaf),
-        // ];
     }
-
     account_hash_traces
 }
 
@@ -694,40 +652,40 @@ impl Proof {
         let old_account_hash_traces = self.old_account_hash_traces;
         match self.claim.kind {
             ClaimKind::Nonce { old, .. } | ClaimKind::CodeSize { old, .. } => old.map(|_| {
-                let old_account_hash = old_account_hash_traces[6][1];
+                let old_account_hash = old_account_hash_traces[5][1];
                 let old_h4 = old_account_hash_traces[4][0];
                 let old_h3 = old_account_hash_traces[3][0];
                 let old_nonce_and_codesize = old_account_hash_traces[2][0];
                 vec![old_account_hash, old_h4, old_h3, old_nonce_and_codesize]
             }),
             ClaimKind::Balance { old, .. } => old.map(|_| {
-                let old_account_hash = old_account_hash_traces[6][1];
+                let old_account_hash = old_account_hash_traces[5][1];
                 let old_h4 = old_account_hash_traces[4][0];
                 let old_h3 = old_account_hash_traces[3][0];
                 let old_balance = old_account_hash_traces[2][1];
                 vec![old_account_hash, old_h4, old_h3, old_balance]
             }),
             ClaimKind::PoseidonCodeHash { old, .. } => old.map(|_| {
-                let old_account_hash = old_account_hash_traces[6][1];
+                let old_account_hash = old_account_hash_traces[5][1];
                 let old_poseidon_code_hash = old_account_hash_traces[4][1];
                 vec![old_account_hash, old_poseidon_code_hash]
             }),
             ClaimKind::CodeHash { old, .. } => old.map(|_| {
-                let old_account_hash = old_account_hash_traces[6][1];
+                let old_account_hash = old_account_hash_traces[5][1];
                 let old_h4 = old_account_hash_traces[4][0];
                 let old_h2 = old_account_hash_traces[1][2];
                 let old_h1 = old_account_hash_traces[0][2];
                 vec![old_account_hash, old_h4, old_h2, old_h1]
             }),
             ClaimKind::Storage { .. } | ClaimKind::IsEmpty(Some(_)) => self.old_account.map(|_| {
-                let old_account_hash = old_account_hash_traces[6][1];
+                let old_account_hash = old_account_hash_traces[5][1];
                 let old_h4 = old_account_hash_traces[4][0];
                 let old_h2 = old_account_hash_traces[1][2];
                 let old_storage_root = old_account_hash_traces[1][0];
                 vec![old_account_hash, old_h4, old_h2, old_storage_root]
             }),
             ClaimKind::IsEmpty(None) => self.leafs[0].map(|_| {
-                let old_account_hash = old_account_hash_traces[6][1];
+                let old_account_hash = old_account_hash_traces[5][1];
                 vec![old_account_hash]
             }),
         }
@@ -737,46 +695,47 @@ impl Proof {
         let new_account_hash_traces = self.new_account_hash_traces;
         match self.claim.kind {
             ClaimKind::Nonce { new, .. } | ClaimKind::CodeSize { new, .. } => new.map(|_| {
-                let new_account_hash = new_account_hash_traces[6][1];
+                let new_account_hash = new_account_hash_traces[5][1];
                 let new_h4 = new_account_hash_traces[4][0];
                 let new_h3 = new_account_hash_traces[3][0];
                 let new_nonce_and_codesize = new_account_hash_traces[2][0];
                 vec![new_account_hash, new_h4, new_h3, new_nonce_and_codesize]
             }),
             ClaimKind::Balance { new, .. } => new.map(|_| {
-                let new_account_hash = new_account_hash_traces[6][1];
+                let new_account_hash = new_account_hash_traces[5][1];
                 let new_h4 = new_account_hash_traces[4][0];
                 let new_h3 = new_account_hash_traces[3][0];
                 let new_balance = new_account_hash_traces[2][1];
                 vec![new_account_hash, new_h4, new_h3, new_balance]
             }),
             ClaimKind::PoseidonCodeHash { new, .. } => new.map(|_| {
-                let new_account_hash = new_account_hash_traces[6][1];
+                let new_account_hash = new_account_hash_traces[5][1];
                 let new_poseidon_code_hash = new_account_hash_traces[4][1];
                 vec![new_account_hash, new_poseidon_code_hash]
             }),
             ClaimKind::CodeHash { new, .. } => new.map(|_| {
-                let new_account_hash = new_account_hash_traces[6][1];
+                let new_account_hash = new_account_hash_traces[5][1];
                 let new_h4 = new_account_hash_traces[4][0];
                 let new_h2 = new_account_hash_traces[1][2];
                 let new_h1 = new_account_hash_traces[0][2];
                 vec![new_account_hash, new_h4, new_h2, new_h1]
             }),
             ClaimKind::Storage { .. } | ClaimKind::IsEmpty(Some(_)) => {
-                let new_account_hash = new_account_hash_traces[6][1];
+                let new_account_hash = new_account_hash_traces[5][1];
                 let new_h4 = new_account_hash_traces[4][0];
                 let new_h2 = new_account_hash_traces[1][2];
                 let new_storage_root = new_account_hash_traces[1][0];
                 Some(vec![new_account_hash, new_h4, new_h2, new_storage_root])
             }
             ClaimKind::IsEmpty(None) => self.leafs[1].map(|_| {
-                let new_account_hash = new_account_hash_traces[6][1];
+                let new_account_hash = new_account_hash_traces[5][1];
                 vec![new_account_hash]
             }),
         }
     }
 
     pub fn account_leaf_siblings(&self) -> Vec<Fr> {
+        let account_key = account_key(self.claim.address);
         match self.claim.kind {
             ClaimKind::Nonce { old, new } | ClaimKind::CodeSize { old, new } => {
                 let account_hash_traces = match (old, new) {
@@ -787,9 +746,8 @@ impl Proof {
                 let balance = account_hash_traces[2][1];
                 let h2 = account_hash_traces[3][1];
                 let poseidon_codehash = account_hash_traces[4][1];
-                let account_key_hash = account_hash_traces[5][2];
 
-                vec![account_key_hash, poseidon_codehash, h2, balance]
+                vec![account_key, poseidon_codehash, h2, balance]
             }
             ClaimKind::Balance { old, new } => {
                 let account_hash_traces = match (old, new) {
@@ -800,9 +758,8 @@ impl Proof {
                 let nonce_and_codesize = account_hash_traces[2][0];
                 let h2 = account_hash_traces[3][1];
                 let poseidon_codehash = account_hash_traces[4][1];
-                let account_key_hash = account_hash_traces[5][2];
 
-                vec![account_key_hash, poseidon_codehash, h2, nonce_and_codesize]
+                vec![account_key, poseidon_codehash, h2, nonce_and_codesize]
             }
             ClaimKind::PoseidonCodeHash { old, new } => {
                 let account_hash_traces = match (old, new) {
@@ -811,9 +768,8 @@ impl Proof {
                     (None, None) => unimplemented!("reading 0 value from empty account"),
                 };
                 let h4 = account_hash_traces[4][0];
-                let account_key_hash = account_hash_traces[5][2];
 
-                vec![account_key_hash, h4]
+                vec![account_key, h4]
             }
             ClaimKind::CodeHash { old, new } => {
                 let account_hash_traces = match (old, new) {
@@ -821,11 +777,10 @@ impl Proof {
                     (None, Some(_)) => self.new_account_hash_traces,
                     (None, None) => unimplemented!("reading 0 value from empty account"),
                 };
-                let account_key_hash = account_hash_traces[5][2];
                 let poseidon_codehash = account_hash_traces[4][1];
                 let h3 = account_hash_traces[3][0];
                 let storage_root = account_hash_traces[1][0];
-                vec![account_key_hash, poseidon_codehash, h3, storage_root]
+                vec![account_key, poseidon_codehash, h3, storage_root]
             }
             ClaimKind::Storage { .. } | ClaimKind::IsEmpty(Some(_)) => {
                 assert_eq!(
@@ -845,25 +800,12 @@ impl Proof {
                     self.new_account_hash_traces[1][1]
                 );
 
-                let account_key_hash = self.old_account_hash_traces[5][2];
                 let poseidon_codehash = self.old_account_hash_traces[4][1];
                 let h3 = self.old_account_hash_traces[3][0];
                 let keccak_codehash_hash = self.old_account_hash_traces[1][1];
-                vec![
-                    account_key_hash,
-                    poseidon_codehash,
-                    h3,
-                    keccak_codehash_hash,
-                ]
+                vec![account_key, poseidon_codehash, h3, keccak_codehash_hash]
             }
-            ClaimKind::IsEmpty(None) => match self.leafs {
-                [Some(_), _] => vec![self.old_account_hash_traces[6][1]],
-                [None, Some(_)] => {
-                    // Wrong proof
-                    vec![self.new_account_hash_traces[6][1]]
-                }
-                [None, None] => vec![],
-            },
+            ClaimKind::IsEmpty(None) => vec![],
         }
     }
 

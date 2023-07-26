@@ -156,8 +156,10 @@ fn existing_account_balance_update() {
         json
     );
     let trace: SMTTrace = serde_json::from_str(&json).unwrap();
-    let proof = Proof::from((MPTProofType::BalanceChanged, trace));
+    let proof = Proof::from((MPTProofType::BalanceChanged, trace.clone()));
     proof.check();
+
+    mock_prove(vec![(MPTProofType::BalanceChanged, trace)]);
 }
 
 #[test]
@@ -208,8 +210,10 @@ fn existing_account_nonce_update() {
         json
     );
     let trace: SMTTrace = serde_json::from_str(&json).unwrap();
-    let proof = Proof::from((MPTProofType::NonceChanged, trace));
+    let proof = Proof::from((MPTProofType::NonceChanged, trace.clone()));
     proof.check();
+
+    mock_prove(vec![(MPTProofType::NonceChanged, trace)]);
 }
 
 #[test]
@@ -265,8 +269,10 @@ fn existing_account_code_size_update() {
         json
     );
     let trace: SMTTrace = serde_json::from_str(&json).unwrap();
-    let proof = Proof::from((MPTProofType::CodeSizeExists, trace));
+    let proof = Proof::from((MPTProofType::CodeSizeExists, trace.clone()));
     proof.check();
+
+    mock_prove(vec![(MPTProofType::CodeSizeExists, trace)]);
 }
 
 #[test]
@@ -288,8 +294,10 @@ fn existing_account_keccak_codehash_update() {
         json
     );
     let trace: SMTTrace = serde_json::from_str(&json).unwrap();
-    let proof = Proof::from((MPTProofType::CodeHashExists, trace));
+    let proof = Proof::from((MPTProofType::CodeHashExists, trace.clone()));
     proof.check();
+
+    mock_prove(vec![(MPTProofType::CodeHashExists, trace)]);
 }
 
 #[test]
@@ -311,8 +319,10 @@ fn existing_account_poseidon_codehash_update() {
         json
     );
     let trace: SMTTrace = serde_json::from_str(&json).unwrap();
-    let proof = Proof::from((MPTProofType::PoseidonCodeHashExists, trace));
+    let proof = Proof::from((MPTProofType::PoseidonCodeHashExists, trace.clone()));
     proof.check();
+
+    mock_prove(vec![(MPTProofType::PoseidonCodeHashExists, trace)]);
 }
 
 #[test]
