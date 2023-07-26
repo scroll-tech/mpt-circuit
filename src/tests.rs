@@ -2,7 +2,7 @@ use crate::{serde::SMTTrace, types::Proof, MPTProofType};
 use ethers_core::types::{Address, U256};
 use mpt_zktrie::state::{builder::HASH_SCHEME_DONE, witness::WitnessGenerator, ZktrieState};
 
-fn intital_generator() -> WitnessGenerator {
+fn initial_generator() -> WitnessGenerator {
     assert!(*HASH_SCHEME_DONE);
     let mut generator = WitnessGenerator::from(&ZktrieState::default());
     for i in 1..10 {
@@ -18,7 +18,7 @@ fn intital_generator() -> WitnessGenerator {
 }
 
 fn initial_storage_generator() -> WitnessGenerator {
-    let mut generator = intital_generator();
+    let mut generator = initial_generator();
     for i in 40..60 {
         generator.handle_new_state(
             mpt_zktrie::mpt_circuits::MPTProofType::StorageChanged,
@@ -45,7 +45,7 @@ fn reverse(trace: SMTTrace) -> SMTTrace {
 
 #[test]
 fn empty_account_type_1() {
-    let mut generator = intital_generator();
+    let mut generator = initial_generator();
     let trace = generator.handle_new_state(
         mpt_zktrie::mpt_circuits::MPTProofType::AccountDoesNotExist,
         Address::zero(),
@@ -73,7 +73,7 @@ fn empty_account_type_1() {
 
 #[test]
 fn existing_account_balance_update() {
-    let mut generator = intital_generator();
+    let mut generator = initial_generator();
     let trace = generator.handle_new_state(
         mpt_zktrie::mpt_circuits::MPTProofType::BalanceChanged,
         Address::repeat_byte(2),
@@ -96,7 +96,7 @@ fn existing_account_balance_update() {
 
 #[test]
 fn empty_account_type_1_balance_update() {
-    let mut generator = intital_generator();
+    let mut generator = initial_generator();
     let trace = generator.handle_new_state(
         mpt_zktrie::mpt_circuits::MPTProofType::BalanceChanged,
         Address::zero(),
@@ -125,7 +125,7 @@ fn empty_account_type_1_balance_update() {
 
 #[test]
 fn existing_account_nonce_update() {
-    let mut generator = intital_generator();
+    let mut generator = initial_generator();
     let trace = generator.handle_new_state(
         mpt_zktrie::mpt_circuits::MPTProofType::NonceChanged,
         Address::repeat_byte(4),
@@ -148,7 +148,7 @@ fn existing_account_nonce_update() {
 
 #[test]
 fn empty_account_type_1_nonce_update() {
-    let mut generator = intital_generator();
+    let mut generator = initial_generator();
     let trace = generator.handle_new_state(
         mpt_zktrie::mpt_circuits::MPTProofType::BalanceChanged,
         Address::repeat_byte(11),
@@ -177,7 +177,7 @@ fn empty_account_type_1_nonce_update() {
 
 #[test]
 fn existing_account_code_size_update() {
-    let mut generator = intital_generator();
+    let mut generator = initial_generator();
     let trace = generator.handle_new_state(
         mpt_zktrie::mpt_circuits::MPTProofType::CodeSizeExists,
         Address::repeat_byte(4),
@@ -205,7 +205,7 @@ fn existing_account_code_size_update() {
 
 #[test]
 fn existing_account_keccak_codehash_update() {
-    let mut generator = intital_generator();
+    let mut generator = initial_generator();
     let trace = generator.handle_new_state(
         mpt_zktrie::mpt_circuits::MPTProofType::CodeHashExists,
         Address::repeat_byte(8),
@@ -228,7 +228,7 @@ fn existing_account_keccak_codehash_update() {
 
 #[test]
 fn existing_account_poseidon_codehash_update() {
-    let mut generator = intital_generator();
+    let mut generator = initial_generator();
     let trace = generator.handle_new_state(
         mpt_zktrie::mpt_circuits::MPTProofType::PoseidonCodeHashExists,
         Address::repeat_byte(4),
@@ -251,7 +251,7 @@ fn existing_account_poseidon_codehash_update() {
 
 #[test]
 fn existing_storage_update() {
-    let mut generator = intital_generator();
+    let mut generator = initial_generator();
 
     for i in 40..60 {
         generator.handle_new_state(
@@ -408,7 +408,7 @@ fn empty_storage_type_1_update_c() {
 
 #[test]
 fn insert_into_singleton_storage_trie() {
-    let mut generator = intital_generator();
+    let mut generator = initial_generator();
     generator.handle_new_state(
         mpt_zktrie::mpt_circuits::MPTProofType::StorageChanged,
         Address::repeat_byte(1),
@@ -443,7 +443,7 @@ fn empty_account_type_2() {
     // i = 20 should be type 2?
     for i in 104..255 {
         dbg!(i);
-        let mut generator = intital_generator();
+        let mut generator = initial_generator();
         let trace = generator.handle_new_state(
             mpt_zktrie::mpt_circuits::MPTProofType::BalanceChanged,
             Address::repeat_byte(i),
