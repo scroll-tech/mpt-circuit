@@ -97,9 +97,62 @@ fn empty_account_type_1_balance_update() {
     proof.check();
 }
 
+#[test]
+fn existing_account_nonce_update() {
+    let mut generator = intital_generator();
+    let trace = generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::NonceChanged,
+        Address::repeat_byte(4),
+        U256::one(),
+        U256::zero(),
+        None,
+    );
+
+    let json = serde_json::to_string_pretty(&trace).unwrap();
+    assert_eq!(
+        format!("{}\n", json),
+        include_str!("traces/existing_account_nonce_update.json"),
+        "{}",
+        json
+    );
+    let trace: SMTTrace = serde_json::from_str(&json).unwrap();
+    let proof = Proof::from((MPTProofType::NonceChanged, trace));
+    proof.check();
+}
+
+#[test]
+fn empty_account_type_1_nonce_update() {
+    let mut generator = intital_generator();
+    let trace = generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::BalanceChanged,
+        Address::repeat_byte(11),
+        U256::from(200),
+        U256::zero(),
+        None,
+    );
+
+    assert!(
+        trace.account_update[0].is_none() && trace.account_path[0].leaf.is_some(),
+        "old account is not type 1"
+    );
+
+    let json = serde_json::to_string_pretty(&trace).unwrap();
+    assert_eq!(
+        format!("{}\n", json),
+        include_str!("traces/empty_account_type_1_nonce_update.json"),
+        "{}",
+        json
+    );
+
+    let trace: SMTTrace = serde_json::from_str(&json).unwrap();
+    let proof = Proof::from((MPTProofType::BalanceChanged, trace));
+    proof.check();
+}
+
 #[ignore = "type 2 empty account proofs are incomplete"]
 #[test]
 fn empty_account_type_2() {
+    // i = 20 should be type 2?
     for i in 104..255 {
         dbg!(i);
         let mut generator = intital_generator();

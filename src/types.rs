@@ -1032,8 +1032,8 @@ fn check_hash_traces_new(traces: &[(bool, HashDomain, Fr, Fr, Fr, bool, bool)]) 
                     };
 
                 if *direction {
-                    assert_eq!(domain_hash(*sibling, *open, *domain), *next_open);
-                    assert_eq!(domain_hash(*sibling, *close, *domain), *next_close);
+                    assert_eq!(domain_hash(*sibling, *open, open_domain), *next_open);
+                    assert_eq!(domain_hash(*sibling, *close, close_domain), *next_close);
                 } else {
                     assert_eq!(domain_hash(*open, *sibling, open_domain), *next_open);
                     assert_eq!(domain_hash(*close, *sibling, close_domain), *next_close);
