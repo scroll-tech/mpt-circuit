@@ -246,7 +246,10 @@ impl From<(&MPTProofType, &SMTTrace)> for Claim {
         let [old_root, new_root] = trace.account_path.clone().map(|path| fr(path.root));
         let address = trace.address.0.into();
         let kind = ClaimKind::from((proof_type, trace));
+        dbg!(kind);
         assert_eq!(MPTProofType::from(kind), *proof_type);
+        dbg!(MPTProofType::from(kind), *proof_type);
+        // panic!();
         Self {
             new_root,
             old_root,
@@ -341,28 +344,59 @@ impl From<(&MPTProofType, &SMTTrace)> for ClaimKind {
                 }
             }
             [Some(old), Some(new)] => match *proof_type {
-                MPTProofType::NonceChanged => ClaimKind::Nonce {
-                    old: Some(old.nonce),
-                    new: Some(new.nonce),
-                },
-                MPTProofType::BalanceChanged => ClaimKind::Balance {
-                    old: Some(u256_from_biguint(&old.balance)),
-                    new: Some(u256_from_biguint(&new.balance)),
-                },
-                MPTProofType::AccountDoesNotExist => ClaimKind::IsEmpty(None),
-                MPTProofType::CodeHashExists => ClaimKind::CodeHash {
-                    old: Some(u256_from_biguint(&old.code_hash)),
-                    new: Some(u256_from_biguint(&new.code_hash)),
-                },
-                MPTProofType::CodeSizeExists => ClaimKind::CodeSize {
-                    old: Some(old.code_size),
-                    new: Some(new.code_size),
-                },
-                MPTProofType::PoseidonCodeHashExists => ClaimKind::PoseidonCodeHash {
-                    old: Some(big_uint_to_fr(&old.poseidon_code_hash)),
-                    new: Some(big_uint_to_fr(&new.poseidon_code_hash)),
-                },
-                MPTProofType::StorageChanged | MPTProofType::StorageDoesNotExist => unreachable!(),
+                MPTProofType::NonceChanged => {
+                    assert_eq!(old.balance, new.balance);
+                    assert_eq!(old.code_size, new.code_size);
+                    assert_eq!(old.code_hash, new.code_hash);
+                    assert_eq!(old.poseidon_code_hash, new.poseidon_code_hash);
+                    ClaimKind::Nonce {
+                        old: Some(old.nonce),
+                        new: Some(new.nonce),
+                    }
+                }
+                MPTProofType::BalanceChanged => {
+                    assert_eq!(old.nonce, new.nonce);
+                    assert_eq!(old.code_size, new.code_size);
+                    assert_eq!(old.code_hash, new.code_hash);
+                    assert_eq!(old.poseidon_code_hash, new.poseidon_code_hash);
+                    ClaimKind::Balance {
+                        old: Some(u256_from_biguint(&old.balance)),
+                        new: Some(u256_from_biguint(&new.balance)),
+                    }
+                }
+                MPTProofType::CodeHashExists => {
+                    assert_eq!(old.nonce, new.nonce);
+                    assert_eq!(old.balance, new.balance);
+                    assert_eq!(old.code_size, new.code_size);
+                    assert_eq!(old.poseidon_code_hash, new.poseidon_code_hash);
+                    ClaimKind::CodeHash {
+                        old: Some(u256_from_biguint(&old.code_hash)),
+                        new: Some(u256_from_biguint(&new.code_hash)),
+                    }
+                }
+                MPTProofType::CodeSizeExists => {
+                    assert_eq!(old.nonce, new.nonce);
+                    assert_eq!(old.balance, new.balance);
+                    assert_eq!(old.code_hash, new.code_hash);
+                    assert_eq!(old.poseidon_code_hash, new.poseidon_code_hash);
+                    ClaimKind::CodeSize {
+                        old: Some(old.code_size),
+                        new: Some(new.code_size),
+                    }
+                }
+                MPTProofType::PoseidonCodeHashExists => {
+                    assert_eq!(old.nonce, new.nonce);
+                    assert_eq!(old.balance, new.balance);
+                    assert_eq!(old.code_size, new.code_size);
+                    assert_eq!(old.code_hash, new.code_hash);
+                    ClaimKind::PoseidonCodeHash {
+                        old: Some(big_uint_to_fr(&old.poseidon_code_hash)),
+                        new: Some(big_uint_to_fr(&new.poseidon_code_hash)),
+                    }
+                }
+                MPTProofType::AccountDoesNotExist
+                | MPTProofType::StorageChanged
+                | MPTProofType::StorageDoesNotExist => unreachable!(),
                 MPTProofType::AccountDestructed => unimplemented!(),
             },
             [Some(_old), None] => unimplemented!("SELFDESTRUCT"),
@@ -1024,7 +1058,9 @@ fn check_hash_traces_new(traces: &[(bool, HashDomain, Fr, Fr, Fr, bool, bool)]) 
                             ],
                             HashDomain::NodeTypeBranch1 => unimplemented!("type 2 extension"),
                             HashDomain::NodeTypeBranch2 => unimplemented!("type 2 extension"),
-                            HashDomain::NodeTypeBranch3 => unreachable!("both siblings already present"),
+                            HashDomain::NodeTypeBranch3 => {
+                                unreachable!("both siblings already present")
+                            }
                             _ => unreachable!(),
                         }
                     } else {

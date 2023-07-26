@@ -149,6 +149,80 @@ fn empty_account_type_1_nonce_update() {
     proof.check();
 }
 
+#[test]
+fn existing_account_code_size_update() {
+    let mut generator = intital_generator();
+    let trace = generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::CodeSizeExists,
+        Address::repeat_byte(4),
+        U256::from(2342114),
+        U256::zero(),
+        None,
+    );
+
+    assert!(
+        trace.account_update[0].is_some(),
+        "old account does not exist"
+    );
+
+    let json = serde_json::to_string_pretty(&trace).unwrap();
+    assert_eq!(
+        format!("{}\n", json),
+        include_str!("traces/existing_account_code_size_update.json"),
+        "{}",
+        json
+    );
+    let trace: SMTTrace = serde_json::from_str(&json).unwrap();
+    let proof = Proof::from((MPTProofType::CodeSizeExists, trace));
+    proof.check();
+}
+
+#[test]
+fn existing_account_keccak_codehash_update() {
+    let mut generator = intital_generator();
+    let trace = generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::CodeHashExists,
+        Address::repeat_byte(8),
+        U256([1111, u64::MAX, 444, 555]),
+        U256::zero(),
+        None,
+    );
+
+    let json = serde_json::to_string_pretty(&trace).unwrap();
+    assert_eq!(
+        format!("{}\n", json),
+        include_str!("traces/existing_account_keccak_codehash_update.json"),
+        "{}",
+        json
+    );
+    let trace: SMTTrace = serde_json::from_str(&json).unwrap();
+    let proof = Proof::from((MPTProofType::CodeHashExists, trace));
+    proof.check();
+}
+
+#[test]
+fn existing_account_poseidon_codehash_update() {
+    let mut generator = intital_generator();
+    let trace = generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::PoseidonCodeHashExists,
+        Address::repeat_byte(4),
+        U256([u64::MAX, u64::MAX, u64::MAX, 2342]),
+        U256::zero(),
+        None,
+    );
+
+    let json = serde_json::to_string_pretty(&trace).unwrap();
+    assert_eq!(
+        format!("{}\n", json),
+        include_str!("traces/existing_account_poseidon_codehash_update.json"),
+        "{}",
+        json
+    );
+    let trace: SMTTrace = serde_json::from_str(&json).unwrap();
+    let proof = Proof::from((MPTProofType::PoseidonCodeHashExists, trace));
+    proof.check();
+}
+
 #[ignore = "type 2 empty account proofs are incomplete"]
 #[test]
 fn empty_account_type_2() {
