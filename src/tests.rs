@@ -31,6 +31,18 @@ fn initial_storage_generator() -> WitnessGenerator {
     generator
 }
 
+// Produce a trace where old and new have been swapped.
+fn reverse(trace: SMTTrace) -> SMTTrace {
+    let mut reversed = trace;
+    reversed.account_path.reverse();
+    reversed.account_update.reverse();
+    reversed.state_path.reverse();
+    if let Some(update) = reversed.state_update.as_mut() {
+        update.reverse()
+    }
+    reversed
+}
+
 #[test]
 fn empty_account_type_1() {
     let mut generator = intital_generator();
@@ -305,8 +317,11 @@ fn empty_storage_type_1_update_a() {
         7
     );
 
-    let proof = Proof::from((MPTProofType::StorageChanged, trace));
-    proof.check();
+    let insertion_proof = Proof::from((MPTProofType::StorageChanged, trace.clone()));
+    insertion_proof.check();
+
+    let deletion_proof = Proof::from((MPTProofType::StorageChanged, reverse(trace)));
+    deletion_proof.check();
 }
 
 #[test]
@@ -343,8 +358,11 @@ fn empty_storage_type_1_update_b() {
         8
     );
 
-    let proof = Proof::from((MPTProofType::StorageChanged, trace));
-    proof.check();
+    let insertion_proof = Proof::from((MPTProofType::StorageChanged, trace.clone()));
+    insertion_proof.check();
+
+    let deletion_proof = Proof::from((MPTProofType::StorageChanged, reverse(trace)));
+    deletion_proof.check();
 }
 
 #[test]
@@ -381,8 +399,11 @@ fn empty_storage_type_1_update_c() {
         6
     );
 
-    let proof = Proof::from((MPTProofType::StorageChanged, trace));
-    proof.check();
+    let insertion_proof = Proof::from((MPTProofType::StorageChanged, trace.clone()));
+    insertion_proof.check();
+
+    let deletion_proof = Proof::from((MPTProofType::StorageChanged, reverse(trace)));
+    deletion_proof.check();
 }
 
 #[test]
