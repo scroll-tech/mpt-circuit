@@ -1,4 +1,5 @@
 use crate::{
+    gadgets::mpt_update::PathType,
     serde::{AccountData, HexBytes, SMTNode, SMTPath, SMTTrace},
     util::{
         account_key, domain_hash, fr_from_biguint, hash, rlc, temp_hash, u256_from_biguint,
@@ -19,7 +20,7 @@ pub mod trie;
 pub use constants::HASH_ZERO_ZERO;
 use storage::StorageProof;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HashDomain {
     NodeTypeEmpty = 4, // this is not needed? // it is somehow used for leaf domain hashes?
     NodeTypeLeaf = 5,  // Rename to Leaf...
@@ -162,7 +163,7 @@ impl LeafNode {
 #[derive(Clone, Debug)]
 pub struct Proof {
     pub claim: Claim,
-    // direction, open value, close value, sibling, is_padding_open, is_padding_close
+    // direction, open_hash_domain, close_hash_domain, open value, close value, sibling, is_padding_open, is_padding_close
     pub address_hash_traces: Vec<(bool, HashDomain, Fr, Fr, Fr, bool, bool)>,
 
     // TODO: make this optional
@@ -534,6 +535,20 @@ fn account_hash_traces(address: Address, account: AccountData, storage_root: Fr)
     account_hash_traces
 }
 
+fn check_domain_consistency(before: HashDomain, after: HashDomain, direction: bool) {
+    if direction {
+        assert!(
+            before == HashDomain::NodeTypeBranch0 && after == HashDomain::NodeTypeBranch1
+                || before == HashDomain::NodeTypeBranch2 && after == HashDomain::NodeTypeBranch3
+        );
+    } else {
+        assert!(
+            before == HashDomain::NodeTypeBranch0 && after == HashDomain::NodeTypeBranch2
+                || before == HashDomain::NodeTypeBranch1 && after == HashDomain::NodeTypeBranch3
+        );
+    }
+}
+
 fn get_internal_hash_traces(
     key: Fr,
     leaf_hashes: [Fr; 2],
@@ -546,13 +561,37 @@ fn get_internal_hash_traces(
         .zip_longest(close_hash_traces.iter())
         .enumerate()
     {
+        let direction = key.bit(i);
         address_hash_traces.push(match e {
             EitherOrBoth::Both(open, close) => {
                 assert_eq!(open.sibling, close.sibling);
-                assert_eq!(open.node_type, close.node_type);
+                let open_domain = HashDomain::try_from(open.node_type).unwrap();
+                let close_domain = HashDomain::try_from(close.node_type).unwrap();
+                dbg!(open_domain, close_domain);
+
+                let domain = if open_domain != close_domain {
+                    // This can only happen when inserting or deleting a node.
+                    assert!(open_hash_traces.len() != close_hash_traces.len());
+                    assert!(
+                        i == std::cmp::min(open_hash_traces.len(), close_hash_traces.len()) - 1
+                    );
+
+                    if i == open_hash_traces.len() - 1 {
+                        // Inserting a leaf, so open is before insertion, close is after insertion.
+                        check_domain_consistency(open_domain, close_domain, direction);
+                        open_domain
+                    } else {
+                        // Deleting a leaf, so open is after insertion, close is before insertion.
+                        check_domain_consistency(close_domain, open_domain, direction);
+                        close_domain
+                    }
+                } else {
+                    open_domain
+                };
+
                 (
-                    key.bit(i),
-                    HashDomain::try_from(open.node_type).unwrap(),
+                    direction,
+                    domain,
                     fr(open.value),
                     fr(close.value),
                     fr(open.sibling),
@@ -561,7 +600,7 @@ fn get_internal_hash_traces(
                 )
             }
             EitherOrBoth::Left(open) => (
-                key.bit(i),
+                direction,
                 HashDomain::try_from(open.node_type).unwrap(),
                 fr(open.value),
                 leaf_hashes[1],
@@ -570,7 +609,7 @@ fn get_internal_hash_traces(
                 true,
             ),
             EitherOrBoth::Right(close) => (
-                key.bit(i),
+                direction,
                 HashDomain::try_from(close.node_type).unwrap(),
                 leaf_hashes[0],
                 fr(close.value),
@@ -950,6 +989,8 @@ fn check_hash_traces(traces: &[(bool, Fr, Fr, Fr)]) {
 }
 
 fn check_hash_traces_new(traces: &[(bool, HashDomain, Fr, Fr, Fr, bool, bool)]) {
+    let mut previous_path_type: Option<PathType> = None;
+
     let current_hash_traces = traces.iter();
     let mut next_hash_traces = traces.iter();
     next_hash_traces.next();
@@ -958,59 +999,71 @@ fn check_hash_traces_new(traces: &[(bool, HashDomain, Fr, Fr, Fr, bool, bool)]) 
         (_, next_domain, next_open, next_close, _, is_padding_open_next, is_padding_close_next),
     ) in current_hash_traces.zip(next_hash_traces)
     {
-        dbg!(domain, next_domain);
-        let x: u64 = (*domain).into();
-        dbg!(x);
-        if *direction {
-            if *is_padding_open {
+        let path_type = match (is_padding_open, is_padding_close) {
+            (false, false) => PathType::Common,
+            (false, true) => PathType::ExtensionOld,
+            (true, false) => PathType::ExtensionNew,
+            (true, true) => unreachable!(),
+        };
 
-                // TODOOOOOO
-            } else {
-                assert!(!*is_padding_open_next);
-                assert_eq!(domain_hash(*sibling, *open, *domain), *next_open);
+        match path_type {
+            PathType::Start => unreachable!(),
+            PathType::Common => {
+                let [open_domain, close_domain] =
+                    if previous_path_type == Some(PathType::ExtensionOld) {
+                        unimplemented!("account leaf deletion");
+                    } else if previous_path_type == Some(PathType::ExtensionNew) {
+                        match *domain {
+                            HashDomain::NodeTypeBranch0 => [
+                                HashDomain::NodeTypeBranch0,
+                                if *direction {
+                                    HashDomain::NodeTypeBranch1
+                                } else {
+                                    HashDomain::NodeTypeBranch2
+                                },
+                            ],
+                            HashDomain::NodeTypeBranch1 => unimplemented!("type 2 extension"),
+                            HashDomain::NodeTypeBranch2 => unimplemented!("type 2 extension"),
+                            HashDomain::NodeTypeBranch3 => unreachable!("both siblings already present"),
+                            _ => unreachable!(),
+                        }
+                    } else {
+                        [*domain, *domain]
+                    };
+
+                if *direction {
+                    assert_eq!(domain_hash(*sibling, *open, *domain), *next_open);
+                    assert_eq!(domain_hash(*sibling, *close, *domain), *next_close);
+                } else {
+                    assert_eq!(domain_hash(*open, *sibling, open_domain), *next_open);
+                    assert_eq!(domain_hash(*close, *sibling, close_domain), *next_close);
+                }
             }
-
-            if *is_padding_close {
-                // TODOOOOOO
-            } else {
-                assert!(!*is_padding_close_next);
-                assert_eq!(
-                    domain_hash(*sibling, *close, *domain),
-                    *next_close,
-                    "noooooo"
+            PathType::ExtensionOld => {
+                assert!(
+                    previous_path_type.is_none()
+                        || previous_path_type == Some(PathType::ExtensionOld)
                 );
+                if *direction {
+                    assert_eq!(domain_hash(*sibling, *open, *domain), *next_open);
+                } else {
+                    assert_eq!(domain_hash(*open, *sibling, *domain), *next_open);
+                }
             }
-        } else {
-            if *is_padding_open {
-                // TODOOOOOO
-            } else {
-                assert!(!*is_padding_open_next);
-                // assert_eq!(domain_hash(*open, *sibling, *next_domain), *next_open);
-
-                // for i in 0..1024 {
-                //     dbg!(i, domain);
-                //     if temp_hash(*open, *sibling, Fr::from(i)) == *next_close {
-                //         assert_eq!(domain_hash(*open, *sibling, *domain), *next_close, "???");
-                //         panic!("{}", i);
-                //     }
-
-                // }
-                // panic!("noooooo");
-
-                assert_eq!(
-                    domain_hash(*open, *sibling, *domain),
-                    *next_close,
-                    "noooooo"
+            PathType::ExtensionNew => {
+                assert!(
+                    previous_path_type.is_none()
+                        || previous_path_type == Some(PathType::ExtensionNew)
                 );
-            }
-
-            if *is_padding_close {
-                // TODOOOOOO
-            } else {
-                assert!(!*is_padding_close_next);
-                assert_eq!(domain_hash(*close, *sibling, *domain), *next_close);
+                if *direction {
+                    assert_eq!(domain_hash(*sibling, *close, *domain), *next_close);
+                } else {
+                    assert_eq!(domain_hash(*close, *sibling, *domain), *next_close);
+                }
             }
         }
+
+        previous_path_type = Some(path_type);
     }
 }
 
