@@ -203,46 +203,7 @@ impl TrieRows {
                 PathType::Start => unreachable!(),
                 PathType::Common => {
                     let [old_domain, new_domain] = if let Some(next_row) = self.0.get(i + 1) {
-                        match next_row.path_type {
-                            PathType::Start => unreachable!(),
-                            PathType::Common => [row.domain, row.domain],
-                            PathType::ExtensionOld => match row.domain {
-                                HashDomain::NodeTypeBranch0 => [
-                                    if row.direction {
-                                        HashDomain::NodeTypeBranch1
-                                    } else {
-                                        HashDomain::NodeTypeBranch2
-                                    },
-                                    HashDomain::NodeTypeBranch0,
-                                ],
-                                HashDomain::NodeTypeBranch1 => {
-                                    [HashDomain::NodeTypeBranch3, HashDomain::NodeTypeBranch1]
-                                }
-                                HashDomain::NodeTypeBranch2 => {
-                                    [HashDomain::NodeTypeBranch3, HashDomain::NodeTypeBranch2]
-                                }
-                                HashDomain::NodeTypeBranch3 => unreachable!(),
-                                _ => unreachable!(),
-                            },
-                            PathType::ExtensionNew => match row.domain {
-                                HashDomain::NodeTypeBranch0 => [
-                                    HashDomain::NodeTypeBranch0,
-                                    if row.direction {
-                                        HashDomain::NodeTypeBranch1
-                                    } else {
-                                        HashDomain::NodeTypeBranch2
-                                    },
-                                ],
-                                HashDomain::NodeTypeBranch1 => {
-                                    [HashDomain::NodeTypeBranch1, HashDomain::NodeTypeBranch3]
-                                }
-                                HashDomain::NodeTypeBranch2 => {
-                                    [HashDomain::NodeTypeBranch2, HashDomain::NodeTypeBranch3]
-                                }
-                                HashDomain::NodeTypeBranch3 => unreachable!(),
-                                _ => unreachable!(),
-                            },
-                        }
+                        get_domains(next_row.path_type, row.domain, row.direction)
                     } else {
                         [row.domain, row.domain]
                     };
@@ -276,6 +237,39 @@ impl TrieRows {
             }
         }
     }
+}
+
+fn get_domains(
+    next_path_type: PathType,
+    before_insertion_domain: HashDomain,
+    insertion_direction: bool,
+) -> [HashDomain; 2] {
+    let mut domains = match next_path_type {
+        PathType::Start => unreachable!(),
+        PathType::Common => [before_insertion_domain, before_insertion_domain],
+        PathType::ExtensionOld | PathType::ExtensionNew => match before_insertion_domain {
+            HashDomain::NodeTypeBranch0 => [
+                HashDomain::NodeTypeBranch0,
+                if insertion_direction {
+                    HashDomain::NodeTypeBranch1
+                } else {
+                    HashDomain::NodeTypeBranch2
+                },
+            ],
+            HashDomain::NodeTypeBranch1 => {
+                [HashDomain::NodeTypeBranch1, HashDomain::NodeTypeBranch3]
+            }
+            HashDomain::NodeTypeBranch2 => {
+                [HashDomain::NodeTypeBranch2, HashDomain::NodeTypeBranch3]
+            }
+            HashDomain::NodeTypeBranch3 => unreachable!(),
+            _ => unreachable!(),
+        },
+    };
+    if next_path_type == PathType::ExtensionOld {
+        domains.reverse();
+    }
+    domains
 }
 
 fn leaf_hash(leaf: SMTNode) -> Fr {
