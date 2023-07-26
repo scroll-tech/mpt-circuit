@@ -1,6 +1,7 @@
 use crate::{
     constraint_builder::{AdviceColumn, ConstraintBuilder, Query, SecondPhaseAdviceColumn},
     gadgets::{is_zero::IsZeroGadget, poseidon::PoseidonLookup},
+    types::HashDomain,
 };
 use halo2_proofs::{arithmetic::FieldExt, circuit::Region, halo2curves::bn256::Fr};
 
@@ -38,15 +39,11 @@ pub fn configure<F: FieldExt>(
 
     cb.condition(is_type_1, |cb| {
         cb.poseidon_lookup(
-            "other_key_hash == h(1, other_key)",
-            [Query::one(), other_key.current(), other_key_hash.current()],
-            poseidon,
-        );
-        cb.poseidon_lookup(
             "hash == h(key_hash, other_leaf_data_hash)",
             [
                 other_key_hash.current(),
                 other_leaf_data_hash.current(),
+                HashDomain::NodeTypeLeaf.into(),
                 hash.current(),
             ],
             poseidon,

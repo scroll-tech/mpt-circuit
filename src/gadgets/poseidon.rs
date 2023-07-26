@@ -24,16 +24,16 @@ impl<F: FieldExt> ConstraintBuilder<F> {
     pub fn poseidon_lookup(
         &mut self,
         name: &'static str,
-        queries: [Query<F>; 3],
+        [left, right, domain, hash]: [Query<F>; 4],
         poseidon: &impl PoseidonLookup,
     ) {
         let extended_queries = [
             Query::one(),
-            queries[2].clone(),
-            queries[0].clone(),
-            queries[1].clone(),
+            hash,
+            left,
+            right,
             Query::zero(),
-            Query::zero(),
+            domain,
             Query::one(),
         ];
 

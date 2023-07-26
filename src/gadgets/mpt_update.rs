@@ -131,7 +131,12 @@ impl MptUpdateConfig {
                 * (1 << 32);
             cb.poseidon_lookup(
                 "account mpt key = h(address_high, address_low)",
-                [address_high.current(), address_low, key.current()],
+                [
+                    address_high.current(),
+                    address_low,
+                    HashDomain::Pair.into(),
+                    key.current(),
+                ],
                 poseidon,
             );
             cb.add_lookup(
@@ -213,17 +218,6 @@ impl MptUpdateConfig {
         cb.condition(!is_trie, |cb| {
             cb.assert_zero("depth is 0 in non-trie segments", depth.current());
         });
-
-        cb.condition(
-            segment_type.current_matches(&[SegmentType::AccountLeaf0, SegmentType::StorageLeaf0]),
-            |cb| {
-                cb.poseidon_lookup(
-                    "sibling = h(1, key)",
-                    [Query::one(), key.current(), sibling.current()],
-                    poseidon,
-                );
-            },
-        );
 
         let config = Self {
             key,
@@ -903,6 +897,7 @@ fn configure_common_path<F: FieldExt>(
         [
             old_left(config),
             old_right(config),
+            Query::one(),
             config.old_hash.previous(),
         ],
         poseidon,
@@ -912,6 +907,7 @@ fn configure_common_path<F: FieldExt>(
         [
             new_left(config),
             new_right(config),
+            Query::one(),
             config.new_hash.previous(),
         ],
         poseidon,
@@ -976,6 +972,7 @@ fn configure_extension_old<F: FieldExt>(
         [
             old_left(config),
             old_right(config),
+            Query::one(),
             config.old_hash.previous(),
         ],
         poseidon,
@@ -1060,6 +1057,7 @@ fn configure_extension_new<F: FieldExt>(
         [
             new_left(config),
             new_right(config),
+            Query::one(),
             config.new_hash.previous(),
         ],
         poseidon,
