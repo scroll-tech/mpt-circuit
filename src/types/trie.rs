@@ -207,14 +207,23 @@ impl TrieRows {
                             PathType::Start => unreachable!(),
                             PathType::Common => [row.domain, row.domain],
                             PathType::ExtensionOld => unreachable!(),
-                            PathType::ExtensionNew => {
-                                match row.domain {
-                                    HashDomain::NodeTypeBranch0 => unreachable!(),
-                                    HashDomain::NodeTypeBranch1 => [HashDomain::NodeTypeBranch1, HashDomain::NodeTypeBranch3],
-                                    HashDomain::NodeTypeBranch2 => unreachable!(),
-                                    HashDomain::NodeTypeBranch3 => unreachable!(),
-                                    _ => unreachable!(),
+                            PathType::ExtensionNew => match row.domain {
+                                HashDomain::NodeTypeBranch0 => [
+                                    HashDomain::NodeTypeBranch0,
+                                    if row.direction {
+                                        HashDomain::NodeTypeBranch1
+                                    } else {
+                                        HashDomain::NodeTypeBranch2
+                                    },
+                                ],
+                                HashDomain::NodeTypeBranch1 => {
+                                    [HashDomain::NodeTypeBranch1, HashDomain::NodeTypeBranch3]
                                 }
+                                HashDomain::NodeTypeBranch2 => {
+                                    [HashDomain::NodeTypeBranch2, HashDomain::NodeTypeBranch3]
+                                }
+                                HashDomain::NodeTypeBranch3 => unreachable!(),
+                                _ => unreachable!(),
                             },
                         }
                     } else {

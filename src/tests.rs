@@ -17,6 +17,20 @@ fn intital_generator() -> WitnessGenerator {
     generator
 }
 
+fn initial_storage_generator() -> WitnessGenerator {
+    let mut generator = intital_generator();
+    for i in 40..60 {
+        generator.handle_new_state(
+            mpt_zktrie::mpt_circuits::MPTProofType::StorageChanged,
+            Address::repeat_byte(1),
+            U256::one(),
+            U256::zero(),
+            Some(U256::from(i)),
+        );
+    }
+    generator
+}
+
 #[test]
 fn empty_account_type_1() {
     let mut generator = intital_generator();
@@ -258,20 +272,8 @@ fn existing_storage_update() {
 }
 
 #[test]
-fn empty_storage_type_1_update() {
-    let mut generator = intital_generator();
-
-    for i in 40..60 {
-        generator.handle_new_state(
-            mpt_zktrie::mpt_circuits::MPTProofType::StorageChanged,
-            Address::repeat_byte(1),
-            U256::one(),
-            U256::zero(),
-            Some(U256::from(i)),
-        );
-    }
-
-    // 0 is type 1
+fn empty_storage_type_1_update_a() {
+    let mut generator = initial_storage_generator();
     let trace = generator.handle_new_state(
         mpt_zktrie::mpt_circuits::MPTProofType::StorageChanged,
         Address::repeat_byte(1),
@@ -279,7 +281,6 @@ fn empty_storage_type_1_update() {
         U256::zero(),
         Some(U256::from(23412321)),
     );
-    dbg!(trace.state_path[0].clone().unwrap());
     assert!(
         trace.state_path[0].clone().unwrap().leaf.is_some(),
         "old storage entry is not type 1"
@@ -288,11 +289,98 @@ fn empty_storage_type_1_update() {
     let json = serde_json::to_string_pretty(&trace).unwrap();
     assert_eq!(
         format!("{}\n", json),
-        include_str!("traces/empty_storage_type_1_update.json"),
+        include_str!("traces/empty_storage_type_1_update_a.json"),
         "{}",
         json
     );
     let trace: SMTTrace = serde_json::from_str(&json).unwrap();
+    assert_eq!(
+        trace.state_path[0]
+            .clone()
+            .unwrap()
+            .path
+            .last()
+            .unwrap()
+            .node_type,
+        7
+    );
+
+    let proof = Proof::from((MPTProofType::StorageChanged, trace));
+    proof.check();
+}
+
+#[test]
+fn empty_storage_type_1_update_b() {
+    let mut generator = initial_storage_generator();
+    let trace = generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::StorageChanged,
+        Address::repeat_byte(1),
+        U256::from(307),
+        U256::zero(),
+        Some(U256::from(1)),
+    );
+    assert!(
+        trace.state_path[0].clone().unwrap().leaf.is_some(),
+        "old storage entry is not type 1"
+    );
+
+    let json = serde_json::to_string_pretty(&trace).unwrap();
+    assert_eq!(
+        format!("{}\n", json),
+        include_str!("traces/empty_storage_type_1_update_b.json"),
+        "{}",
+        json
+    );
+    let trace: SMTTrace = serde_json::from_str(&json).unwrap();
+    assert_eq!(
+        trace.state_path[0]
+            .clone()
+            .unwrap()
+            .path
+            .last()
+            .unwrap()
+            .node_type,
+        8
+    );
+
+    let proof = Proof::from((MPTProofType::StorageChanged, trace));
+    proof.check();
+}
+
+#[test]
+fn empty_storage_type_1_update_c() {
+    let mut generator = initial_storage_generator();
+    let trace = generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::StorageChanged,
+        Address::repeat_byte(1),
+        U256::from(307),
+        U256::zero(),
+        Some(U256::from(3)),
+    );
+    assert!(
+        trace.state_path[0].clone().unwrap().leaf.is_some(),
+        "old storage entry is not type 1"
+    );
+
+    let json = serde_json::to_string_pretty(&trace).unwrap();
+    assert_eq!(
+        format!("{}\n", json),
+        include_str!("traces/empty_storage_type_1_update_c.json"),
+        "{}",
+        json
+    );
+    let trace: SMTTrace = serde_json::from_str(&json).unwrap();
+    assert_eq!(
+        trace.state_path[0]
+            .clone()
+            .unwrap()
+            .path
+            .last()
+            .unwrap()
+            .node_type,
+        6
+    );
+
     let proof = Proof::from((MPTProofType::StorageChanged, trace));
     proof.check();
 }
