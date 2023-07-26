@@ -101,19 +101,10 @@ impl Circuit<Fr> for TestCircuit {
     }
 }
 
-fn mock_prove(proof_type: MPTProofType, trace: &str) {
-    let circuit = TestCircuit::new(
-        N_ROWS,
-        vec![(proof_type, serde_json::from_str(trace).unwrap())],
-    );
+fn mock_prove(witness: Vec<(MPTProofType, SMTTrace)>) {
+    let circuit = TestCircuit::new(N_ROWS, witness);
     let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
-    assert_eq!(
-        prover.verify(),
-        Ok(()),
-        "proof_type = {:?}, trace = {}",
-        proof_type,
-        trace
-    );
+    assert_eq!(prover.verify(), Ok(()),);
 }
 
 #[test]
@@ -143,10 +134,7 @@ fn empty_account_type_1() {
     let proof = Proof::from((MPTProofType::AccountDoesNotExist, trace.clone()));
     proof.check();
 
-    mock_prove(
-        MPTProofType::AccountDoesNotExist,
-        &include_str!("traces/empty_account_type_1.json"),
-    );
+    mock_prove(vec![(MPTProofType::AccountDoesNotExist, trace)]);
 }
 
 #[test]
