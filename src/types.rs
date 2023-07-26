@@ -1,4 +1,5 @@
 use crate::{
+    constraint_builder::Query,
     gadgets::mpt_update::PathType,
     serde::{AccountData, HexBytes, SMTNode, SMTPath, SMTTrace},
     util::{
@@ -68,6 +69,13 @@ impl Into<u64> for HashDomain {
             Self::Pair => 2 * 256,
             AccountFields => 5 * 256,
         }
+    }
+}
+
+impl<F: FieldExt> Into<Query<F>> for HashDomain {
+    fn into(self) -> Query<F> {
+        let x: u64 = self.into();
+        Query::from(x)
     }
 }
 
