@@ -1,9 +1,12 @@
-use crate::{serde::HexBytes, types::HashDomain};
+use crate::{constraint_builder::Query, serde::HexBytes, types::HashDomain};
 use ethers_core::{
     k256::elliptic_curve::PrimeField,
     types::{Address, U256},
 };
-use halo2_proofs::{arithmetic::FieldExt, halo2curves::bn256::Fr};
+use halo2_proofs::{
+    arithmetic::{Field, FieldExt},
+    halo2curves::bn256::Fr,
+};
 use hash_circuit::hash::Hashable;
 use num_bigint::BigUint;
 
@@ -130,6 +133,35 @@ pub fn check_domain_consistency(before: HashDomain, after: HashDomain, direction
                 || before == HashDomain::NodeTypeBranch1 && after == HashDomain::NodeTypeBranch3
         );
     }
+}
+
+pub fn lagrange_polynomial<F: FieldExt>(argument: Query<F>, points: &[(Fr, Query<F>)]) -> Query<F> {
+    let x_coordinates = points.iter().map(|p| p.0);
+    let mut basis_polynomials = vec![];
+    for (i, xi) in x_coordinates.clone().enumerate() {
+        let (numerator, denominator) = x_coordinates
+            .clone()
+            .enumerate()
+            .filter_map(|(j, xj)| {
+                if i != j {
+                    assert_ne!(xi, xj, "cannot interpolate through duplicate x coordinates");
+                    Some((argument.clone() - xi, xj - xi))
+                } else {
+                    None
+                }
+            })
+            .reduce(|(p1, f1), (p2, f2)| (p1 * p2, f1 * f2))
+            .expect("points.len() > 1");
+        basis_polynomials.push(numerator * denominator.invert().unwrap());
+    }
+
+    let y_coordinates = points.into_iter().map(|p| p.1.clone());
+    basis_polynomials
+        .into_iter()
+        .zip(y_coordinates)
+        .map(|(basis_polynomial, y)| basis_polynomial * y)
+        .reduce(|a, b| a + b)
+        .expect("points.len() > 0")
 }
 
 #[cfg(test)]

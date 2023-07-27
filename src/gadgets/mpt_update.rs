@@ -15,13 +15,15 @@ use super::{
     rlc_randomness::RlcRandomness,
 };
 use crate::{
-    constraint_builder::{AdviceColumn, ConstraintBuilder, Query, SecondPhaseAdviceColumn},
+    constraint_builder::{
+        AdviceColumn, BinaryQuery, ConstraintBuilder, Query, SecondPhaseAdviceColumn,
+    },
     types::{
         storage::{StorageLeaf, StorageProof},
         trie::TrieRows,
         ClaimKind, HashDomain, Proof,
     },
-    util::{account_key, domain_hash, rlc, u256_hi_lo, u256_to_big_endian},
+    util::{account_key, domain_hash, lagrange_polynomial, rlc, u256_hi_lo, u256_to_big_endian},
     MPTProofType,
 };
 use ethers_core::{k256::elliptic_curve::PrimeField, types::Address};
@@ -63,6 +65,8 @@ pub struct MptUpdateConfig {
     key: AdviceColumn,
     other_key: AdviceColumn,
 
+    // TODO: make this a BinaryColumn for readability, even though this actually must already
+    // binary because of the key bit lookup.
     direction: AdviceColumn,
     sibling: AdviceColumn,
 
@@ -951,6 +955,54 @@ fn configure_common_path<F: FieldExt>(
     cb.condition(
         config.path_type.next_matches(&[PathType::ExtensionNew]),
         |cb| {
+            cb.assert_zero(
+                "old domain is not HashDomain::NodeTypeBranch3",
+                (config.domain.current() - u64::from(HashDomain::NodeTypeBranch0))
+                    * (config.domain.current() - u64::from(HashDomain::NodeTypeBranch1))
+                    * (config.domain.current() - u64::from(HashDomain::NodeTypeBranch2)),
+            );
+            cb.poseidon_lookup(
+                "poseidon hash correct for old common path",
+                [
+                    old_left(config),
+                    old_right(config),
+                    config.domain.current(),
+                    config.old_hash.previous(),
+                ],
+                poseidon,
+            );
+
+            let new_domain = lagrange_polynomial(
+                config.domain.current(),
+                &[
+                    (
+                        HashDomain::NodeTypeBranch0.into(),
+                        BinaryQuery(config.direction.current()).select(
+                            Query::from(HashDomain::NodeTypeBranch1.into_u64()),
+                            Query::from(HashDomain::NodeTypeBranch2.into_u64()),
+                        ),
+                    ),
+                    (
+                        HashDomain::NodeTypeBranch1.into(),
+                        Query::from(HashDomain::NodeTypeBranch3.into_u64()),
+                    ),
+                    (
+                        HashDomain::NodeTypeBranch2.into(),
+                        Query::from(HashDomain::NodeTypeBranch3.into_u64()),
+                    ),
+                ],
+            );
+            cb.poseidon_lookup(
+                "poseidon hash correct for new common path",
+                [
+                    new_left(config),
+                    new_right(config),
+                    new_domain,
+                    config.new_hash.previous(),
+                ],
+                poseidon,
+            );
+
             cb.condition(
                 config
                     .segment_type
@@ -967,6 +1019,32 @@ fn configure_common_path<F: FieldExt>(
     cb.condition(
         config.path_type.next_matches(&[PathType::ExtensionOld]),
         |cb| {
+            cb.assert_zero(
+                "new domain is not HashDomain::NodeTypeBranch3",
+                (config.domain.current() - u64::from(HashDomain::NodeTypeBranch0))
+                    * (config.domain.current() - u64::from(HashDomain::NodeTypeBranch1))
+                    * (config.domain.current() - u64::from(HashDomain::NodeTypeBranch2)),
+            );
+            // cb.poseidon_lookup(
+            //     "poseidon hash correct for old common path",
+            //     [
+            //         old_left(config),
+            //         old_right(config),
+            //         config.domain.current(),
+            //         config.old_hash.previous(),
+            //     ],
+            //     poseidon,
+            // );
+            cb.poseidon_lookup(
+                "poseidon hash correct for new common path",
+                [
+                    new_left(config),
+                    new_right(config),
+                    config.domain.current(),
+                    config.new_hash.previous(),
+                ],
+                poseidon,
+            );
             cb.condition(
                 config
                     .segment_type
