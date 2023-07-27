@@ -1,3 +1,4 @@
+use crate::types::HashDomain;
 use crate::MPTProofType;
 use std::collections::HashMap;
 use strum_macros::EnumIter;
@@ -134,5 +135,22 @@ pub fn transitions(proof: MPTProofType) -> HashMap<SegmentType, Vec<SegmentType>
         ]
         .into(),
         MPTProofType::AccountDestructed => [].into(),
+    }
+}
+
+pub fn domains(segment_type: SegmentType) -> Vec<HashDomain> {
+    match segment_type {
+        SegmentType::Start => vec![HashDomain::Pair],
+
+        SegmentType::AccountTrie | SegmentType::StorageTrie => vec![
+            HashDomain::NodeTypeBranch0,
+            HashDomain::NodeTypeBranch1,
+            HashDomain::NodeTypeBranch2,
+            HashDomain::NodeTypeBranch3,
+        ],
+        SegmentType::AccountLeaf0 | SegmentType::StorageLeaf0 => vec![HashDomain::NodeTypeEmpty],
+        SegmentType::AccountLeaf1 | SegmentType::AccountLeaf2 | SegmentType::AccountLeaf3 => {
+            vec![HashDomain::AccountFields]
+        }
     }
 }

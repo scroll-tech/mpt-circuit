@@ -265,6 +265,23 @@ impl MptUpdateConfig {
             );
         }
 
+        for variant in SegmentType::iter() {
+            let conditional_constraints = |cb: &mut ConstraintBuilder<F>| {
+                cb.assert_zero(
+                    "domain in allowed set for segment type",
+                    segment::domains(variant)
+                        .iter()
+                        .fold(Query::one(), |product, domain| {
+                            product * (config.domain.current() - u64::from(*domain))
+                        }),
+                );
+            };
+            cb.condition(
+                config.segment_type.current_matches(&[variant]),
+                conditional_constraints,
+            );
+        }
+
         for proof_type in MPTProofType::iter() {
             let conditional_constraints = |cb: &mut ConstraintBuilder<F>| {
                 configure_segment_transitions(cb, &config.segment_type, proof_type);
@@ -317,6 +334,7 @@ impl MptUpdateConfig {
             .assign(region, offset, MPTProofType::AccountDoesNotExist);
         self.key.assign(region, offset, *ZERO_PAIR_HASH);
         self.other_key.assign(region, offset, *ZERO_PAIR_HASH);
+        self.domain.assign(region, offset, HashDomain::Pair);
     }
 
     /// ..
@@ -364,6 +382,7 @@ impl MptUpdateConfig {
 
             self.key.assign(region, offset, key);
             self.other_key.assign(region, offset, other_key);
+            self.domain.assign(region, offset, HashDomain::Pair);
 
             self.intermediate_values[0].assign(region, offset, address_to_fr(proof.claim.address));
             self.intermediate_values[1].assign(
@@ -902,57 +921,63 @@ fn configure_common_path<F: FieldExt>(
     config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
 ) {
-    cb.poseidon_lookup(
-        "poseidon hash correct for old common path",
-        [
-            old_left(config),
-            old_right(config),
-            config.domain.current(),
-            config.old_hash.previous(),
-        ],
-        poseidon,
-    );
-    cb.poseidon_lookup(
-        "poseidon hash correct for new common path",
-        [
-            new_left(config),
-            new_right(config),
-            config.domain.current(),
-            config.new_hash.previous(),
-        ],
-        poseidon,
-    );
-
     cb.condition(
         config
             .path_type
-            .next_matches(&[PathType::ExtensionNew])
-            .and(
-                config
-                    .segment_type
-                    .next_matches(&[SegmentType::AccountLeaf0]),
-            ),
+            .next_matches(&[PathType::Common, PathType::Start]),
         |cb| {
-            cb.assert_zero(
-                "old hash is zero for type 2 empty account",
-                config.old_hash.current(),
-            )
+            cb.poseidon_lookup(
+                "poseidon hash correct for old common path",
+                [
+                    old_left(config),
+                    old_right(config),
+                    config.domain.current(),
+                    config.old_hash.previous(),
+                ],
+                poseidon,
+            );
+            cb.poseidon_lookup(
+                "poseidon hash correct for new common path",
+                [
+                    new_left(config),
+                    new_right(config),
+                    config.domain.current(),
+                    config.new_hash.previous(),
+                ],
+                poseidon,
+            );
         },
     );
     cb.condition(
-        config
-            .path_type
-            .next_matches(&[PathType::ExtensionOld])
-            .and(
+        config.path_type.next_matches(&[PathType::ExtensionNew]),
+        |cb| {
+            cb.condition(
                 config
                     .segment_type
                     .next_matches(&[SegmentType::AccountLeaf0]),
-            ),
+                |cb| {
+                    cb.assert_zero(
+                        "old hash is zero for type 2 empty account",
+                        config.old_hash.current(),
+                    )
+                },
+            );
+        },
+    );
+    cb.condition(
+        config.path_type.next_matches(&[PathType::ExtensionOld]),
         |cb| {
-            cb.assert_zero(
-                "new hash is zero for type 2 empty account",
-                config.new_hash.current(),
-            )
+            cb.condition(
+                config
+                    .segment_type
+                    .next_matches(&[SegmentType::AccountLeaf0]),
+                |cb| {
+                    cb.assert_zero(
+                        "new hash is zero for type 2 empty account",
+                        config.new_hash.current(),
+                    )
+                },
+            );
         },
     );
 }
