@@ -832,15 +832,15 @@ impl Proof {
 
         if let Some(old_leaf) = self.leafs[0] {
             assert_eq!(
-                domain_hash(old_leaf.key, old_leaf.value_hash, HashDomain::NodeTypeEmpty,),
+                domain_hash(old_leaf.key, old_leaf.value_hash, HashDomain::NodeTypeEmpty),
                 self.old_account_hash_traces[5][2],
             );
         } else {
             assert_eq!(self.address_hash_traces.first().unwrap().2, Fr::zero())
         }
-                if let Some(old_leaf) = self.leafs[0] {
+        if let Some(new_leaf) = self.leafs[1] {
             assert_eq!(
-                domain_hash(old_leaf.key, old_leaf.value_hash, HashDomain::NodeTypeEmpty,),
+                domain_hash(new_leaf.key, new_leaf.value_hash, HashDomain::NodeTypeEmpty),
                 self.new_account_hash_traces[5][2],
             );
         } else {

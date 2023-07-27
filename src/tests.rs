@@ -127,6 +127,7 @@ fn empty_account_type_1() {
     );
     let trace: SMTTrace = serde_json::from_str(&json).unwrap();
 
+    assert_eq!(trace.account_update, [None, None], "account is not empty");
     for path in &trace.account_path {
         assert!(path.leaf.is_some(), "account is not type 1");
     }
@@ -157,6 +158,7 @@ fn empty_account_type_2() {
     );
     let trace: SMTTrace = serde_json::from_str(&json).unwrap();
 
+    assert_eq!(trace.account_update, [None, None], "account is not empty");
     for path in &trace.account_path {
         assert!(path.leaf.is_none(), "account is not type 2");
     }
