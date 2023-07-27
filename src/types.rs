@@ -830,23 +830,22 @@ impl Proof {
         );
         // if this still the case????
 
-        // TODO: handle none here.
-        assert_eq!(
-            domain_hash(
-                self.leafs[0].unwrap().key,
-                self.leafs[0].unwrap().value_hash,
-                HashDomain::NodeTypeEmpty,
-            ),
-            self.old_account_hash_traces[5][2],
-        );
-        assert_eq!(
-            domain_hash(
-                self.leafs[1].unwrap().key,
-                self.leafs[1].unwrap().value_hash,
-                HashDomain::NodeTypeEmpty,
-            ),
-            self.new_account_hash_traces[5][2],
-        );
+        if let Some(old_leaf) = self.leafs[0] {
+            assert_eq!(
+                domain_hash(old_leaf.key, old_leaf.value_hash, HashDomain::NodeTypeEmpty,),
+                self.old_account_hash_traces[5][2],
+            );
+        } else {
+            assert_eq!(self.address_hash_traces.first().unwrap().2, Fr::zero())
+        }
+                if let Some(old_leaf) = self.leafs[0] {
+            assert_eq!(
+                domain_hash(old_leaf.key, old_leaf.value_hash, HashDomain::NodeTypeEmpty,),
+                self.new_account_hash_traces[5][2],
+            );
+        } else {
+            assert_eq!(self.address_hash_traces.first().unwrap().3, Fr::zero())
+        }
 
         // // storage poseidon hashes are correct
         // self.storage_hash_traces

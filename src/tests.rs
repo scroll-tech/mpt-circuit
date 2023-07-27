@@ -138,6 +138,36 @@ fn empty_account_type_1() {
 }
 
 #[test]
+fn empty_account_type_2() {
+    let mut generator = initial_generator();
+    let trace = generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::AccountDoesNotExist,
+        Address::repeat_byte(20),
+        U256::zero(),
+        U256::zero(),
+        None,
+    );
+
+    let json = serde_json::to_string_pretty(&trace).unwrap();
+    assert_eq!(
+        format!("{}\n", json),
+        include_str!("traces/empty_account_type_2.json"),
+        "{}",
+        json
+    );
+    let trace: SMTTrace = serde_json::from_str(&json).unwrap();
+
+    for path in &trace.account_path {
+        assert!(path.leaf.is_none(), "account is not type 2");
+    }
+
+    let proof = Proof::from((MPTProofType::AccountDoesNotExist, trace.clone()));
+    proof.check();
+
+    mock_prove(vec![(MPTProofType::AccountDoesNotExist, trace)]);
+}
+
+#[test]
 fn existing_account_balance_update() {
     let mut generator = initial_generator();
     let trace = generator.handle_new_state(
@@ -511,32 +541,4 @@ fn insert_into_singleton_storage_trie() {
     let trace: SMTTrace = serde_json::from_str(&json).unwrap();
     let proof = Proof::from((MPTProofType::StorageChanged, trace));
     proof.check();
-}
-
-#[ignore = "type 2 empty account proofs are incomplete"]
-#[test]
-fn empty_account_type_2() {
-    // i = 20 should be type 2?
-    for i in 104..255 {
-        let mut generator = initial_generator();
-        let trace = generator.handle_new_state(
-            mpt_zktrie::mpt_circuits::MPTProofType::BalanceChanged,
-            Address::repeat_byte(i),
-            U256::one(),
-            U256::zero(),
-            None,
-        );
-        // 0xb3e9ff02c109b1d6aefa774523aaf5bef1207226e85a3726ecb505227ad1e621
-
-        let json = serde_json::to_string_pretty(&trace).unwrap();
-        let _trace: SMTTrace = serde_json::from_str(&json).unwrap();
-
-        // for path in &trace.account_path {
-        //     assert!(path.leaf.is_some() || path.path.is_empty())
-        // }
-        panic!();
-    }
-
-    // let proof = Proof::from((MPTProofType::AccountDoesNotExist, trace));
-    panic!();
 }
