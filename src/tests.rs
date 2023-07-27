@@ -521,9 +521,11 @@ fn empty_storage_type_2_update_a() {
 
     let insertion_proof = Proof::from((MPTProofType::StorageChanged, trace.clone()));
     insertion_proof.check();
+    mock_prove(vec![(MPTProofType::StorageChanged, trace.clone())]);
 
-    let deletion_proof = Proof::from((MPTProofType::StorageChanged, reverse(trace)));
+    let deletion_proof = Proof::from((MPTProofType::StorageChanged, reverse(trace.clone())));
     deletion_proof.check();
+    mock_prove(vec![(MPTProofType::StorageChanged, reverse(trace))]);
 }
 
 #[test]
@@ -562,9 +564,11 @@ fn empty_storage_type_2_update_b() {
 
     let insertion_proof = Proof::from((MPTProofType::StorageChanged, trace.clone()));
     insertion_proof.check();
+    mock_prove(vec![(MPTProofType::StorageChanged, trace.clone())]);
 
-    let deletion_proof = Proof::from((MPTProofType::StorageChanged, reverse(trace)));
+    let deletion_proof = Proof::from((MPTProofType::StorageChanged, reverse(trace.clone())));
     deletion_proof.check();
+    mock_prove(vec![(MPTProofType::StorageChanged, reverse(trace))]);
 }
 
 // Note: it's not possible to have a final node type == 6 for a type 2 empty leaf
