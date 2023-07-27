@@ -976,36 +976,36 @@ fn configure_common_path<F: FieldExt>(
                 .segment_type
                 .next_matches(&[SegmentType::AccountLeaf0, SegmentType::StorageLeaf0]);
             cb.condition(!is_type_2.clone(), |cb| {
-                // let new_domain = lagrange_polynomial(
-                //     config.domain.current(),
-                //     &[
-                //         (
-                //             HashDomain::NodeTypeBranch0.into(),
-                //             BinaryQuery(config.direction.current()).select(
-                //                 Query::from(HashDomain::NodeTypeBranch1.into_u64()),
-                //                 Query::from(HashDomain::NodeTypeBranch2.into_u64()),
-                //             ),
-                //         ),
-                //         (
-                //             HashDomain::NodeTypeBranch1.into(),
-                //             Query::from(HashDomain::NodeTypeBranch3.into_u64()),
-                //         ),
-                //         (
-                //             HashDomain::NodeTypeBranch2.into(),
-                //             Query::from(HashDomain::NodeTypeBranch3.into_u64()),
-                //         ),
-                //     ],
-                // );
-                // cb.poseidon_lookup(
-                //     "poseidon hash correct for new common path",
-                //     [
-                //         new_left(config),
-                //         new_right(config),
-                //         new_domain,
-                //         config.new_hash.previous(),
-                //     ],
-                //     poseidon,
-                // );
+                let new_domain = lagrange_polynomial(
+                    config.domain.current(),
+                    &[
+                        (
+                            HashDomain::NodeTypeBranch0.into(),
+                            BinaryQuery(config.direction.current()).select(
+                                Query::from(HashDomain::NodeTypeBranch1.into_u64()),
+                                Query::from(HashDomain::NodeTypeBranch2.into_u64()),
+                            ),
+                        ),
+                        (
+                            HashDomain::NodeTypeBranch1.into(),
+                            Query::from(HashDomain::NodeTypeBranch3.into_u64()),
+                        ),
+                        (
+                            HashDomain::NodeTypeBranch2.into(),
+                            Query::from(HashDomain::NodeTypeBranch3.into_u64()),
+                        ),
+                    ],
+                );
+                cb.poseidon_lookup(
+                    "poseidon hash correct for new common path",
+                    [
+                        new_left(config),
+                        new_right(config),
+                        new_domain,
+                        config.new_hash.previous(),
+                    ],
+                    poseidon,
+                );
             });
             cb.condition(is_type_2.clone(), |cb| {
                 cb.assert_zero(
@@ -1048,36 +1048,36 @@ fn configure_common_path<F: FieldExt>(
                 .segment_type
                 .next_matches(&[SegmentType::AccountLeaf0, SegmentType::StorageLeaf0]);
             cb.condition(!is_type_2.clone(), |cb| {
-                // let new_domain = lagrange_polynomial(
-                //     config.domain.current(),
-                //     &[
-                //         (
-                //             HashDomain::NodeTypeBranch0.into(),
-                //             BinaryQuery(config.direction.current()).select(
-                //                 Query::from(HashDomain::NodeTypeBranch1.into_u64()),
-                //                 Query::from(HashDomain::NodeTypeBranch2.into_u64()),
-                //             ),
-                //         ),
-                //         (
-                //             HashDomain::NodeTypeBranch1.into(),
-                //             Query::from(HashDomain::NodeTypeBranch3.into_u64()),
-                //         ),
-                //         (
-                //             HashDomain::NodeTypeBranch2.into(),
-                //             Query::from(HashDomain::NodeTypeBranch3.into_u64()),
-                //         ),
-                //     ],
-                // );
-                // cb.poseidon_lookup(
-                //     "poseidon hash correct for old common path",
-                //     [
-                //         old_left(config),
-                //         old_right(config),
-                //         config.domain.current(),
-                //         config.old_hash.previous(),
-                //     ],
-                //     poseidon,
-                // );
+                let new_domain = lagrange_polynomial(
+                    config.domain.current(),
+                    &[
+                        (
+                            HashDomain::NodeTypeBranch0.into(),
+                            BinaryQuery(config.direction.current()).select(
+                                Query::from(HashDomain::NodeTypeBranch1.into_u64()),
+                                Query::from(HashDomain::NodeTypeBranch2.into_u64()),
+                            ),
+                        ),
+                        (
+                            HashDomain::NodeTypeBranch1.into(),
+                            Query::from(HashDomain::NodeTypeBranch3.into_u64()),
+                        ),
+                        (
+                            HashDomain::NodeTypeBranch2.into(),
+                            Query::from(HashDomain::NodeTypeBranch3.into_u64()),
+                        ),
+                    ],
+                );
+                cb.poseidon_lookup(
+                    "poseidon hash correct for old common path",
+                    [
+                        old_left(config),
+                        old_right(config),
+                        new_domain,
+                        config.old_hash.previous(),
+                    ],
+                    poseidon,
+                );
             });
             cb.condition(is_type_2, |cb| {
                 cb.assert_zero(
@@ -2090,6 +2090,7 @@ pub fn hash_traces(proofs: &[Proof]) -> Vec<([Fr; 2], Fr, Fr)> {
                 ));
             }
         }
+        // you don't even push it hereeeeee lol
         hash_traces.extend(
             proof
                 .storage

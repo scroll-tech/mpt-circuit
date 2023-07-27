@@ -125,39 +125,54 @@ impl TrieRows {
     }
 
     pub fn poseidon_lookups(&self) -> Vec<(Fr, Fr, HashDomain, Fr)> {
-        self.0
-            .iter()
-            .flat_map(|row| {
-                let (old_left, old_right) = if row.direction {
-                    (row.sibling, row.old)
-                } else {
-                    (row.old, row.sibling)
-                };
-                let (new_left, new_right) = if row.direction {
-                    (row.sibling, row.new)
-                } else {
-                    (row.new, row.sibling)
-                };
-                let old = (
-                    old_left,
-                    old_right,
-                    row.domain,
-                    domain_hash(old_left, old_right, row.domain),
-                );
-                let new = (
-                    new_left,
-                    new_right,
-                    row.domain,
-                    domain_hash(new_left, new_right, row.domain),
-                );
-                match row.path_type {
-                    PathType::Start => vec![],
-                    PathType::Common => vec![old, new],
-                    PathType::ExtensionOld => vec![old],
-                    PathType::ExtensionNew => vec![new],
+        let mut lookups = vec![];
+        for (i, row) in self.0.iter().enumerate() {
+            let [[old_left, old_right], [new_left, new_right]] = if row.direction {
+                [[row.sibling, row.old], [row.sibling, row.new]]
+            } else {
+                [[row.old, row.sibling], [row.new, row.sibling]]
+            };
+
+            match row.path_type {
+                PathType::Start => unreachable!(),
+                PathType::Common => {
+                    let [old_domain, new_domain] = if let Some(next_row) = self.0.get(i + 1) {
+                        get_domains(next_row.path_type, row.domain, row.direction)
+                    } else {
+                        [row.domain, row.domain]
+                    };
+                    lookups.push((
+                        old_left,
+                        old_right,
+                        old_domain,
+                        domain_hash(old_left, old_right, old_domain),
+                    ));
+                    lookups.push((
+                        new_left,
+                        new_right,
+                        new_domain,
+                        domain_hash(new_left, new_right, new_domain),
+                    ));
                 }
-            })
-            .collect()
+                PathType::ExtensionOld => {
+                    lookups.push((
+                        old_left,
+                        old_right,
+                        row.domain,
+                        domain_hash(old_left, old_right, row.domain),
+                    ));
+                }
+                PathType::ExtensionNew => {
+                    lookups.push((
+                        new_left,
+                        new_right,
+                        row.domain,
+                        domain_hash(new_left, new_right, row.domain),
+                    ));
+                }
+            }
+        }
+        lookups
     }
 
     pub fn key_bit_lookups(&self, key: Fr, other_key: Fr) -> Vec<(Fr, usize, bool)> {

@@ -145,13 +145,13 @@ pub fn lagrange_polynomial<F: FieldExt>(argument: Query<F>, points: &[(Fr, Query
             .filter_map(|(j, xj)| {
                 if i != j {
                     assert_ne!(xi, xj, "cannot interpolate through duplicate x coordinates");
-                    Some((argument.clone() - xi, xj - xi))
+                    Some((argument.clone() - xj, xi - xj))
                 } else {
                     None
                 }
             })
             .reduce(|(p1, f1), (p2, f2)| (p1 * p2, f1 * f2))
-            .expect("points.len() > 1");
+            .expect("points.len() < 2");
         basis_polynomials.push(numerator * denominator.invert().unwrap());
     }
 
