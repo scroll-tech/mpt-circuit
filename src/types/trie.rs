@@ -9,7 +9,7 @@ use itertools::{EitherOrBoth, Itertools};
 
 #[derive(Clone, Debug)]
 pub struct TrieRow {
-    domain: HashDomain,
+    pub domain: HashDomain,
     pub old: Fr,
     pub new: Fr,
     pub sibling: Fr,
@@ -124,7 +124,7 @@ impl TrieRows {
         self.0.len()
     }
 
-    pub fn poseidon_lookups(&self) -> Vec<(Fr, Fr, Fr)> {
+    pub fn poseidon_lookups(&self) -> Vec<(Fr, Fr, HashDomain, Fr)> {
         self.0
             .iter()
             .flat_map(|row| {
@@ -141,11 +141,13 @@ impl TrieRows {
                 let old = (
                     old_left,
                     old_right,
+                    row.domain,
                     domain_hash(old_left, old_right, row.domain),
                 );
                 let new = (
                     new_left,
                     new_right,
+                    row.domain,
                     domain_hash(new_left, new_right, row.domain),
                 );
                 match row.path_type {

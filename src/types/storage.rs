@@ -61,8 +61,7 @@ impl StorageProof {
         }
     }
 
-    pub fn poseidon_lookups(&self) -> Vec<(Fr, Fr, Fr)> {
-        // TODO: missing the hash of the storage key for empty storage proofs.
+    pub fn poseidon_lookups(&self) -> Vec<(Fr, Fr, HashDomain, Fr)> {
         match self {
             Self::Root(_) => vec![],
             Self::Update {
@@ -242,17 +241,37 @@ impl StorageLeaf {
         }
     }
 
-    fn poseidon_lookups(&self) -> Vec<(Fr, Fr, Fr)> {
+    fn poseidon_lookups(&self) -> Vec<(Fr, Fr, HashDomain, Fr)> {
         let mut lookups = vec![];
         match self {
             Self::Empty { .. } => (),
-            Self::Leaf { value_hash, .. } => lookups.push((self.key(), *value_hash, self.hash())),
+            Self::Leaf { value_hash, .. } => lookups.push((
+                self.key(),
+                *value_hash,
+                HashDomain::NodeTypeEmpty,
+                self.hash(),
+            )),
             Self::Entry { storage_key, .. } => {
                 let (key_high, key_low) = u256_hi_lo(storage_key);
                 lookups.extend(vec![
-                    (Fr::from_u128(key_high), Fr::from_u128(key_low), self.key()),
-                    (self.value_high(), self.value_low(), self.value_hash()),
-                    (self.key(), self.value_hash(), self.hash()),
+                    (
+                        Fr::from_u128(key_high),
+                        Fr::from_u128(key_low),
+                        HashDomain::Pair,
+                        self.key(),
+                    ),
+                    (
+                        self.value_high(),
+                        self.value_low(),
+                        HashDomain::Pair,
+                        self.value_hash(),
+                    ),
+                    (
+                        self.key(),
+                        self.value_hash(),
+                        HashDomain::NodeTypeEmpty,
+                        self.hash(),
+                    ),
                 ]);
             }
         }

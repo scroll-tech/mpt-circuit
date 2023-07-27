@@ -421,18 +421,7 @@ fn existing_account_poseidon_codehash_update() {
 
 #[test]
 fn existing_storage_update() {
-    let mut generator = initial_generator();
-
-    for i in 40..60 {
-        generator.handle_new_state(
-            mpt_zktrie::mpt_circuits::MPTProofType::StorageChanged,
-            Address::repeat_byte(1),
-            U256::one(),
-            U256::zero(),
-            Some(U256::from(i)),
-        );
-    }
-
+    let mut generator = initial_storage_generator();
     let trace = generator.handle_new_state(
         mpt_zktrie::mpt_circuits::MPTProofType::StorageChanged,
         Address::repeat_byte(1),
@@ -449,8 +438,10 @@ fn existing_storage_update() {
         json
     );
     let trace: SMTTrace = serde_json::from_str(&json).unwrap();
-    let proof = Proof::from((MPTProofType::StorageChanged, trace));
+    let proof = Proof::from((MPTProofType::StorageChanged, trace.clone()));
     proof.check();
+
+    mock_prove(vec![(MPTProofType::StorageChanged, trace)]);
 }
 
 #[test]

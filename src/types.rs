@@ -751,10 +751,6 @@ impl Proof {
             }
             ClaimKind::Storage { .. } | ClaimKind::IsEmpty(Some(_)) => {
                 assert_eq!(
-                    self.old_account_hash_traces[5][2],
-                    self.new_account_hash_traces[5][2]
-                );
-                assert_eq!(
                     self.old_account_hash_traces[4][1],
                     self.new_account_hash_traces[4][1]
                 );

@@ -634,6 +634,7 @@ impl MptUpdateConfig {
                 (row.old, self.old_hash),
                 (row.new, self.new_hash),
                 (row.direction.into(), self.direction),
+                (row.domain.into(), self.domain),
             ] {
                 column.assign(region, offset, value);
             }
@@ -757,6 +758,8 @@ impl MptUpdateConfig {
         self.segment_type
             .assign(region, offset, SegmentType::StorageLeaf0);
         self.direction.assign(region, offset, true);
+        self.domain
+            .assign(region, offset, HashDomain::NodeTypeEmpty);
 
         let sibling = match path_type {
             PathType::Start => unreachable!(),
@@ -1951,7 +1954,7 @@ pub fn hash_traces(proofs: &[Proof]) -> Vec<([Fr; 2], Fr, Fr)> {
                 .storage
                 .poseidon_lookups()
                 .into_iter()
-                .map(|(a, b, h)| ([a, b], Fr::zero(), h)),
+                .map(|(left, right, domain, h)| ([left, right], Fr::from(domain), h)),
         );
 
         let key = account_key(proof.claim.address);
