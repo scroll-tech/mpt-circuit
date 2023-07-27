@@ -224,6 +224,37 @@ fn empty_account_type_1_balance_update() {
 }
 
 #[test]
+fn empty_account_type_2_balance_update() {
+    let mut generator = initial_generator();
+    let trace = generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::BalanceChanged,
+        Address::repeat_byte(20),
+        U256::from(123124128387u64),
+        U256::zero(),
+        None,
+    );
+
+    let json = serde_json::to_string_pretty(&trace).unwrap();
+    assert_eq!(
+        format!("{}\n", json),
+        include_str!("traces/empty_account_type_2_balance_update.json"),
+        "{}",
+        json
+    );
+    let trace: SMTTrace = serde_json::from_str(&json).unwrap();
+
+    assert!(
+        trace.account_update[0].is_none() && trace.account_path[0].leaf.is_none(),
+        "old account is not type 2"
+    );
+
+    let proof = Proof::from((MPTProofType::BalanceChanged, trace.clone()));
+    proof.check();
+
+    mock_prove(vec![(MPTProofType::BalanceChanged, trace)]);
+}
+
+#[test]
 fn existing_account_nonce_update() {
     let mut generator = initial_generator();
     let trace = generator.handle_new_state(

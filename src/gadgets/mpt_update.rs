@@ -36,8 +36,9 @@ use lazy_static::lazy_static;
 use strum::IntoEnumIterator;
 
 lazy_static! {
-    // TODO
-    static ref ZERO_STORAGE_HASH: Fr = domain_hash(Fr::zero(), Fr::zero(), HashDomain::Pair);
+    static ref ZERO_PAIR_HASH: Fr = domain_hash(Fr::zero(), Fr::zero(), HashDomain::Pair);
+    static ref ZERO_STORAGE_ROOT_KECCAK_CODEHASH_HASH: Fr =
+        domain_hash(Fr::zero(), *ZERO_PAIR_HASH, HashDomain::AccountFields);
 }
 
 pub trait MptUpdateLookup<F: FieldExt> {
@@ -314,8 +315,8 @@ impl MptUpdateConfig {
     pub fn assign_padding_row(&self, region: &mut Region<'_, Fr>, offset: usize) {
         self.proof_type
             .assign(region, offset, MPTProofType::AccountDoesNotExist);
-        self.key.assign(region, offset, *ZERO_STORAGE_HASH);
-        self.other_key.assign(region, offset, *ZERO_STORAGE_HASH);
+        self.key.assign(region, offset, *ZERO_PAIR_HASH);
+        self.other_key.assign(region, offset, *ZERO_PAIR_HASH);
     }
 
     /// ..
@@ -804,12 +805,12 @@ impl MptUpdateConfig {
         old_hash_is_zero_storage_hash.assign_value_and_inverse(
             region,
             offset,
-            old_hash - *ZERO_STORAGE_HASH,
+            old_hash - *ZERO_PAIR_HASH,
         );
         new_hash_is_zero_storage_hash.assign_value_and_inverse(
             region,
             offset,
-            new_hash - *ZERO_STORAGE_HASH,
+            new_hash - *ZERO_PAIR_HASH,
         );
 
         match path_type {
@@ -1184,8 +1185,7 @@ fn configure_nonce<F: FieldExt>(
                         cb.assert_equal(
                         "sibling is hash(0, hash(0, 0)) for nonce extension new at AccountLeaf2",
                         config.sibling.current(),
-                        domain_hash(Fr::zero(), domain_hash(Fr::zero(),
-                            Fr::zero(), HashDomain::AccountFields), HashDomain::AccountFields).into(),
+                        Query::from(*ZERO_STORAGE_ROOT_KECCAK_CODEHASH_HASH),
                     );
                     },
                 );
@@ -1460,10 +1460,10 @@ fn configure_balance<F: FieldExt>(
                     config.path_type.current_matches(&[PathType::ExtensionNew]),
                     |cb| {
                         cb.assert_equal(
-                        "sibling is hash(0, hash(0, 0)) for balance extension new at AccountLeaf2",
-                        config.sibling.current(),
-                        domain_hash(Fr::zero(), domain_hash(Fr::zero(), Fr::zero(), HashDomain::AccountFields), HashDomain::AccountFields).into(),
-                    );
+                            "sibling is hash(0, hash(0, 0)) for balance extension new at AccountLeaf2",
+                            config.sibling.current(),
+                            Query::from(*ZERO_STORAGE_ROOT_KECCAK_CODEHASH_HASH),
+                        );
                     },
                 );
             }
@@ -1733,12 +1733,12 @@ fn configure_storage<F: FieldExt>(
                 cb.assert_equal(
                     "old_hash_minus_zero_storage_hash = old_hash - hash(0, 0)",
                     old_hash_is_zero_storage_hash.value.current(),
-                    config.old_hash.current() - *ZERO_STORAGE_HASH,
+                    config.old_hash.current() - *ZERO_PAIR_HASH,
                 );
                 cb.assert_equal(
                     "new_hash_minus_zero_storage_hash = new_hash - hash(0, 0)",
                     new_hash_is_zero_storage_hash.value.current(),
-                    config.new_hash.current() - *ZERO_STORAGE_HASH,
+                    config.new_hash.current() - *ZERO_PAIR_HASH,
                 );
                 cb.assert(
                     "old hash != hash(0, 0)",
@@ -1914,7 +1914,7 @@ pub fn hash_traces(proofs: &[Proof]) -> Vec<([Fr; 2], Fr, Fr)> {
     let mut hash_traces = vec![(
         [Fr::zero(), Fr::zero()],
         HashDomain::Pair.into(),
-        *ZERO_STORAGE_HASH,
+        *ZERO_PAIR_HASH,
     )];
     for proof in proofs.iter() {
         let address_hash_traces = &proof.address_hash_traces;
