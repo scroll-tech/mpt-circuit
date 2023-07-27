@@ -7,7 +7,7 @@
       "leaf": {
         "value": "0xd5183cce27ff45da94689d72d862770b5d6ff7315de77ef74d4e4318ac14ea11",
         "sibling": "0xff2cc690b31f32da9f69ee898d38396be2b418bcd781e2f504c823a9e3b5990c",
-        "node_type": 5
+        "node_type": 4
       },
       "path": [
         {
@@ -33,7 +33,7 @@
       "leaf": {
         "value": "0x7aaaf309a30602bd2cada44848a5345527cddb78d8ebcbf95bd03e56a9cec528",
         "sibling": "0xff2cc690b31f32da9f69ee898d38396be2b418bcd781e2f504c823a9e3b5990c",
-        "node_type": 5
+        "node_type": 4
       },
       "path": [
         {

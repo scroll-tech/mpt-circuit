@@ -7,7 +7,7 @@
       "leaf": {
         "value": "0xd472374b1135b67ffc1d5414460fe3b4efaf31ce9ae4c83d1364ba87a9472a2c",
         "sibling": "0x2368fc91ec42cf498e51d1796cfcacf1efb26920e114962fb9c4763b1080341d",
-        "node_type": 5
+        "node_type": 4
       },
       "path": [
         {
@@ -33,7 +33,7 @@
       "leaf": {
         "value": "0xf40471ec703f0c374188ffc2658895da71ba12520daa93978d162ff2ca71b900",
         "sibling": "0x2368fc91ec42cf498e51d1796cfcacf1efb26920e114962fb9c4763b1080341d",
-        "node_type": 5
+        "node_type": 4
       },
       "path": [
         {
@@ -77,7 +77,7 @@
       "leaf": {
         "value": "0x50ea2e5d1d10a9ebc255098ff2670e4a4faaa8018a07eb92340063dea69b0426",
         "sibling": "0x34d524b5f5f6d93367bf6b6452a1aa7e17d8696555258de41be8002cc6cdd42f",
-        "node_type": 5
+        "node_type": 4
       },
       "path": [
         {
@@ -108,7 +108,7 @@
       "leaf": {
         "value": "0xbf4245864783af356463b2c5af200bb87bc64171dd99a8ac0acc67bfa408f600",
         "sibling": "0xd4bbd1bcd3b00b743d57005fd62af4e0df6c021c92288e1bf5ede810b09c590a",
-        "node_type": 5
+        "node_type": 4
       },
       "path": [
         {
