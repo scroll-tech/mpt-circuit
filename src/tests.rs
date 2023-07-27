@@ -495,6 +495,95 @@ fn empty_storage_type_1_update_a() {
 }
 
 #[test]
+fn empty_storage_type_2_update_a() {
+    let mut generator = initial_storage_generator();
+    let trace = generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::StorageChanged,
+        Address::repeat_byte(1),
+        U256::from(307),
+        U256::zero(),
+        Some(U256::from(502)),
+    );
+    assert!(
+        trace.state_path[0].clone().unwrap().leaf.is_none(),
+        "old storage entry is not type 2"
+    );
+
+    let json = serde_json::to_string_pretty(&trace).unwrap();
+    assert_eq!(
+        format!("{}\n", json),
+        include_str!("traces/empty_storage_type_2_update_a.json"),
+        "{}",
+        json
+    );
+    let trace: SMTTrace = serde_json::from_str(&json).unwrap();
+    assert_eq!(
+        trace.state_path[0]
+            .clone()
+            .unwrap()
+            .path
+            .last()
+            .unwrap()
+            .node_type,
+        7
+    );
+
+    let insertion_proof = Proof::from((MPTProofType::StorageChanged, trace.clone()));
+    insertion_proof.check();
+
+    let deletion_proof = Proof::from((MPTProofType::StorageChanged, reverse(trace)));
+    deletion_proof.check();
+}
+
+#[test]
+fn empty_storage_type_2_update_b() {
+    let mut generator = initial_storage_generator();
+    let trace = generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::StorageChanged,
+        Address::repeat_byte(1),
+        U256::from(307),
+        U256::zero(),
+        Some(U256::from(500)),
+    );
+    assert!(
+        trace.state_path[0].clone().unwrap().leaf.is_none(),
+        "old storage entry is not type 2"
+    );
+
+    let json = serde_json::to_string_pretty(&trace).unwrap();
+    assert_eq!(
+        format!("{}\n", json),
+        include_str!("traces/empty_storage_type_2_update_b.json"),
+        "{}",
+        json
+    );
+    let trace: SMTTrace = serde_json::from_str(&json).unwrap();
+    assert_eq!(
+        trace.state_path[0]
+            .clone()
+            .unwrap()
+            .path
+            .last()
+            .unwrap()
+            .node_type,
+        8
+    );
+
+    let insertion_proof = Proof::from((MPTProofType::StorageChanged, trace.clone()));
+    insertion_proof.check();
+
+    let deletion_proof = Proof::from((MPTProofType::StorageChanged, reverse(trace)));
+    deletion_proof.check();
+}
+
+// Note: it's not possible to have a final node type == 6 for a type 2 empty leaf
+// proof. This would be inconsistent because node type == 6 requires that neither
+// child node the branch node is itself a branch node, while the leaf node being
+// type 2 empty would require that one of the child nodes of the branch node is empty.
+// The zktrie construction rules forbid the existence of a subtrie containing only
+// one leaf.
+
+#[test]
 fn empty_storage_type_1_update_b() {
     let mut generator = initial_storage_generator();
     let trace = generator.handle_new_state(
