@@ -463,7 +463,6 @@ impl MptUpdateConfig {
                 self.is_zero_gadgets[2].assign_value_and_inverse(region, offset, key - other_key);
                 self.is_zero_gadgets[3].assign_value_and_inverse(region, offset, final_old_hash);
 
-                // self.intermediate_values[2].assign(region, offset, other_key);
                 self.intermediate_values[3].assign(region, offset, other_leaf_data_hash);
 
                 n_rows += proof.n_rows();
@@ -1586,7 +1585,7 @@ fn configure_keccak_code_hash<F: FieldExt>(
                     config.segment_type.next_matches(&[SegmentType::Start]),
                     |cb| {
                         let [.., key_equals_other_key, hash_is_zero] = config.is_zero_gadgets;
-                        let [_, _, _, _, other_leaf_data_hash, ..] = config.intermediate_values;
+                        let [_, _, _, other_leaf_data_hash, ..] = config.intermediate_values;
                         cb.assert_equal(
                             "old hash = new hash for empty account proof",
                             config.old_hash.current(),

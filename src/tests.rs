@@ -170,6 +170,25 @@ fn empty_account_type_2() {
 }
 
 #[test]
+fn empty_account_proofs_for_zero_value_updates() {
+    let traces: [SMTTrace; 2] = [
+        serde_json::from_str(&include_str!("traces/empty_account_type_1.json")).unwrap(),
+        serde_json::from_str(&include_str!("traces/empty_account_type_2.json")).unwrap(),
+    ];
+    for trace in traces {
+        for proof_type in [
+            MPTProofType::BalanceChanged,
+            MPTProofType::NonceChanged,
+            MPTProofType::CodeSizeExists,
+            MPTProofType::CodeHashExists,
+        ] {
+            dbg!(proof_type);
+            mock_prove(vec![(proof_type, trace.clone())]);
+        }
+    }
+}
+
+#[test]
 fn existing_account_balance_update() {
     let mut generator = initial_generator();
     let trace = generator.handle_new_state(
