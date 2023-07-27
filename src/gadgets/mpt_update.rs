@@ -2061,36 +2061,10 @@ pub fn hash_traces(proofs: &[Proof]) -> Vec<([Fr; 2], Fr, Fr)> {
         *ZERO_PAIR_HASH,
     )];
     for proof in proofs.iter() {
-        let address_hash_traces = &proof.address_hash_traces;
-        for (direction, domain, old_hash, new_hash, sibling, is_padding_open, is_padding_close) in
-            address_hash_traces.iter().rev()
-        {
-            if !*is_padding_open {
-                let (left, right) = if *direction {
-                    (sibling, old_hash)
-                } else {
-                    (old_hash, sibling)
-                };
-                hash_traces.push((
-                    [*left, *right],
-                    (*domain).into(),
-                    domain_hash(*left, *right, *domain),
-                ));
-            }
-            if !*is_padding_close {
-                let (left, right) = if *direction {
-                    (sibling, new_hash)
-                } else {
-                    (new_hash, sibling)
-                };
-                hash_traces.push((
-                    [*left, *right],
-                    (*domain).into(),
-                    domain_hash(*left, *right, *domain),
-                ));
-            }
+        for (left, right, domain, hash) in proof.account_trie_rows.poseidon_lookups() {
+            hash_traces.push(([left, right], Fr::from(domain), hash));
         }
-        // you don't even push it hereeeeee lol
+
         hash_traces.extend(
             proof
                 .storage

@@ -17,6 +17,7 @@ use num_traits::identities::Zero;
 pub mod storage;
 pub mod trie;
 use storage::StorageProof;
+use trie::TrieRows;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HashDomain {
@@ -183,6 +184,8 @@ pub struct Proof {
 
     pub old_account: Option<EthAccount>,
     pub new_account: Option<EthAccount>,
+
+    pub account_trie_rows: TrieRows,
 }
 
 // TODO: rename to Account
@@ -412,6 +415,15 @@ impl From<(MPTProofType, SMTTrace)> for Proof {
 
         let key = account_key(claim.address);
         assert_eq!(key, fr(trace.account_key));
+
+        let account_trie_rows = TrieRows::new(
+            fr(trace.account_key),
+            &trace.account_path[0].path,
+            &trace.account_path[1].path,
+            trace.account_path[0].leaf,
+            trace.account_path[1].leaf,
+        );
+
         let leafs = trace.account_path.clone().map(get_leaf);
         let [open_hash_traces, close_hash_traces] =
             trace.account_path.clone().map(|path| path.path);
@@ -476,6 +488,7 @@ impl From<(MPTProofType, SMTTrace)> for Proof {
             new,
             old_account,
             new_account,
+            account_trie_rows,
         }
     }
 }
