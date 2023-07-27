@@ -189,6 +189,42 @@ fn empty_account_proofs_for_zero_value_updates() {
 }
 
 #[test]
+fn empty_account_proofs_for_empty_storage_updates() {
+    let type_1_address = Address::zero();
+    let type_2_address = Address::repeat_byte(20);
+
+    for address in [type_1_address, type_2_address] {
+        let mut generator = initial_generator();
+        let trace = generator.handle_new_state(
+            mpt_zktrie::mpt_circuits::MPTProofType::StorageDoesNotExist,
+            address,
+            U256::zero(),
+            U256::zero(),
+            Some(U256::MAX),
+        );
+
+        let json = serde_json::to_string_pretty(&trace).unwrap();
+        let trace: SMTTrace = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(trace.account_update, [None, None], "account is not empty");
+        for path in &trace.account_path {
+            assert!(
+                if address == type_1_address {
+                    path.leaf.is_some()
+                } else {
+                    path.leaf.is_none()
+                },
+                "account type incorrect"
+            );
+        }
+
+        let proof = Proof::from((MPTProofType::StorageDoesNotExist, trace.clone()));
+        proof.check();
+        mock_prove(vec![(MPTProofType::StorageDoesNotExist, trace)]);
+    }
+}
+
+#[test]
 fn existing_account_balance_update() {
     let mut generator = initial_generator();
     let trace = generator.handle_new_state(
