@@ -766,33 +766,55 @@ fn multiple_updates() {
     mock_prove(witness);
 }
 
-// #[test]
-// fn insert_into_singleton_storage_trie() {
-//     let mut generator = initial_generator();
-//     generator.handle_new_state(
-//         mpt_zktrie::mpt_circuits::MPTProofType::StorageChanged,
-//         Address::repeat_byte(1),
-//         U256([1, 2, 3, 4]),
-//         U256::zero(),
-//         Some(U256([10, 20, 30, 40])),
-//     );
+#[test]
+fn empty_storage_trie() {
+    let mut generator = initial_generator();
+    let trace = generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::StorageChanged,
+        Address::repeat_byte(2),
+        U256::from(324123123u64),
+        U256::zero(),
+        Some(U256::from(3)),
+    );
 
-//     let trace = generator.handle_new_state(
-//         mpt_zktrie::mpt_circuits::MPTProofType::StorageChanged,
-//         Address::repeat_byte(1),
-//         U256([5, 6, 7, 8]),
-//         U256::zero(),
-//         Some(U256([50, 60, 70, 80])),
-//     );
+    let json = serde_json::to_string_pretty(&trace).unwrap();
+    let trace: SMTTrace = serde_json::from_str(&json).unwrap();
 
-//     let json = serde_json::to_string_pretty(&trace).unwrap();
-//     assert_eq!(
-//         format!("{}\n", json),
-//         include_str!("traces/insert_into_singleton_storage_trie.json"),
-//         "{}",
-//         json
-//     );
-//     let trace: SMTTrace = serde_json::from_str(&json).unwrap();
-//     let proof = Proof::from((MPTProofType::StorageChanged, trace));
-//     proof.check();
-// }
+    let insertion_proof = Proof::from((MPTProofType::StorageChanged, trace.clone()));
+    insertion_proof.check();
+    mock_prove(vec![(MPTProofType::StorageChanged, trace.clone())]);
+
+    let deletion_proof = Proof::from((MPTProofType::StorageChanged, reverse(trace.clone())));
+    deletion_proof.check();
+    mock_prove(vec![(MPTProofType::StorageChanged, reverse(trace))]);
+}
+
+#[test]
+fn singleton_storage_trie() {
+    let mut generator = initial_generator();
+    generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::StorageChanged,
+        Address::repeat_byte(2),
+        U256::from(7),
+        U256::zero(),
+        Some(U256::from(2)),
+    );
+    let trace = generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::StorageChanged,
+        Address::repeat_byte(2),
+        U256::from(4),
+        U256::zero(),
+        Some(U256::from(3)),
+    );
+
+    let json = serde_json::to_string_pretty(&trace).unwrap();
+    let trace: SMTTrace = serde_json::from_str(&json).unwrap();
+
+    let insertion_proof = Proof::from((MPTProofType::StorageChanged, trace.clone()));
+    insertion_proof.check();
+    mock_prove(vec![(MPTProofType::StorageChanged, trace.clone())]);
+
+    let deletion_proof = Proof::from((MPTProofType::StorageChanged, reverse(trace.clone())));
+    deletion_proof.check();
+    mock_prove(vec![(MPTProofType::StorageChanged, reverse(trace))]);
+}

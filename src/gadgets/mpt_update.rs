@@ -959,7 +959,8 @@ fn configure_common_path<F: FieldExt>(
                 "old domain is not HashDomain::NodeTypeBranch3",
                 (config.domain.current() - u64::from(HashDomain::NodeTypeBranch0))
                     * (config.domain.current() - u64::from(HashDomain::NodeTypeBranch1))
-                    * (config.domain.current() - u64::from(HashDomain::NodeTypeBranch2)),
+                    * (config.domain.current() - u64::from(HashDomain::NodeTypeBranch2))
+                    * (config.domain.current() - u64::from(HashDomain::AccountFields)),
             );
             cb.poseidon_lookup(
                 "poseidon hash correct for old common path",
@@ -993,6 +994,10 @@ fn configure_common_path<F: FieldExt>(
                         (
                             HashDomain::NodeTypeBranch2.into(),
                             Query::from(HashDomain::NodeTypeBranch3.into_u64()),
+                        ),
+                        (
+                            HashDomain::AccountFields.into(),
+                            Query::from(HashDomain::AccountFields.into_u64()),
                         ),
                     ],
                 );
@@ -1032,7 +1037,8 @@ fn configure_common_path<F: FieldExt>(
                 "new domain is not HashDomain::NodeTypeBranch3",
                 (config.domain.current() - u64::from(HashDomain::NodeTypeBranch0))
                     * (config.domain.current() - u64::from(HashDomain::NodeTypeBranch1))
-                    * (config.domain.current() - u64::from(HashDomain::NodeTypeBranch2)),
+                    * (config.domain.current() - u64::from(HashDomain::NodeTypeBranch2))
+                    * (config.domain.current() - u64::from(HashDomain::AccountFields)),
             );
             cb.poseidon_lookup(
                 "poseidon hash correct for new common path",
@@ -1065,6 +1071,10 @@ fn configure_common_path<F: FieldExt>(
                         (
                             HashDomain::NodeTypeBranch2.into(),
                             Query::from(HashDomain::NodeTypeBranch3.into_u64()),
+                        ),
+                        (
+                            HashDomain::AccountFields.into(),
+                            Query::from(HashDomain::AccountFields.into_u64()),
                         ),
                     ],
                 );
