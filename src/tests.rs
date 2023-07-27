@@ -108,6 +108,18 @@ fn mock_prove(witness: Vec<(MPTProofType, SMTTrace)>) {
 }
 
 #[test]
+fn degree() {
+    let mut meta = ConstraintSystem::<Fr>::default();
+    TestCircuit::configure(&mut meta);
+    assert_eq!(meta.degree(), 9);
+}
+
+#[test]
+fn all_padding() {
+    mock_prove(vec![]);
+}
+
+#[test]
 fn empty_account_type_1() {
     let mut generator = initial_generator();
     let trace = generator.handle_new_state(
@@ -722,6 +734,36 @@ fn empty_storage_type_1_update_c() {
     let deletion_proof = Proof::from((MPTProofType::StorageChanged, reverse(trace.clone())));
     deletion_proof.check();
     mock_prove(vec![(MPTProofType::StorageChanged, reverse(trace))]);
+}
+
+#[test]
+fn multiple_updates() {
+    let witness = vec![
+        (
+            MPTProofType::StorageChanged,
+            serde_json::from_str(&include_str!("traces/empty_storage_type_1_update_c.json"))
+                .unwrap(),
+        ),
+        (
+            MPTProofType::CodeHashExists,
+            serde_json::from_str(&include_str!(
+                "traces/existing_account_keccak_codehash_update.json"
+            ))
+            .unwrap(),
+        ),
+        (
+            MPTProofType::BalanceChanged,
+            serde_json::from_str(&include_str!(
+                "traces/empty_account_type_2_balance_update.json"
+            ))
+            .unwrap(),
+        ),
+        (
+            MPTProofType::AccountDoesNotExist,
+            serde_json::from_str(&include_str!("traces/empty_account_type_1.json")).unwrap(),
+        ),
+    ];
+    mock_prove(witness);
 }
 
 // #[test]

@@ -1042,74 +1042,11 @@ impl Bit for Fr {
 mod test {
     use super::*;
 
-    // const EMPTY_ACCOUNT_TRACE: &str = include_str!("../tests/empty_account.json");
-    // const EMPTY_STORAGE_TRACE: &str = include_str!("../tests/empty_storage.json");
-    // const TRACES: &str = include_str!("../tests/traces.json");
-    // const READ_TRACES: &str = include_str!("../tests/read_traces.json");
-    // const DEPLOY_TRACES: &str = include_str!("../tests/deploy_traces.json");
-    // const TOKEN_TRACES: &str = include_str!("../tests/token_traces.json");
-
     #[test]
     fn bit_trait() {
         assert!(Fr::one().bit(0));
         assert!(!Fr::one().bit(1));
     }
-
-    // #[test]
-    // fn check_path_part() {
-    //     // DEPLOY_TRACES(!?!?) has a trace where account nonce and balance change in one trace....
-    //     for s in [TRACES, READ_TRACES, TOKEN_TRACES] {
-    //         let traces: Vec<SMTTrace> = serde_json::from_str::<Vec<_>>(s).unwrap();
-    //         for trace in traces {
-    //             let _address = Address::from(trace.address.0);
-    //             let [open, close] = trace.account_path;
-
-    //             // not always true for deploy traces because account comes into existence.
-    //             assert_eq!(open.path.len(), close.path.len());
-    //             assert_eq!(open.path_part, close.path_part);
-
-    //             let directions_1 = bits(open.path_part.try_into().unwrap(), open.path.len());
-    //             let directions_2: Vec<_> = (0..open.path.len())
-    //                 .map(|i| fr(trace.account_key).bit(open.path.len() - 1 - i))
-    //                 .collect();
-    //             assert_eq!(directions_1, directions_2);
-    //         }
-    //     }
-    // }
-
-    // #[test]
-    // fn check_account_key() {
-    //     for s in [TRACES, READ_TRACES, TOKEN_TRACES] {
-    //         let traces: Vec<SMTTrace> = serde_json::from_str::<Vec<_>>(s).unwrap();
-    //         for trace in traces {
-    //             let address = Address::from(trace.address.0);
-    //             assert_eq!(fr(trace.account_key), account_key(address));
-    //         }
-    //     }
-    // }
-
-    // #[test]
-    // fn sanity_check_paths() {
-    //     for s in [READ_TRACES, TRACES, DEPLOY_TRACES, TOKEN_TRACES] {
-    //         let traces: Vec<SMTTrace> = serde_json::from_str::<Vec<_>>(s).unwrap();
-    //         for trace in traces {
-    //             let address = trace.address.0.into();
-    //             for (path, _account) in trace.account_path.iter().zip_eq(trace.account_update) {
-    //                 assert!(
-    //                     contains(
-    //                         &bits(
-    //                             path.clone().path_part.try_into().unwrap(),
-    //                             path.clone().path.len()
-    //                         ),
-    //                         account_key(address)
-    //                     ),
-    //                     "{:?}",
-    //                     (address, path.path_part.clone(), account_key(address))
-    //                 );
-    //             }
-    //         }
-    //     }
-    // }
 
     fn contains(path: &[bool], key: Fr) -> bool {
         for (i, direction) in path.iter().rev().enumerate() {
