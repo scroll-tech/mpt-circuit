@@ -155,7 +155,7 @@ pub fn lagrange_polynomial<F: FieldExt>(argument: Query<F>, points: &[(Fr, Query
         basis_polynomials.push(numerator * denominator.invert().unwrap());
     }
 
-    let y_coordinates = points.into_iter().map(|p| p.1.clone());
+    let y_coordinates = points.iter().map(|p| p.1.clone());
     basis_polynomials
         .into_iter()
         .zip(y_coordinates)
