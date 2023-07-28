@@ -258,15 +258,15 @@ impl TrieRows {
 
 pub fn next_domain(before_insertion_domain: HashDomain, insertion_direction: bool) -> HashDomain {
     match before_insertion_domain {
-        HashDomain::NodeTypeBranch0 => {
+        HashDomain::Branch0 => {
             if insertion_direction {
-                HashDomain::NodeTypeBranch1
+                HashDomain::Branch1
             } else {
-                HashDomain::NodeTypeBranch2
+                HashDomain::Branch2
             }
         }
-        HashDomain::NodeTypeBranch1 | HashDomain::NodeTypeBranch2 => HashDomain::NodeTypeBranch3,
-        HashDomain::NodeTypeBranch3 => unreachable!(),
+        HashDomain::Branch1 | HashDomain::Branch2 => HashDomain::Branch3,
+        HashDomain::Branch3 => unreachable!(),
         _ => unreachable!(),
     }
 }
@@ -291,5 +291,5 @@ fn get_domains(
 }
 
 fn leaf_hash(leaf: SMTNode) -> Fr {
-    domain_hash(fr(leaf.sibling), fr(leaf.value), HashDomain::NodeTypeEmpty)
+    domain_hash(fr(leaf.sibling), fr(leaf.value), HashDomain::Leaf)
 }

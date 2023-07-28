@@ -143,12 +143,12 @@ pub fn domains(segment_type: SegmentType) -> Vec<HashDomain> {
         SegmentType::Start => vec![HashDomain::Pair],
 
         SegmentType::AccountTrie | SegmentType::StorageTrie => vec![
-            HashDomain::NodeTypeBranch0,
-            HashDomain::NodeTypeBranch1,
-            HashDomain::NodeTypeBranch2,
-            HashDomain::NodeTypeBranch3,
+            HashDomain::Branch0,
+            HashDomain::Branch1,
+            HashDomain::Branch2,
+            HashDomain::Branch3,
         ],
-        SegmentType::AccountLeaf0 | SegmentType::StorageLeaf0 => vec![HashDomain::NodeTypeEmpty],
+        SegmentType::AccountLeaf0 | SegmentType::StorageLeaf0 => vec![HashDomain::Leaf],
         SegmentType::AccountLeaf1 | SegmentType::AccountLeaf2 | SegmentType::AccountLeaf3 => {
             vec![HashDomain::AccountFields]
         }

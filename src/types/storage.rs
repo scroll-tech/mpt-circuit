@@ -237,7 +237,7 @@ impl StorageLeaf {
         if let Self::Empty { .. } = self {
             Fr::zero()
         } else {
-            domain_hash(self.key(), self.value_hash(), HashDomain::NodeTypeEmpty)
+            domain_hash(self.key(), self.value_hash(), HashDomain::Leaf)
         }
     }
 
@@ -245,12 +245,9 @@ impl StorageLeaf {
         let mut lookups = vec![];
         match self {
             Self::Empty { .. } => (),
-            Self::Leaf { value_hash, .. } => lookups.push((
-                self.key(),
-                *value_hash,
-                HashDomain::NodeTypeEmpty,
-                self.hash(),
-            )),
+            Self::Leaf { value_hash, .. } => {
+                lookups.push((self.key(), *value_hash, HashDomain::Leaf, self.hash()))
+            }
             Self::Entry { storage_key, .. } => {
                 let (key_high, key_low) = u256_hi_lo(storage_key);
                 lookups.extend(vec![
@@ -266,12 +263,7 @@ impl StorageLeaf {
                         HashDomain::Pair,
                         self.value_hash(),
                     ),
-                    (
-                        self.key(),
-                        self.value_hash(),
-                        HashDomain::NodeTypeEmpty,
-                        self.hash(),
-                    ),
+                    (self.key(), self.value_hash(), HashDomain::Leaf, self.hash()),
                 ]);
             }
         }

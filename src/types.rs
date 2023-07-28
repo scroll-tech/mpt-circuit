@@ -21,31 +21,25 @@ use trie::TrieRows;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HashDomain {
-    NodeTypeEmpty = 4, // this is not needed? // it is somehow used for leaf domain hashes?
-    NodeTypeLeaf = 5,  // Rename to Leaf...
-    NodeTypeBranch0 = 6,
-    NodeTypeBranch1 = 7,
-    NodeTypeBranch2 = 8,
-    NodeTypeBranch3 = 9,
-    Pair = 512,
-    AccountFields = 5 * 256,
-    // Test = 1
-    // TwoElements for keys, storage value, and keccak code hash, = 512
-    // Five(Six?)Elements for account fields....
+    Leaf,
+    Branch0, // branch node with both children = leaf or empty
+    Branch1, // branch node with left child = branch node and right child = leaf or empty
+    Branch2, // branch node with left child = leaf or empty and right child = branch node
+    Branch3, // branch node with both children = branch node
+    Pair,
+    AccountFields,
 }
 
 impl TryFrom<u64> for HashDomain {
     type Error = &'static str;
     fn try_from(x: u64) -> Result<Self, Self::Error> {
         match x {
-            4 => Ok(Self::NodeTypeEmpty),
-            5 => Ok(Self::NodeTypeLeaf),
-            6 => Ok(Self::NodeTypeBranch0),
-            7 => Ok(Self::NodeTypeBranch1),
-            8 => Ok(Self::NodeTypeBranch2),
-            9 => Ok(Self::NodeTypeBranch3),
-            // 512 => Ok(Self::)
-            _ => Err("input out of range for HashDomain"),
+            4 => Ok(Self::Leaf),
+            6 => Ok(Self::Branch0),
+            7 => Ok(Self::Branch1),
+            8 => Ok(Self::Branch2),
+            9 => Ok(Self::Branch3),
+            _ => Err("unreachable u64 for HashDomain"),
         }
     }
 }
@@ -59,12 +53,11 @@ impl From<HashDomain> for Fr {
 impl From<HashDomain> for u64 {
     fn from(h: HashDomain) -> Self {
         match h {
-            HashDomain::NodeTypeEmpty => 4,
-            HashDomain::NodeTypeLeaf => 5,
-            HashDomain::NodeTypeBranch0 => 6,
-            HashDomain::NodeTypeBranch1 => 7,
-            HashDomain::NodeTypeBranch2 => 8,
-            HashDomain::NodeTypeBranch3 => 9,
+            HashDomain::Leaf => 4,
+            HashDomain::Branch0 => 6,
+            HashDomain::Branch1 => 7,
+            HashDomain::Branch2 => 8,
+            HashDomain::Branch3 => 9,
             HashDomain::Pair => 2 * 256,
             HashDomain::AccountFields => 5 * 256,
         }
@@ -235,16 +228,6 @@ impl Proof {
 pub struct Path {
     pub key: Fr,                    // pair hash of address or storage key
     pub leaf_data_hash: Option<Fr>, // leaf data hash for type 0 and type 1, None for type 2.
-}
-
-impl Path {
-    pub fn hash(&self) -> Fr {
-        if let Some(data_hash) = self.leaf_data_hash {
-            domain_hash(self.key, data_hash, HashDomain::NodeTypeLeaf)
-        } else {
-            Fr::zero()
-        }
-    }
 }
 
 impl From<(&MPTProofType, &SMTTrace)> for Claim {
@@ -503,9 +486,8 @@ fn get_leaf(path: SMTPath) -> Option<LeafNode> {
 
 fn leaf_hash(path: SMTPath) -> Fr {
     if let Some(leaf) = path.leaf {
-        domain_hash(fr(leaf.sibling), fr(leaf.value), HashDomain::NodeTypeEmpty)
+        domain_hash(fr(leaf.sibling), fr(leaf.value), HashDomain::Leaf)
     } else {
-        // assert_eq!(path, SMTPath::default());
         Fr::zero()
     }
 }
@@ -536,7 +518,7 @@ fn account_hash_traces(address: Address, account: AccountData, storage_root: Fr)
     account_hash_traces[5] = [
         account_key,
         account_hash,
-        domain_hash(account_key, account_hash, HashDomain::NodeTypeEmpty),
+        domain_hash(account_key, account_hash, HashDomain::Leaf),
     ];
     account_hash_traces
 }
@@ -620,7 +602,7 @@ fn empty_account_hash_traces(leaf: Option<LeafNode>) -> [[Fr; 3]; 6] {
         account_hash_traces[5] = [
             l.key,
             l.value_hash,
-            domain_hash(l.key, l.value_hash, HashDomain::NodeTypeEmpty),
+            domain_hash(l.key, l.value_hash, HashDomain::Leaf),
         ];
     }
     account_hash_traces
@@ -841,7 +823,7 @@ impl Proof {
 
         if let Some(old_leaf) = self.leafs[0] {
             assert_eq!(
-                domain_hash(old_leaf.key, old_leaf.value_hash, HashDomain::NodeTypeEmpty),
+                domain_hash(old_leaf.key, old_leaf.value_hash, HashDomain::Leaf),
                 self.old_account_hash_traces[5][2],
             );
         } else {
@@ -849,7 +831,7 @@ impl Proof {
         }
         if let Some(new_leaf) = self.leafs[1] {
             assert_eq!(
-                domain_hash(new_leaf.key, new_leaf.value_hash, HashDomain::NodeTypeEmpty),
+                domain_hash(new_leaf.key, new_leaf.value_hash, HashDomain::Leaf),
                 self.new_account_hash_traces[5][2],
             );
         } else {
@@ -912,17 +894,16 @@ fn check_hash_traces_new(traces: &[(bool, HashDomain, Fr, Fr, Fr, bool, bool)]) 
                         unimplemented!("account leaf deletion");
                     } else if previous_path_type == Some(PathType::ExtensionNew) {
                         match *domain {
-                            HashDomain::NodeTypeBranch0 => [
-                                HashDomain::NodeTypeBranch0,
+                            HashDomain::Branch0 => [
+                                HashDomain::Branch0,
                                 if *direction {
-                                    HashDomain::NodeTypeBranch1
+                                    HashDomain::Branch1
                                 } else {
-                                    HashDomain::NodeTypeBranch2
+                                    HashDomain::Branch2
                                 },
                             ],
-                            HashDomain::NodeTypeBranch1 => unimplemented!("type 2 extension"),
-                            HashDomain::NodeTypeBranch2 => unimplemented!("type 2 extension"),
-                            HashDomain::NodeTypeBranch3 => {
+                            HashDomain::Branch1 | HashDomain::Branch2 => unreachable!(),
+                            HashDomain::Branch3 => {
                                 unreachable!("both siblings already present")
                             }
                             _ => unreachable!(),
@@ -981,11 +962,6 @@ fn bits(x: usize, len: usize) -> Vec<bool> {
 
 fn fr(x: HexBytes<32>) -> Fr {
     Fr::from_bytes(&x.0).unwrap()
-}
-
-fn storage_key_hash(key: U256) -> Fr {
-    let (high, low) = split_word(key);
-    domain_hash(high, low, HashDomain::NodeTypeLeaf)
 }
 
 fn split_word(x: U256) -> (Fr, Fr) {

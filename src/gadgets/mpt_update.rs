@@ -435,7 +435,7 @@ impl MptUpdateConfig {
                 })
                 .unwrap_or(PathType::Common);
             let (final_old_hash, final_new_hash) = match proof.address_hash_traces.first() {
-                None => (proof.old.hash(), proof.new.hash()),
+                None => unimplemented!("single account mpt not handled"),
                 Some((_, _, old_hash, new_hash, _, _, _)) => (*old_hash, *new_hash),
             };
 
@@ -500,14 +500,12 @@ impl MptUpdateConfig {
             for (i, (segment_type, sibling, old_hash, new_hash, direction)) in
                 izip!(segment_types, siblings, old_hashes, new_hashes, directions).enumerate()
             {
-                // leaf0 and leaf1 have problems....
                 if i == 0 {
                     self.is_zero_gadgets[3].assign_value_and_inverse(region, offset, old_hash);
-                    self.domain
-                        .assign(region, offset + i, HashDomain::NodeTypeEmpty.into_u64());
+                    self.domain.assign(region, offset + i, HashDomain::Leaf);
                 } else {
                     self.domain
-                        .assign(region, offset + i, HashDomain::AccountFields.into_u64());
+                        .assign(region, offset + i, HashDomain::AccountFields);
                 }
                 self.segment_type.assign(region, offset + i, segment_type);
                 self.path_type.assign(region, offset + i, leaf_path_type);
@@ -765,8 +763,7 @@ impl MptUpdateConfig {
         self.segment_type
             .assign(region, offset, SegmentType::StorageLeaf0);
         self.direction.assign(region, offset, true);
-        self.domain
-            .assign(region, offset, HashDomain::NodeTypeEmpty);
+        self.domain.assign(region, offset, HashDomain::Leaf);
 
         let sibling = match path_type {
             PathType::Start => unreachable!(),
@@ -941,10 +938,10 @@ fn configure_common_path<F: FieldExt>(
         config.path_type.next_matches(&[PathType::ExtensionNew]),
         |cb| {
             cb.assert_zero(
-                "old domain is not HashDomain::NodeTypeBranch3",
-                (config.domain.current() - u64::from(HashDomain::NodeTypeBranch0))
-                    * (config.domain.current() - u64::from(HashDomain::NodeTypeBranch1))
-                    * (config.domain.current() - u64::from(HashDomain::NodeTypeBranch2))
+                "old domain is not HashDomain::Branch3",
+                (config.domain.current() - u64::from(HashDomain::Branch0))
+                    * (config.domain.current() - u64::from(HashDomain::Branch1))
+                    * (config.domain.current() - u64::from(HashDomain::Branch2))
                     * (config.domain.current() - u64::from(HashDomain::AccountFields)),
             );
             cb.poseidon_lookup(
@@ -970,19 +967,19 @@ fn configure_common_path<F: FieldExt>(
                         config.domain.current(),
                         &[
                             (
-                                HashDomain::NodeTypeBranch0.into(),
+                                HashDomain::Branch0.into(),
                                 BinaryQuery(config.direction.current()).select(
-                                    Query::from(HashDomain::NodeTypeBranch1.into_u64()),
-                                    Query::from(HashDomain::NodeTypeBranch2.into_u64()),
+                                    Query::from(HashDomain::Branch1.into_u64()),
+                                    Query::from(HashDomain::Branch2.into_u64()),
                                 ),
                             ),
                             (
-                                HashDomain::NodeTypeBranch1.into(),
-                                Query::from(HashDomain::NodeTypeBranch3.into_u64()),
+                                HashDomain::Branch1.into(),
+                                Query::from(HashDomain::Branch3.into_u64()),
                             ),
                             (
-                                HashDomain::NodeTypeBranch2.into(),
-                                Query::from(HashDomain::NodeTypeBranch3.into_u64()),
+                                HashDomain::Branch2.into(),
+                                Query::from(HashDomain::Branch3.into_u64()),
                             ),
                             (
                                 HashDomain::AccountFields.into(),
@@ -1024,10 +1021,10 @@ fn configure_common_path<F: FieldExt>(
         config.path_type.next_matches(&[PathType::ExtensionOld]),
         |cb| {
             cb.assert_zero(
-                "new domain is not HashDomain::NodeTypeBranch3",
-                (config.domain.current() - u64::from(HashDomain::NodeTypeBranch0))
-                    * (config.domain.current() - u64::from(HashDomain::NodeTypeBranch1))
-                    * (config.domain.current() - u64::from(HashDomain::NodeTypeBranch2))
+                "new domain is not HashDomain::Branch3",
+                (config.domain.current() - u64::from(HashDomain::Branch0))
+                    * (config.domain.current() - u64::from(HashDomain::Branch1))
+                    * (config.domain.current() - u64::from(HashDomain::Branch2))
                     * (config.domain.current() - u64::from(HashDomain::AccountFields)),
             );
             cb.poseidon_lookup(
@@ -1052,23 +1049,23 @@ fn configure_common_path<F: FieldExt>(
                         config.domain.current(),
                         &[
                             (
-                                HashDomain::NodeTypeBranch0.into(),
+                                HashDomain::Branch0.into(),
                                 BinaryQuery(config.direction.current()).select(
-                                    Query::from(HashDomain::NodeTypeBranch1.into_u64()),
-                                    Query::from(HashDomain::NodeTypeBranch2.into_u64()),
+                                    Query::from(Fr::from(HashDomain::Branch1)),
+                                    Query::from(Fr::from(HashDomain::Branch2)),
                                 ),
                             ),
                             (
-                                HashDomain::NodeTypeBranch1.into(),
-                                Query::from(HashDomain::NodeTypeBranch3.into_u64()),
+                                HashDomain::Branch1.into(),
+                                Query::from(Fr::from(HashDomain::Branch3)),
                             ),
                             (
-                                HashDomain::NodeTypeBranch2.into(),
-                                Query::from(HashDomain::NodeTypeBranch3.into_u64()),
+                                HashDomain::Branch2.into(),
+                                Query::from(Fr::from(HashDomain::Branch3)),
                             ),
                             (
                                 HashDomain::AccountFields.into(),
-                                Query::from(HashDomain::AccountFields.into_u64()),
+                                Query::from(Fr::from(HashDomain::AccountFields)),
                             ),
                         ],
                     ),
@@ -1580,9 +1577,9 @@ fn configure_balance<F: FieldExt>(
             }
             SegmentType::AccountLeaf0 => {
                 cb.assert_equal(
-                    "balance AccountLeaf0 domain is NodeTypeLeaf",
+                    "balance AccountLeaf0 domain is Leaf",
                     config.domain.current(),
-                    Query::from(u64::from(HashDomain::NodeTypeEmpty)),
+                    Query::from(u64::from(HashDomain::Leaf)),
                 );
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
             }
@@ -2091,15 +2088,15 @@ pub fn hash_traces(proofs: &[Proof]) -> Vec<([Fr; 2], Fr, Fr)> {
         if let Some(data_hash) = proof.old.leaf_data_hash {
             hash_traces.push((
                 [proof.old.key, data_hash],
-                HashDomain::NodeTypeEmpty.into(),
-                domain_hash(proof.old.key, data_hash, HashDomain::NodeTypeEmpty),
+                HashDomain::Leaf.into(),
+                domain_hash(proof.old.key, data_hash, HashDomain::Leaf),
             ));
         }
         if let Some(data_hash) = proof.new.leaf_data_hash {
             hash_traces.push((
                 [proof.new.key, data_hash],
-                HashDomain::NodeTypeEmpty.into(),
-                domain_hash(proof.new.key, data_hash, HashDomain::NodeTypeEmpty),
+                HashDomain::Leaf.into(),
+                domain_hash(proof.new.key, data_hash, HashDomain::Leaf),
             ));
         }
 
@@ -2109,8 +2106,8 @@ pub fn hash_traces(proofs: &[Proof]) -> Vec<([Fr; 2], Fr, Fr)> {
             for [left, right, digest] in account_leaf_hash_traces {
                 if domain_hash(left, right, HashDomain::AccountFields) == digest {
                     hash_traces.push(([left, right], HashDomain::AccountFields.into(), digest))
-                } else if domain_hash(left, right, HashDomain::NodeTypeEmpty) == digest {
-                    hash_traces.push(([left, right], HashDomain::NodeTypeEmpty.into(), digest))
+                } else if domain_hash(left, right, HashDomain::Leaf) == digest {
+                    hash_traces.push(([left, right], HashDomain::Leaf.into(), digest))
                 } else if domain_hash(left, right, HashDomain::Pair) == digest {
                     hash_traces.push(([left, right], HashDomain::Pair.into(), digest))
                 }

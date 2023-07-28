@@ -124,13 +124,13 @@ pub fn account_key(address: Address) -> Fr {
 pub fn check_domain_consistency(before: HashDomain, after: HashDomain, direction: bool) {
     if direction {
         assert!(
-            before == HashDomain::NodeTypeBranch0 && after == HashDomain::NodeTypeBranch1
-                || before == HashDomain::NodeTypeBranch2 && after == HashDomain::NodeTypeBranch3
+            before == HashDomain::Branch0 && after == HashDomain::Branch1
+                || before == HashDomain::Branch2 && after == HashDomain::Branch3
         );
     } else {
         assert!(
-            before == HashDomain::NodeTypeBranch0 && after == HashDomain::NodeTypeBranch2
-                || before == HashDomain::NodeTypeBranch1 && after == HashDomain::NodeTypeBranch3
+            before == HashDomain::Branch0 && after == HashDomain::Branch2
+                || before == HashDomain::Branch1 && after == HashDomain::Branch3
         );
     }
 }
