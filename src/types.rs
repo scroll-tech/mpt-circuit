@@ -902,7 +902,8 @@ fn check_hash_traces_new(traces: &[(bool, HashDomain, Fr, Fr, Fr, bool, bool)]) 
                                     HashDomain::Branch2
                                 },
                             ],
-                            HashDomain::Branch1 | HashDomain::Branch2 => HashDomain::Branch3,
+                            HashDomain::Branch1 => [HashDomain::Branch1, HashDomain::Branch3],
+                            HashDomain::Branch2 => [HashDomain::Branch2, HashDomain::Branch3],
                             HashDomain::Branch3 => {
                                 unreachable!("both siblings already present")
                             }
