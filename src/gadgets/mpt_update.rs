@@ -530,7 +530,8 @@ impl MptUpdateConfig {
                             proof.claim.kind
                         {
                             self.key.assign(region, offset + 3, proof.storage.key());
-                            let [storage_key_high, storage_key_low, ..] = self.intermediate_values;
+                            let [storage_key_high, storage_key_low, new_domain, ..] =
+                                self.intermediate_values;
                             let [rlc_storage_key_high, rlc_storage_key_low, ..] =
                                 self.second_phase_intermediate_values;
                             assign_word_rlc(
@@ -543,6 +544,7 @@ impl MptUpdateConfig {
                             );
                             self.other_key
                                 .assign(region, offset + 3, proof.storage.other_key());
+                            new_domain.assign(region, offset + 3, HashDomain::AccountFields);
                         }
                     }
                     _ => {}
@@ -627,7 +629,7 @@ impl MptUpdateConfig {
                 if !matches!(next_row.path_type, PathType::Start | PathType::Common)
                     && row.path_type == PathType::Common
                 {
-                    self.intermediate_values[0].assign(
+                    self.intermediate_values[2].assign(
                         region,
                         offset,
                         next_domain(row.domain, row.direction),
@@ -960,7 +962,7 @@ fn configure_common_path<F: FieldExt>(
                 .segment_type
                 .next_matches(&[SegmentType::AccountLeaf0, SegmentType::StorageLeaf0]);
             cb.condition(!is_type_2.clone(), |cb| {
-                let new_domain = config.intermediate_values[0];
+                let new_domain = config.intermediate_values[2];
                 cb.assert_equal(
                     "new domain matches direction and domain after insertion",
                     new_domain.current(),
@@ -1042,7 +1044,7 @@ fn configure_common_path<F: FieldExt>(
                 .segment_type
                 .next_matches(&[SegmentType::AccountLeaf0, SegmentType::StorageLeaf0]);
             cb.condition(!is_type_2.clone(), |cb| {
-                let new_domain = config.intermediate_values[0];
+                let new_domain = config.intermediate_values[2];
                 cb.assert_equal(
                     "new domain matches direction and domain before deletion",
                     new_domain.current(),
