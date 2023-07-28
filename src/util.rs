@@ -15,12 +15,7 @@ pub(crate) fn fr(x: HexBytes<32>) -> Fr {
 }
 
 pub fn domain_hash(x: Fr, y: Fr, domain: HashDomain) -> Fr {
-    Hashable::hash_with_domain([x, y], Fr::from(Into::<u64>::into(domain)))
-    // Hashable::hash_with_domain([x, y], domain)
-}
-
-pub fn temp_hash(x: Fr, y: Fr, domain: Fr) -> Fr {
-    Hashable::hash_with_domain([x, y], domain)
+    Hashable::hash_with_domain([x, y], Fr::from(domain))
 }
 
 pub(crate) trait Bit {

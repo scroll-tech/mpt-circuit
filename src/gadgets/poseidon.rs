@@ -1,12 +1,12 @@
 use crate::constraint_builder::{AdviceColumn, ConstraintBuilder, FixedColumn, Query};
-#[cfg(test)]
-use crate::util::temp_hash;
 use halo2_proofs::{
     arithmetic::FieldExt,
     plonk::{Advice, Column, Fixed},
 };
 #[cfg(test)]
 use halo2_proofs::{circuit::Region, halo2curves::bn256::Fr, plonk::ConstraintSystem};
+#[cfg(test)]
+use hash_circuit::hash::Hashable;
 
 /// Lookup  represent the poseidon table in zkevm circuit
 pub trait PoseidonLookup {
@@ -87,7 +87,8 @@ impl PoseidonTable {
     pub fn load(&self, region: &mut Region<'_, Fr>, hash_traces: &[([Fr; 2], Fr, Fr)]) {
         for (offset, hash_trace) in hash_traces.iter().enumerate() {
             assert!(
-                temp_hash(hash_trace.0[0], hash_trace.0[1], hash_trace.1) == hash_trace.2,
+                Hashable::hash_with_domain([hash_trace.0[0], hash_trace.0[1]], hash_trace.1)
+                    == hash_trace.2,
                 "{:?}",
                 (hash_trace.0, hash_trace.1, hash_trace.2)
             );
