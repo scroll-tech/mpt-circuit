@@ -20,7 +20,7 @@ use crate::{
     },
     types::{
         storage::{StorageLeaf, StorageProof},
-        trie::TrieRows,
+        trie::{next_domain, TrieRows},
         ClaimKind, HashDomain, Proof,
     },
     util::{account_key, domain_hash, lagrange_polynomial, rlc, u256_hi_lo, u256_to_big_endian},
@@ -414,55 +414,13 @@ impl MptUpdateConfig {
 
             offset += 1;
 
-            let mut previous_old_hash = proof.claim.old_root;
-            let mut previous_new_hash = proof.claim.new_root;
-            for (
-                depth,
-                (direction, domain, old_hash, new_hash, sibling, is_padding_open, is_padding_close),
-            ) in proof.address_hash_traces.iter().rev().enumerate()
-            {
-                self.depth
-                    .assign(region, offset, u64::try_from(depth + 1).unwrap());
-                self.segment_type
-                    .assign(region, offset, SegmentType::AccountTrie);
-                let path_type = match (*is_padding_open, *is_padding_close) {
-                    (false, false) => PathType::Common,
-                    (false, true) => {
-                        assert_eq!(*new_hash, previous_new_hash);
-                        PathType::ExtensionOld
-                    }
-                    (true, false) => {
-                        assert_eq!(*old_hash, previous_old_hash);
-                        PathType::ExtensionNew
-                    }
-                    (true, true) => unreachable!(),
-                };
-                self.path_type.assign(region, offset, path_type);
-
-                self.sibling.assign(region, offset, *sibling);
-                self.old_hash.assign(region, offset, *old_hash);
-                self.new_hash.assign(region, offset, *new_hash);
-                self.direction.assign(region, offset, *direction);
-                self.domain.assign(region, offset, domain.into_u64());
-
-                self.key.assign(region, offset, key);
-                self.other_key.assign(region, offset, other_key);
-
-                match path_type {
-                    PathType::Start => {}
-                    PathType::Common => {
-                        previous_old_hash = *old_hash;
-                        previous_new_hash = *new_hash;
-                    }
-                    PathType::ExtensionOld => {
-                        previous_old_hash = *old_hash;
-                    }
-                    PathType::ExtensionNew => {
-                        previous_new_hash = *new_hash;
-                    }
-                }
-                offset += 1;
+            let n_account_trie_rows =
+                self.assign_account_trie_rows(region, offset, &proof.account_trie_rows);
+            for i in 0..n_account_trie_rows {
+                self.key.assign(region, offset + i, key);
+                self.other_key.assign(region, offset + i, other_key);
             }
+            offset += n_account_trie_rows;
 
             let final_path_type = proof
                 .address_hash_traces
@@ -625,6 +583,20 @@ impl MptUpdateConfig {
         n_rows
     }
 
+    fn assign_account_trie_rows(
+        &self,
+        region: &mut Region<'_, Fr>,
+        starting_offset: usize,
+        rows: &TrieRows,
+    ) -> usize {
+        let n_rows = self.assign_trie_rows(region, starting_offset, rows);
+        for i in 0..n_rows {
+            self.segment_type
+                .assign(region, starting_offset + i, SegmentType::AccountTrie);
+        }
+        n_rows
+    }
+
     fn assign_storage_trie_rows(
         &self,
         region: &mut Region<'_, Fr>,
@@ -651,6 +623,17 @@ impl MptUpdateConfig {
                 .assign(region, offset, u64::try_from(i + 1).unwrap());
             self.path_type.assign(region, offset, row.path_type);
 
+            if let Some(next_row) = rows.0.get(i + 1) {
+                if !matches!(next_row.path_type, PathType::Start | PathType::Common)
+                    && row.path_type == PathType::Common
+                {
+                    self.intermediate_values[0].assign(
+                        region,
+                        offset,
+                        next_domain(row.domain, row.direction),
+                    );
+                }
+            }
             for (value, column) in [
                 (row.sibling, self.sibling),
                 (row.old, self.old_hash),
@@ -977,42 +960,47 @@ fn configure_common_path<F: FieldExt>(
                 .segment_type
                 .next_matches(&[SegmentType::AccountLeaf0, SegmentType::StorageLeaf0]);
             cb.condition(!is_type_2.clone(), |cb| {
-                let new_domain = lagrange_polynomial(
-                    config.domain.current(),
-                    &[
-                        (
-                            HashDomain::NodeTypeBranch0.into(),
-                            BinaryQuery(config.direction.current()).select(
-                                Query::from(HashDomain::NodeTypeBranch1.into_u64()),
-                                Query::from(HashDomain::NodeTypeBranch2.into_u64()),
+                let new_domain = config.intermediate_values[0];
+                cb.assert_equal(
+                    "new domain matches direction and domain after insertion",
+                    new_domain.current(),
+                    lagrange_polynomial(
+                        config.domain.current(),
+                        &[
+                            (
+                                HashDomain::NodeTypeBranch0.into(),
+                                BinaryQuery(config.direction.current()).select(
+                                    Query::from(HashDomain::NodeTypeBranch1.into_u64()),
+                                    Query::from(HashDomain::NodeTypeBranch2.into_u64()),
+                                ),
                             ),
-                        ),
-                        (
-                            HashDomain::NodeTypeBranch1.into(),
-                            Query::from(HashDomain::NodeTypeBranch3.into_u64()),
-                        ),
-                        (
-                            HashDomain::NodeTypeBranch2.into(),
-                            Query::from(HashDomain::NodeTypeBranch3.into_u64()),
-                        ),
-                        (
-                            HashDomain::AccountFields.into(),
-                            Query::from(HashDomain::AccountFields.into_u64()),
-                        ),
-                    ],
+                            (
+                                HashDomain::NodeTypeBranch1.into(),
+                                Query::from(HashDomain::NodeTypeBranch3.into_u64()),
+                            ),
+                            (
+                                HashDomain::NodeTypeBranch2.into(),
+                                Query::from(HashDomain::NodeTypeBranch3.into_u64()),
+                            ),
+                            (
+                                HashDomain::AccountFields.into(),
+                                Query::from(HashDomain::AccountFields.into_u64()),
+                            ),
+                        ],
+                    ),
                 );
                 cb.poseidon_lookup(
                     "poseidon hash correct for new common path",
                     [
                         new_left(config),
                         new_right(config),
-                        new_domain,
+                        new_domain.current(),
                         config.new_hash.previous(),
                     ],
                     poseidon,
                 );
             });
-            cb.condition(is_type_2.clone(), |cb| {
+            cb.condition(is_type_2, |cb| {
                 cb.assert_zero(
                     "old hash is zero for type 2 empty account",
                     config.old_hash.current(),
@@ -1054,36 +1042,41 @@ fn configure_common_path<F: FieldExt>(
                 .segment_type
                 .next_matches(&[SegmentType::AccountLeaf0, SegmentType::StorageLeaf0]);
             cb.condition(!is_type_2.clone(), |cb| {
-                let new_domain = lagrange_polynomial(
-                    config.domain.current(),
-                    &[
-                        (
-                            HashDomain::NodeTypeBranch0.into(),
-                            BinaryQuery(config.direction.current()).select(
-                                Query::from(HashDomain::NodeTypeBranch1.into_u64()),
-                                Query::from(HashDomain::NodeTypeBranch2.into_u64()),
+                let new_domain = config.intermediate_values[0];
+                cb.assert_equal(
+                    "new domain matches direction and domain before deletion",
+                    new_domain.current(),
+                    lagrange_polynomial(
+                        config.domain.current(),
+                        &[
+                            (
+                                HashDomain::NodeTypeBranch0.into(),
+                                BinaryQuery(config.direction.current()).select(
+                                    Query::from(HashDomain::NodeTypeBranch1.into_u64()),
+                                    Query::from(HashDomain::NodeTypeBranch2.into_u64()),
+                                ),
                             ),
-                        ),
-                        (
-                            HashDomain::NodeTypeBranch1.into(),
-                            Query::from(HashDomain::NodeTypeBranch3.into_u64()),
-                        ),
-                        (
-                            HashDomain::NodeTypeBranch2.into(),
-                            Query::from(HashDomain::NodeTypeBranch3.into_u64()),
-                        ),
-                        (
-                            HashDomain::AccountFields.into(),
-                            Query::from(HashDomain::AccountFields.into_u64()),
-                        ),
-                    ],
+                            (
+                                HashDomain::NodeTypeBranch1.into(),
+                                Query::from(HashDomain::NodeTypeBranch3.into_u64()),
+                            ),
+                            (
+                                HashDomain::NodeTypeBranch2.into(),
+                                Query::from(HashDomain::NodeTypeBranch3.into_u64()),
+                            ),
+                            (
+                                HashDomain::AccountFields.into(),
+                                Query::from(HashDomain::AccountFields.into_u64()),
+                            ),
+                        ],
+                    ),
                 );
                 cb.poseidon_lookup(
                     "poseidon hash correct for old common path",
                     [
                         old_left(config),
                         old_right(config),
-                        new_domain,
+                        new_domain.current(),
                         config.old_hash.previous(),
                     ],
                     poseidon,
