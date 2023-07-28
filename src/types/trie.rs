@@ -256,6 +256,21 @@ impl TrieRows {
     }
 }
 
+pub fn next_domain(before_insertion_domain: HashDomain, insertion_direction: bool) -> HashDomain {
+    match before_insertion_domain {
+        HashDomain::NodeTypeBranch0 => {
+            if insertion_direction {
+                HashDomain::NodeTypeBranch1
+            } else {
+                HashDomain::NodeTypeBranch2
+            }
+        }
+        HashDomain::NodeTypeBranch1 | HashDomain::NodeTypeBranch2 => HashDomain::NodeTypeBranch3,
+        HashDomain::NodeTypeBranch3 => unreachable!(),
+        _ => unreachable!(),
+    }
+}
+
 fn get_domains(
     next_path_type: PathType,
     before_insertion_domain: HashDomain,
@@ -264,24 +279,10 @@ fn get_domains(
     let mut domains = match next_path_type {
         PathType::Start => unreachable!(),
         PathType::Common => [before_insertion_domain, before_insertion_domain],
-        PathType::ExtensionOld | PathType::ExtensionNew => match before_insertion_domain {
-            HashDomain::NodeTypeBranch0 => [
-                HashDomain::NodeTypeBranch0,
-                if insertion_direction {
-                    HashDomain::NodeTypeBranch1
-                } else {
-                    HashDomain::NodeTypeBranch2
-                },
-            ],
-            HashDomain::NodeTypeBranch1 => {
-                [HashDomain::NodeTypeBranch1, HashDomain::NodeTypeBranch3]
-            }
-            HashDomain::NodeTypeBranch2 => {
-                [HashDomain::NodeTypeBranch2, HashDomain::NodeTypeBranch3]
-            }
-            HashDomain::NodeTypeBranch3 => unreachable!(),
-            _ => unreachable!(),
-        },
+        PathType::ExtensionOld | PathType::ExtensionNew => [
+            before_insertion_domain,
+            next_domain(before_insertion_domain, insertion_direction),
+        ],
     };
     if next_path_type == PathType::ExtensionOld {
         domains.reverse();
