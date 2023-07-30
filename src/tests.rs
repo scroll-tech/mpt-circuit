@@ -818,3 +818,13 @@ fn singleton_storage_trie() {
     deletion_proof.check();
     mock_prove(vec![(MPTProofType::StorageChanged, reverse(trace))]);
 }
+
+#[test]
+fn depth_1_type_1_storage() {
+    // This tests the case where the hash domain for calculating the storage root changes
+    // because of an insertion or deletion.
+
+    let trace: SMTTrace = serde_json::from_str(&include_str!("traces/depth_1_type_1_storage.json")).unwrap();
+    mock_prove(vec![(MPTProofType::StorageChanged, trace.clone())]);
+    mock_prove(vec![(MPTProofType::StorageChanged, reverse(trace))]);
+}

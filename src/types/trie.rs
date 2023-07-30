@@ -22,22 +22,37 @@ pub struct TrieRow {
 pub struct TrieRows(pub Vec<TrieRow>);
 
 impl TrieRow {
-    pub fn old_hash(&self) -> Fr {
+    fn old_hash(&self, next_path_type: Option<PathType>) -> Fr {
+        let [domain, _] = self.hash_domains(next_path_type);
         if let PathType::ExtensionNew = self.path_type {
             self.old
         } else if self.direction {
-            domain_hash(self.sibling, self.old, self.domain)
+            domain_hash(self.sibling, self.old, domain)
         } else {
-            domain_hash(self.old, self.sibling, self.domain)
+            domain_hash(self.old, self.sibling, domain)
         }
     }
-    pub fn new_hash(&self) -> Fr {
+    fn new_hash(&self, next_path_type: Option<PathType>) -> Fr {
+        let [_, domain] = self.hash_domains(next_path_type);
         if let PathType::ExtensionOld = self.path_type {
             self.new
         } else if self.direction {
-            domain_hash(self.sibling, self.new, self.domain)
+            domain_hash(self.sibling, self.new, domain)
         } else {
-            domain_hash(self.new, self.sibling, self.domain)
+            domain_hash(self.new, self.sibling, domain)
+        }
+    }
+
+    fn hash_domains(&self, next_path_type: Option<PathType>) -> [HashDomain; 2] {
+        if self.path_type == PathType::Common
+            && matches!(
+                next_path_type,
+                Some(PathType::ExtensionNew) | Some(PathType::ExtensionOld)
+            )
+        {
+            get_domains(next_path_type.unwrap(), self.domain, self.direction)
+        } else {
+            [self.domain, self.domain]
         }
     }
 }
@@ -193,11 +208,17 @@ impl TrieRows {
     }
 
     pub fn old_root(&self, leaf_hash: impl FnOnce() -> Fr) -> Fr {
-        self.0.first().map_or_else(leaf_hash, TrieRow::old_hash)
+        let next_path_type = self.0.get(1).map(|row| row.path_type);
+        self.0
+            .first()
+            .map_or_else(leaf_hash, |row| row.old_hash(next_path_type))
     }
 
     pub fn new_root(&self, leaf_hash: impl FnOnce() -> Fr) -> Fr {
-        self.0.first().map_or_else(leaf_hash, TrieRow::new_hash)
+        let next_path_type = self.0.get(1).map(|row| row.path_type);
+        self.0
+            .first()
+            .map_or_else(leaf_hash, |row| row.new_hash(next_path_type))
     }
 
     #[cfg(test)]
