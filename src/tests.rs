@@ -12,6 +12,7 @@ use halo2_proofs::{
 use mpt_zktrie::state::{builder::HASH_SCHEME_DONE, witness::WitnessGenerator, ZktrieState};
 
 const N_ROWS: usize = 1024;
+const STORAGE_ADDRESS: Address = Address::repeat_byte(1);
 
 fn initial_generator() -> WitnessGenerator {
     assert!(*HASH_SCHEME_DONE);
@@ -33,7 +34,7 @@ fn initial_storage_generator() -> WitnessGenerator {
     for i in 40..60 {
         generator.handle_new_state(
             mpt_zktrie::mpt_circuits::MPTProofType::StorageChanged,
-            Address::repeat_byte(1),
+            STORAGE_ADDRESS,
             U256::one(),
             U256::zero(),
             Some(U256::from(i)),
@@ -519,7 +520,7 @@ fn empty_storage_type_1_update_a() {
     let mut generator = initial_storage_generator();
     let trace = generator.handle_new_state(
         mpt_zktrie::mpt_circuits::MPTProofType::StorageChanged,
-        Address::repeat_byte(1),
+        STORAGE_ADDRESS,
         U256::from(307),
         U256::zero(),
         Some(U256::from(23412321)),
@@ -562,7 +563,7 @@ fn empty_storage_type_2_update_a() {
     let mut generator = initial_storage_generator();
     let trace = generator.handle_new_state(
         mpt_zktrie::mpt_circuits::MPTProofType::StorageChanged,
-        Address::repeat_byte(1),
+        STORAGE_ADDRESS,
         U256::from(307),
         U256::zero(),
         Some(U256::from(502)),
@@ -605,7 +606,7 @@ fn empty_storage_type_2_update_b() {
     let mut generator = initial_storage_generator();
     let trace = generator.handle_new_state(
         mpt_zktrie::mpt_circuits::MPTProofType::StorageChanged,
-        Address::repeat_byte(1),
+        STORAGE_ADDRESS,
         U256::from(307),
         U256::zero(),
         Some(U256::from(500)),
@@ -655,7 +656,7 @@ fn empty_storage_type_1_update_b() {
     let mut generator = initial_storage_generator();
     let trace = generator.handle_new_state(
         mpt_zktrie::mpt_circuits::MPTProofType::StorageChanged,
-        Address::repeat_byte(1),
+        STORAGE_ADDRESS,
         U256::from(307),
         U256::zero(),
         Some(U256::from(1)),
@@ -698,7 +699,7 @@ fn empty_storage_type_1_update_c() {
     let mut generator = initial_storage_generator();
     let trace = generator.handle_new_state(
         mpt_zktrie::mpt_circuits::MPTProofType::StorageChanged,
-        Address::repeat_byte(1),
+        STORAGE_ADDRESS,
         U256::from(307),
         U256::zero(),
         Some(U256::from(3)),
@@ -771,7 +772,7 @@ fn empty_storage_trie() {
     let mut generator = initial_generator();
     let trace = generator.handle_new_state(
         mpt_zktrie::mpt_circuits::MPTProofType::StorageChanged,
-        Address::repeat_byte(2),
+        STORAGE_ADDRESS,
         U256::from(324123123u64),
         U256::zero(),
         Some(U256::from(3)),
@@ -824,7 +825,81 @@ fn depth_1_type_1_storage() {
     // This tests the case where the hash domain for calculating the storage root changes
     // because of an insertion or deletion.
 
-    let trace: SMTTrace = serde_json::from_str(&include_str!("traces/depth_1_type_1_storage.json")).unwrap();
+    let trace: SMTTrace =
+        serde_json::from_str(&include_str!("traces/depth_1_type_1_storage.json")).unwrap();
     mock_prove(vec![(MPTProofType::StorageChanged, trace.clone())]);
     mock_prove(vec![(MPTProofType::StorageChanged, reverse(trace))]);
+}
+
+#[test]
+fn depth_1_type_1_empty_storage() {
+    let mut generator = initial_generator();
+    for key in [2, 10] {
+        generator.handle_new_state(
+            mpt_zktrie::mpt_circuits::MPTProofType::StorageChanged,
+            Address::repeat_byte(2),
+            U256::from(7),
+            U256::zero(),
+            Some(U256::from(key)),
+        );
+    }
+    let trace = generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::StorageChanged,
+        Address::repeat_byte(2),
+        U256::zero(),
+        U256::zero(),
+        Some(U256::from(3)),
+    );
+
+    let json = serde_json::to_string_pretty(&trace).unwrap();
+    let trace: SMTTrace = serde_json::from_str(&json).unwrap();
+
+    let proof = Proof::from((MPTProofType::StorageDoesNotExist, trace.clone()));
+    proof.check();
+    mock_prove(vec![(MPTProofType::StorageDoesNotExist, trace)]);
+}
+
+#[test]
+fn empty_storage_type_1() {
+    let mut generator = initial_storage_generator();
+
+    let trace = generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::StorageChanged,
+        STORAGE_ADDRESS,
+        U256::zero(),
+        U256::zero(),
+        Some(U256::from(3)),
+    );
+    dbg!(trace.clone());
+    assert!(
+        trace.state_path[0].clone().unwrap().leaf.is_some(),
+        "storage key = 3 is not type 1"
+    );
+
+    let json = serde_json::to_string_pretty(&trace).unwrap();
+    let trace: SMTTrace = serde_json::from_str(&json).unwrap();
+
+    mock_prove(vec![(MPTProofType::StorageDoesNotExist, trace)]);
+}
+
+#[test]
+fn empty_storage_type_2() {
+    let mut generator = initial_storage_generator();
+
+    let trace = generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::StorageChanged,
+        STORAGE_ADDRESS,
+        U256::zero(),
+        U256::zero(),
+        Some(U256::from(500)),
+    );
+    assert!(
+        trace.state_path[0].clone().unwrap().leaf.is_none(),
+        "storage key = 500 is not type 2"
+    );
+
+    let json = serde_json::to_string_pretty(&trace).unwrap();
+    let trace: SMTTrace = serde_json::from_str(&json).unwrap();
+
+    mock_prove(vec![(MPTProofType::StorageDoesNotExist, trace)]);
 }
