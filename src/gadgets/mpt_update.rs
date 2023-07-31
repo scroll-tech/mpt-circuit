@@ -661,6 +661,7 @@ impl MptUpdateConfig {
                 trie_rows,
                 old_leaf,
                 new_leaf,
+                ..
             } => {
                 let other_key = storage.other_key();
                 let n_trie_rows = self.assign_storage_trie_rows(region, offset, trie_rows);

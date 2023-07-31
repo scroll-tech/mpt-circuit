@@ -12,6 +12,7 @@ use halo2_proofs::{arithmetic::FieldExt, halo2curves::bn256::Fr};
 pub enum StorageProof {
     Root(Fr), // Not proving a storage update, so we only need the storage root.
     Update {
+        storage_key: U256,
         key: Fr,
         trie_rows: TrieRows,
         old_leaf: StorageLeaf,
@@ -65,12 +66,21 @@ impl StorageProof {
         match self {
             Self::Root(_) => vec![],
             Self::Update {
+                storage_key,
+                key,
                 trie_rows,
                 old_leaf,
                 new_leaf,
                 ..
             } => {
-                let mut lookups = trie_rows.poseidon_lookups();
+                let (key_high, key_low) = u256_hi_lo(storage_key);
+                let mut lookups = vec![(
+                    Fr::from_u128(key_high),
+                    Fr::from_u128(key_low),
+                    HashDomain::Pair,
+                    *key,
+                )];
+                lookups.extend(trie_rows.poseidon_lookups());
                 lookups.extend(old_leaf.poseidon_lookups());
                 lookups.extend(new_leaf.poseidon_lookups());
                 lookups
@@ -126,10 +136,10 @@ impl StorageProof {
     #[cfg(test)]
     pub fn check(&self) {
         if let Self::Update {
-            key: _,
             trie_rows,
             old_leaf,
             new_leaf,
+            ..
         } = self
         {
             // Check that trie rows are consistent and produce claimed roots.
@@ -242,21 +252,13 @@ impl StorageLeaf {
     }
 
     fn poseidon_lookups(&self) -> Vec<(Fr, Fr, HashDomain, Fr)> {
-        let mut lookups = vec![];
         match self {
-            Self::Empty { .. } => (),
+            Self::Empty { .. } => vec![],
             Self::Leaf { value_hash, .. } => {
-                lookups.push((self.key(), *value_hash, HashDomain::Leaf, self.hash()))
+                vec![(self.key(), *value_hash, HashDomain::Leaf, self.hash())]
             }
-            Self::Entry { storage_key, .. } => {
-                let (key_high, key_low) = u256_hi_lo(storage_key);
-                lookups.extend(vec![
-                    (
-                        Fr::from_u128(key_high),
-                        Fr::from_u128(key_low),
-                        HashDomain::Pair,
-                        self.key(),
-                    ),
+            Self::Entry { .. } => {
+                vec![
                     (
                         self.value_high(),
                         self.value_low(),
@@ -264,10 +266,9 @@ impl StorageLeaf {
                         self.value_hash(),
                     ),
                     (self.key(), self.value_hash(), HashDomain::Leaf, self.hash()),
-                ]);
+                ]
             }
         }
-        lookups
     }
 }
 
@@ -289,10 +290,13 @@ impl From<&SMTTrace> for StorageProof {
         );
 
         let [old_entry, new_entry] = trace.state_update.unwrap().map(Option::unwrap);
+        assert_eq!(old_entry.key, new_entry.key);
+        let storage_key = u256_from_hex(old_entry.key);
         let old_leaf = StorageLeaf::new(key, &old_leaf, &old_entry);
         let new_leaf = StorageLeaf::new(key, &new_leaf, &new_entry);
 
         let storage_proof = Self::Update {
+            storage_key,
             key,
             trie_rows,
             old_leaf,
