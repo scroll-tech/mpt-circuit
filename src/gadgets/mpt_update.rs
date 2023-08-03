@@ -1144,6 +1144,10 @@ fn configure_nonce<F: FieldExt>(
     bytes: &impl BytesLookup,
     poseidon: &impl PoseidonLookup,
 ) {
+    cb.assert(
+        "account leafs cannot be deleted",
+        !config.path_type.current_matches(&[PathType::ExtensionOld]),
+    );
     for variant in SegmentType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
             SegmentType::AccountTrie => {
@@ -1253,20 +1257,6 @@ fn configure_nonce<F: FieldExt>(
                         cb.assert_zero(
                             "balance is 0 for ExtensionNew nonce update",
                             config.sibling.current(),
-                        );
-                    },
-                );
-                cb.condition(
-                    config.path_type.current_matches(&[PathType::ExtensionOld]),
-                    |cb| {
-                        cb.add_lookup(
-                            "old nonce is 8 bytes",
-                            [config.old_value.current(), Query::from(7)],
-                            bytes.lookup(),
-                        );
-                        cb.assert_zero(
-                            "code size is 0 for ExtensionOld nonce update",
-                            old_code_size,
                         );
                     },
                 );
