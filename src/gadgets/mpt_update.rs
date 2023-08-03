@@ -1415,6 +1415,10 @@ fn configure_balance<F: FieldExt>(
     poseidon: &impl PoseidonLookup,
     rlc: &impl RlcLookup,
 ) {
+    cb.assert(
+        "account leafs cannot be deleted",
+        !config.path_type.current_matches(&[PathType::ExtensionOld]),
+    );
     for variant in SegmentType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
             SegmentType::AccountTrie => {
@@ -1479,10 +1483,17 @@ fn configure_balance<F: FieldExt>(
             }
             SegmentType::AccountLeaf3 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
+                cb.add_lookup(
+                    "new balance is rlc(new_hash) and fits into 31 bytes",
+                    [
+                        config.new_hash.current(),
+                        Query::from(30),
+                        config.new_value.current(),
+                    ],
+                    rlc.lookup(),
+                );
                 cb.condition(
-                    config
-                        .path_type
-                        .current_matches(&[PathType::Common, PathType::ExtensionOld]),
+                    config.path_type.current_matches(&[PathType::Common]),
                     |cb| {
                         cb.add_lookup(
                             "old balance is rlc(old_hash) and fits into 31 bytes",
@@ -1496,18 +1507,11 @@ fn configure_balance<F: FieldExt>(
                     },
                 );
                 cb.condition(
-                    config
-                        .path_type
-                        .current_matches(&[PathType::Common, PathType::ExtensionNew]),
+                    config.path_type.current_matches(&[PathType::ExtensionNew]),
                     |cb| {
-                        cb.add_lookup(
-                            "new balance is rlc(new_hash) and fits into 31 bytes",
-                            [
-                                config.new_hash.current(),
-                                Query::from(30),
-                                config.new_value.current(),
-                            ],
-                            rlc.lookup(),
+                        cb.assert_zero(
+                            "sibling (code_size + nonce << 64) is 0 for new account)",
+                            config.sibling.current(),
                         );
                     },
                 );
