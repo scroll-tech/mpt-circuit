@@ -14,7 +14,6 @@ use crate::{
     MPTProofType,
 };
 
-mod account;
 mod constants;
 pub mod storage;
 pub mod trie;
