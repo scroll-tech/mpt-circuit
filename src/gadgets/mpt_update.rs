@@ -161,7 +161,7 @@ impl MptUpdateConfig {
                 old_value.previous(),
             );
             cb.assert_equal(
-                "old_value does not change",
+                "new_value does not change",
                 new_value.current(),
                 new_value.previous(),
             );
