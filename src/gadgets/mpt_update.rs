@@ -1227,7 +1227,7 @@ fn configure_nonce<F: FieldExt>(
                         );
                         cb.add_lookup(
                             "new nonce is 8 bytes",
-                            [config.old_value.current(), Query::from(7)],
+                            [config.new_value.current(), Query::from(7)],
                             bytes.lookup(),
                         );
                         cb.assert_equal(
@@ -1247,7 +1247,7 @@ fn configure_nonce<F: FieldExt>(
                     |cb| {
                         cb.add_lookup(
                             "new nonce is 8 bytes",
-                            [config.old_value.current(), Query::from(7)],
+                            [config.new_value.current(), Query::from(7)],
                             bytes.lookup(),
                         );
                         cb.assert_zero(
