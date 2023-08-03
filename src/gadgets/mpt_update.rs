@@ -1217,17 +1217,17 @@ fn configure_nonce<F: FieldExt>(
                     * Query::Constant(F::from(1 << 32).square().invert().unwrap());
                 let new_code_size = (config.new_hash.current() - config.new_value.current())
                     * Query::Constant(F::from(1 << 32).square().invert().unwrap());
+                cb.add_lookup(
+                    "new nonce is 8 bytes",
+                    [config.new_value.current(), Query::from(7)],
+                    bytes.lookup(),
+                );
                 cb.condition(
                     config.path_type.current_matches(&[PathType::Common]),
                     |cb| {
                         cb.add_lookup(
                             "old nonce is 8 bytes",
                             [config.old_value.current(), Query::from(7)],
-                            bytes.lookup(),
-                        );
-                        cb.add_lookup(
-                            "new nonce is 8 bytes",
-                            [config.new_value.current(), Query::from(7)],
                             bytes.lookup(),
                         );
                         cb.assert_equal(
@@ -1245,11 +1245,6 @@ fn configure_nonce<F: FieldExt>(
                 cb.condition(
                     config.path_type.current_matches(&[PathType::ExtensionNew]),
                     |cb| {
-                        cb.add_lookup(
-                            "new nonce is 8 bytes",
-                            [config.new_value.current(), Query::from(7)],
-                            bytes.lookup(),
-                        );
                         cb.assert_zero(
                             "code size is 0 for ExtensionNew nonce update",
                             new_code_size,
