@@ -1465,6 +1465,15 @@ fn configure_balance<F: FieldExt>(
                         );
                     },
                 );
+                cb.condition(
+                    config.path_type.current_matches(&[PathType::ExtensionNew]),
+                    |cb| {
+                        cb.assert_zero(
+                            "nonce and code size are 0 for new account",
+                            config.sibling.current(),
+                        );
+                    },
+                );
             }
             _ => {}
         };
