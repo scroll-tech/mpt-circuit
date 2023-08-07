@@ -2,10 +2,7 @@ use super::super::constraint_builder::{
     AdviceColumn, BinaryColumn, ConstraintBuilder, FixedColumn, Query, SecondPhaseAdviceColumn,
     SelectorColumn,
 };
-use super::{
-    byte_bit::RangeCheck256Lookup, byte_representation::RlcLookup, is_zero::IsZeroGadget,
-    rlc_randomness::RlcRandomness,
-};
+use super::{byte_bit::RangeCheck256Lookup, is_zero::IsZeroGadget, rlc_randomness::RlcRandomness};
 use ethers_core::types::U256;
 use halo2_proofs::{
     arithmetic::{Field, FieldExt},
@@ -20,6 +17,11 @@ pub trait CanonicalRepresentationLookup {
     fn lookup<F: FieldExt>(&self) -> [Query<F>; 3];
 }
 
+// Lookup to prove that Rlc(x: Fr) = y
+pub trait FrRlcLookup {
+    fn lookup<F: FieldExt>(&self) -> [Query<F>; 2];
+}
+
 #[derive(Clone)]
 pub struct CanonicalRepresentationConfig {
     // Lookup columns
@@ -30,9 +32,9 @@ pub struct CanonicalRepresentationConfig {
 
     // Witness columns
     index_is_zero: SelectorColumn, // (0..32).repeat().map(|i| i == 0)
-    // index_is_31: SelectorColumn, // (0..32).repeat().map(|i| i == 31)
-    modulus_byte: FixedColumn, // (0..32).repeat().map(|i| Fr::MODULUS.to_be_bytes()[i])
-    difference: AdviceColumn,  // modulus_byte - byte
+    index_is_31: SelectorColumn,   // (0..32).repeat().map(|i| i == 31)
+    modulus_byte: FixedColumn,     // (0..32).repeat().map(|i| Fr::MODULUS.to_be_bytes()[i])
+    difference: AdviceColumn,      // modulus_byte - byte
     difference_is_zero: IsZeroGadget,
     differences_are_zero_so_far: BinaryColumn, // difference[0] ... difference[index - 1] are all 0.
 }
@@ -44,7 +46,7 @@ impl CanonicalRepresentationConfig {
         range_check: &impl RangeCheck256Lookup,
         randomness: &RlcRandomness,
     ) -> Self {
-        let ([index_is_zero], [index, modulus_byte], [value, byte, difference]) =
+        let ([index_is_zero, index_is_31], [index, modulus_byte], [value, byte, difference]) =
             cb.build_columns(cs);
         let [rlc] = cb.second_phase_advice_columns(cs);
 
@@ -120,6 +122,7 @@ impl CanonicalRepresentationConfig {
             byte,
             rlc,
             index_is_zero,
+            index_is_31,
             modulus_byte,
             difference,
             difference_is_zero,
@@ -153,6 +156,8 @@ impl CanonicalRepresentationConfig {
                     .assign(region, offset, u64::try_from(index).unwrap());
                 if index.is_zero() {
                     self.index_is_zero.enable(region, offset);
+                } else if index == 31 {
+                    self.index_is_31.enable(region, offset);
                 }
 
                 let difference = Fr::from(u64::from(*modulus_byte)) - Fr::from(u64::from(*byte));
@@ -187,12 +192,11 @@ impl CanonicalRepresentationLookup for CanonicalRepresentationConfig {
     }
 }
 
-impl RlcLookup for CanonicalRepresentationConfig {
-    fn lookup<F: FieldExt>(&self) -> [Query<F>; 3] {
+impl FrRlcLookup for CanonicalRepresentationConfig {
+    fn lookup<F: FieldExt>(&self) -> [Query<F>; 2] {
         [
-            self.value.current(),
-            self.rlc.current(),
-            self.index.current(),
+            self.value.current() * self.index_is_31.current(),
+            self.rlc.current() * self.index_is_31.current(),
         ]
     }
 }

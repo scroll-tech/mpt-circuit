@@ -8,6 +8,7 @@ use word_rlc::{assign as assign_word_rlc, configure as configure_word_rlc};
 
 use super::{
     byte_representation::{BytesLookup, RlcLookup},
+    canonical_representation::FrRlcLookup,
     is_zero::IsZeroGadget,
     key_bit::KeyBitLookup,
     one_hot::OneHot,
@@ -99,7 +100,7 @@ impl MptUpdateConfig {
         rlc: &impl RlcLookup,
         bytes: &impl BytesLookup,
         rlc_randomness: &RlcRandomness,
-        fr_rlc: &impl RlcLookup,
+        fr_rlc: &impl FrRlcLookup,
     ) -> Self {
         let proof_type: OneHot<MPTProofType> = OneHot::configure(cs, cb);
         let [storage_key_rlc, old_value, new_value] = cb.second_phase_advice_columns(cs);
@@ -135,12 +136,12 @@ impl MptUpdateConfig {
             );
             cb.add_lookup(
                 "rlc_old_root = rlc(old_root)",
-                [old_hash.current(), old_hash_rlc.current(), Query::from(31)],
+                [old_hash.current(), old_hash_rlc.current()],
                 fr_rlc.lookup(),
             );
             cb.add_lookup(
                 "rlc_new_root = rlc(new_root)",
-                [new_hash.current(), new_hash_rlc.current(), Query::from(31)],
+                [new_hash.current(), new_hash_rlc.current()],
                 fr_rlc.lookup(),
             );
         });
