@@ -1501,27 +1501,15 @@ fn configure_poseidon_code_hash<F: FieldExt>(
             }
             SegmentType::AccountLeaf1 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
-                cb.condition(
-                    config.path_type.current_matches(&[PathType::Common]),
-                    |cb| {
-                        cb.assert_equal(
-                            "old_hash is old poseidon code hash",
-                            config.old_value.current(),
-                            config.old_hash.current(),
-                        );
-                    },
+                cb.assert_equal(
+                    "old_hash is old poseidon code hash",
+                    config.old_value.current(),
+                    config.old_hash.current(),
                 );
-                cb.condition(
-                    config
-                        .path_type
-                        .current_matches(&[PathType::Common, PathType::ExtensionNew]),
-                    |cb| {
-                        cb.assert_equal(
-                            "new_hash is new poseidon code hash",
-                            config.new_value.current(),
-                            config.new_hash.current(),
-                        );
-                    },
+                cb.assert_equal(
+                    "new_hash is new poseidon code hash",
+                    config.new_value.current(),
+                    config.new_hash.current(),
                 );
             }
             _ => {}
