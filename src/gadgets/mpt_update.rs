@@ -1204,10 +1204,10 @@ fn configure_nonce<F: FieldExt>(
                     config.path_type.current_matches(&[PathType::ExtensionNew]),
                     |cb| {
                         cb.assert_equal(
-                        "sibling is hash(0, hash(0, 0)) for nonce extension new at AccountLeaf2",
-                        config.sibling.current(),
-                        hash(Fr::zero(), hash(Fr::zero(), Fr::zero())).into(),
-                    );
+                            "sibling is hash(0, hash(0, 0)) for nonce extension new at AccountLeaf2",
+                            config.sibling.current(),
+                            hash(Fr::zero(), hash(Fr::zero(), Fr::zero())).into(),
+                        );
                     },
                 );
             }
