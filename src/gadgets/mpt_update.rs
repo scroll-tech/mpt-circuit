@@ -1327,48 +1327,25 @@ fn configure_code_size<F: FieldExt>(
                     - config.old_value.current() * Query::Constant(F::from(1 << 32).square());
                 let new_nonce = config.new_hash.current()
                     - config.new_value.current() * Query::Constant(F::from(1 << 32).square());
-                cb.condition(
-                    config.path_type.current_matches(&[PathType::Common]),
-                    |cb| {
-                        cb.add_lookup(
-                            "old code size is 8 bytes",
-                            [config.old_value.current(), Query::from(7)],
-                            bytes.lookup(),
-                        );
-                        cb.add_lookup(
-                            "new code size is 8 bytes",
-                            [config.new_value.current(), Query::from(7)],
-                            bytes.lookup(),
-                        );
-                        cb.assert_equal(
-                            "old nonce = new nonce for code size update",
-                            old_nonce.clone(),
-                            new_nonce.clone(),
-                        );
-                        cb.add_lookup(
-                            "nonce is 8 bytes",
-                            [old_nonce.clone(), Query::from(7)],
-                            bytes.lookup(),
-                        );
-                    },
+                cb.add_lookup(
+                    "old code size is 8 bytes",
+                    [config.old_value.current(), Query::from(7)],
+                    bytes.lookup(),
                 );
-                cb.condition(
-                    config.path_type.current_matches(&[PathType::ExtensionNew]),
-                    |cb| {
-                        cb.add_lookup(
-                            "new nonce is 8 bytes",
-                            [config.old_value.current(), Query::from(7)],
-                            bytes.lookup(),
-                        );
-                        cb.assert_zero(
-                            "new nonce is 0 for ExtensionNew code size update",
-                            new_nonce,
-                        );
-                        cb.assert_zero(
-                            "nonce and code size are 0 for ExtensionNew balance update",
-                            config.sibling.current(),
-                        );
-                    },
+                cb.add_lookup(
+                    "new code size is 8 bytes",
+                    [config.new_value.current(), Query::from(7)],
+                    bytes.lookup(),
+                );
+                cb.assert_equal(
+                    "old nonce = new nonce for code size update",
+                    old_nonce.clone(),
+                    new_nonce.clone(),
+                );
+                cb.add_lookup(
+                    "nonce is 8 bytes",
+                    [old_nonce.clone(), Query::from(7)],
+                    bytes.lookup(),
                 );
             }
             _ => {}
