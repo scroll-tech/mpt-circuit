@@ -1603,10 +1603,6 @@ fn configure_storage<F: FieldExt>(
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
             }
             SegmentType::AccountLeaf3 => {
-                cb.assert(
-                    "storage modifications must be on an existing account",
-                    config.path_type.current_matches(&[PathType::Common]),
-                );
                 cb.assert_zero("direction is 0", config.direction.current());
                 let [key_high, key_low, ..] = config.intermediate_values;
                 let [rlc_key_high, rlc_key_low, ..] = config.second_phase_intermediate_values;
