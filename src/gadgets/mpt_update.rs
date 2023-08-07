@@ -1480,9 +1480,7 @@ fn configure_balance<F: FieldExt>(
             SegmentType::AccountLeaf3 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
                 cb.condition(
-                    config
-                        .path_type
-                        .current_matches(&[PathType::Common, PathType::ExtensionOld]),
+                    config.path_type.current_matches(&[PathType::Common]),
                     |cb| {
                         cb.add_lookup(
                             "old balance is rlc(old_hash) and fits into 31 bytes",
