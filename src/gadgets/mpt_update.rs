@@ -130,8 +130,13 @@ impl MptUpdateConfig {
                 * (1 << 32);
             cb.poseidon_lookup(
                 "account mpt key = h(address_high, address_low)",
-                [address_high.current(), address_low, key.current()],
+                [address_high.current(), address_low.clone(), key.current()],
                 poseidon,
+            );
+            cb.add_lookup(
+                "address_high is 16 bytes",
+                [address_high.current(), Query::from(15)],
+                bytes.lookup(),
             );
             cb.add_lookup(
                 "rlc_old_root = rlc(old_root)",
@@ -2051,6 +2056,7 @@ pub fn byte_representations(proofs: &[Proof]) -> (Vec<u64>, Vec<u128>, Vec<Fr>) 
     let mut frs = vec![];
 
     for proof in proofs {
+        u128s.push(address_high(proof.claim.address));
         match MPTProofType::from(proof.claim) {
             MPTProofType::NonceChanged | MPTProofType::CodeSizeExists => {
                 u128s.push(address_high(proof.claim.address));
