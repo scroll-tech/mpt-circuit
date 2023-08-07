@@ -1155,6 +1155,10 @@ fn configure_nonce<F: FieldExt>(
     bytes: &impl BytesLookup,
     poseidon: &impl PoseidonLookup,
 ) {
+    cb.assert(
+        "account leafs cannot be deleted",
+        !config.path_type.current_matches(&[PathType::ExtensionOld]),
+    );
     for variant in SegmentType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
             SegmentType::AccountTrie => {
@@ -1220,10 +1224,13 @@ fn configure_nonce<F: FieldExt>(
             SegmentType::AccountLeaf3 => {
                 cb.assert_zero("direction is 0", config.direction.current());
 
-                let old_code_size = (config.old_hash.current() - config.old_value.current())
-                    * Query::Constant(F::from(1 << 32).square().invert().unwrap());
                 let new_code_size = (config.new_hash.current() - config.new_value.current())
                     * Query::Constant(F::from(1 << 32).square().invert().unwrap());
+                cb.add_lookup(
+                    "new nonce is 8 bytes",
+                    [config.new_value.current(), Query::from(7)],
+                    bytes.lookup(),
+                );
                 cb.condition(
                     config.path_type.current_matches(&[PathType::Common]),
                     |cb| {
@@ -1232,11 +1239,9 @@ fn configure_nonce<F: FieldExt>(
                             [config.old_value.current(), Query::from(7)],
                             bytes.lookup(),
                         );
-                        cb.add_lookup(
-                            "new nonce is 8 bytes",
-                            [config.old_value.current(), Query::from(7)],
-                            bytes.lookup(),
-                        );
+                        let old_code_size = (config.old_hash.current()
+                            - config.old_value.current())
+                            * Query::Constant(F::from(1 << 32).square().invert().unwrap());
                         cb.assert_equal(
                             "old_code_size = new_code_size for nonce update",
                             old_code_size.clone(),
@@ -1244,7 +1249,7 @@ fn configure_nonce<F: FieldExt>(
                         );
                         cb.add_lookup(
                             "existing code size is 8 bytes",
-                            [old_code_size.clone(), Query::from(7)],
+                            [old_code_size, Query::from(7)],
                             bytes.lookup(),
                         );
                     },
@@ -1252,10 +1257,9 @@ fn configure_nonce<F: FieldExt>(
                 cb.condition(
                     config.path_type.current_matches(&[PathType::ExtensionNew]),
                     |cb| {
-                        cb.add_lookup(
-                            "new nonce is 8 bytes",
-                            [config.old_value.current(), Query::from(7)],
-                            bytes.lookup(),
+                        cb.assert_zero(
+                            "old nonce is 0 for ExtensionNew nonce update",
+                            config.old_value.current(),
                         );
                         cb.assert_zero(
                             "code size is 0 for ExtensionNew nonce update",
