@@ -769,14 +769,14 @@ impl Proof {
                 hash(Fr::one(), self.leafs[0].unwrap().key),
                 self.leafs[0].unwrap().value_hash
             ),
-            self.old_account_hash_traces[5][2],
+            self.old_account_hash_traces[6][2],
         );
         assert_eq!(
             hash(
                 hash(Fr::one(), self.leafs[1].unwrap().key),
                 self.leafs[1].unwrap().value_hash
             ),
-            self.new_account_hash_traces[5][2],
+            self.new_account_hash_traces[6][2],
         );
 
         // // storage poseidon hashes are correct
