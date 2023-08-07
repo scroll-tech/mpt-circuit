@@ -1450,6 +1450,15 @@ fn configure_balance<F: FieldExt>(
                     ],
                     rlc.lookup(),
                 );
+                cb.condition(
+                    config.path_type.current_matches(&[PathType::ExtensionNew]),
+                    |cb| {
+                        cb.assert_zero(
+                            "sibling (code_size + nonce << 64) is 0 for new account)",
+                            config.sibling.current(),
+                        );
+                    },
+                );
             }
             _ => {}
         };
