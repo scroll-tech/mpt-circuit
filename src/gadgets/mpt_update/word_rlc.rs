@@ -4,6 +4,7 @@ use crate::{
         byte_representation::{BytesLookup, RlcLookup},
         poseidon::PoseidonLookup,
     },
+    types::HashDomain,
     util::{rlc, u256_hi_lo},
 };
 use ethers_core::types::U256;
@@ -34,7 +35,12 @@ pub fn configure<F: FieldExt>(
     );
     cb.poseidon_lookup(
         "word_hash = poseidon(high, low)",
-        [high.current(), low.current(), word_hash.current()],
+        [
+            high.current(),
+            low.current(),
+            Query::from(u64::from(HashDomain::Pair)),
+            word_hash.current(),
+        ],
         poseidon,
     );
 
