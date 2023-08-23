@@ -1,0 +1,112 @@
+{
+  "address": "0x0101010101010101010101010101010101010101",
+  "accountKey": "0x2368fc91ec42cf498e51d1796cfcacf1efb26920e114962fb9c4763b1080341d",
+  "accountPath": [
+    {
+      "root": "0x83b9340c6a33165701daa415c32625ff2cf62956a23fa3229182d801b4aaaf17",
+      "leaf": {
+        "value": "0xf4d0c4b8b5e226544d147596eb560ce0e34f0397d126a4b3f0f34a3ef9f74103",
+        "sibling": "0x2368fc91ec42cf498e51d1796cfcacf1efb26920e114962fb9c4763b1080341d",
+        "node_type": 4
+      },
+      "path": [
+        {
+          "value": "0xe9d253e605a354db69343ff5f4184719df70a413ca8fe399d9a701f21f641a16",
+          "sibling": "0xa66d39d51412f50d7df0c6388c765c74b023a3e5d9eba9cbc80b6ef17f76ab1e",
+          "node_type": 9
+        },
+        {
+          "value": "0x41bdefdca0b4003f8528065c189004814835b182f42a6d4df873f5cd0b42ea24",
+          "sibling": "0xf485d05d32be22082faed55e8c38826fec4a8250f41ce4639d51fb249c322127",
+          "node_type": 9
+        },
+        {
+          "value": "0xfa899826153ef28c7baf78e37799a8d9b4b59e612bc29e44d8519de254349b0b",
+          "sibling": "0xebb8b01466f6764df4b8b2a3d180b849b9616c536c0a4b6f107e3b10a739761e",
+          "node_type": 6
+        }
+      ],
+      "pathPart": "0x3"
+    },
+    {
+      "root": "0x5bd928092961b8afe05adf64c42fcaf762698ac9fa7a8e210b77c53c958bdd0d",
+      "leaf": {
+        "value": "0xecb1e80fe56518f7715d59f4127704ec8df5c63c4e0d7d69737ea4c4703ea917",
+        "sibling": "0x2368fc91ec42cf498e51d1796cfcacf1efb26920e114962fb9c4763b1080341d",
+        "node_type": 4
+      },
+      "path": [
+        {
+          "value": "0x9883bd3c95e670456325da92f066458fe3b086084d53b17d20d99b4a2dd64918",
+          "sibling": "0xa66d39d51412f50d7df0c6388c765c74b023a3e5d9eba9cbc80b6ef17f76ab1e",
+          "node_type": 9
+        },
+        {
+          "value": "0xa4d6b9ea2ee4a2c857c98f1d6a88dcd1a750d1b1d0c12f0c2eb07bdb008bb701",
+          "sibling": "0xf485d05d32be22082faed55e8c38826fec4a8250f41ce4639d51fb249c322127",
+          "node_type": 9
+        },
+        {
+          "value": "0x5b3ed283b85cf3b486d003219054470d79fc2a4d76c9e640ed858405de9dd62f",
+          "sibling": "0xebb8b01466f6764df4b8b2a3d180b849b9616c536c0a4b6f107e3b10a739761e",
+          "node_type": 6
+        }
+      ],
+      "pathPart": "0x3"
+    }
+  ],
+  "accountUpdate": [
+    {
+      "nonce": 0,
+      "balance": "0x1",
+      "codeHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "poseidonCodeHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "codeSize": 0
+    },
+    {
+      "nonce": 0,
+      "balance": "0x1",
+      "codeHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "poseidonCodeHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "codeSize": 0
+    }
+  ],
+  "statePath": [
+    {
+      "root": "0xf98272a84a0b269ca8570319baf2c68ebacb038a0e1076787aa85d547ff2cb07",
+      "leaf": {
+        "value": "0x7934cd98d51fd603e653f6b03b13edc269299a100867174016312db42eff3a2c",
+        "sibling": "0x55dbbd501fc21ad03be98003051b7bd08cdae7e153eefada883227167d198002",
+        "node_type": 4
+      },
+      "pathPart": "0x0"
+    },
+    {
+      "root": "0x33aebe70c4315501e6367ceca3feb4cc404ffb710e393b1d4cfff3f553233c09",
+      "leaf": {
+        "value": "0x8564322fa664ff339902ab3e0a20582a4c65ca1bb8dfc1be45bfa48f0e43b20e",
+        "sibling": "0x84d212cc2c8afac2fe17b77867a38d5b9e1308b0b8b723df2ea83728579b5a0a",
+        "node_type": 4
+      },
+      "path": [
+        {
+          "value": "0xe24a038e861c1be4dc33eda4c42c49e47d90532fe2e129bfc8b93504c8d0d32a",
+          "sibling": "0xf98272a84a0b269ca8570319baf2c68ebacb038a0e1076787aa85d547ff2cb07",
+          "node_type": 6
+        }
+      ],
+      "pathPart": "0x0"
+    }
+  ],
+  "stateKey": "0x84d212cc2c8afac2fe17b77867a38d5b9e1308b0b8b723df2ea83728579b5a0a",
+  "stateUpdate": [
+    {
+      "key": "0x00000000000000500000000000000046000000000000003c0000000000000032",
+      "value": "0x0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "key": "0x00000000000000500000000000000046000000000000003c0000000000000032",
+      "value": "0x0000000000000008000000000000000700000000000000060000000000000005"
+    }
+  ]
+}
