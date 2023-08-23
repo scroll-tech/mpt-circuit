@@ -1,7 +1,9 @@
+#[cfg(test)]
+use crate::types::{Bit, PathType};
 use crate::{
     serde::{SMTNode, SMTTrace, StateData},
-    types::trie::TrieRows,
-    util::{fr, hash, storage_key_hash, u256_from_hex, u256_hi_lo},
+    types::{trie::TrieRows, HashDomain},
+    util::{domain_hash, fr, storage_key_hash, u256_from_hex, u256_hi_lo},
 };
 use ethers_core::types::U256;
 use halo2_proofs::{arithmetic::FieldExt, halo2curves::bn256::Fr};
@@ -10,6 +12,7 @@ use halo2_proofs::{arithmetic::FieldExt, halo2curves::bn256::Fr};
 pub enum StorageProof {
     Root(Fr), // Not proving a storage update, so we only need the storage root.
     Update {
+        storage_key: U256,
         key: Fr,
         trie_rows: TrieRows,
         old_leaf: StorageLeaf,
@@ -59,17 +62,25 @@ impl StorageProof {
         }
     }
 
-    pub fn poseidon_lookups(&self) -> Vec<(Fr, Fr, Fr)> {
-        // TODO: missing the hash of the storage key for empty storage proofs.
+    pub fn poseidon_lookups(&self) -> Vec<(Fr, Fr, HashDomain, Fr)> {
         match self {
             Self::Root(_) => vec![],
             Self::Update {
+                storage_key,
+                key,
                 trie_rows,
                 old_leaf,
                 new_leaf,
                 ..
             } => {
-                let mut lookups = trie_rows.poseidon_lookups();
+                let (key_high, key_low) = u256_hi_lo(storage_key);
+                let mut lookups = vec![(
+                    Fr::from_u128(key_high),
+                    Fr::from_u128(key_low),
+                    HashDomain::Pair,
+                    *key,
+                )];
+                lookups.extend(trie_rows.poseidon_lookups());
                 lookups.extend(old_leaf.poseidon_lookups());
                 lookups.extend(new_leaf.poseidon_lookups());
                 lookups
@@ -121,6 +132,45 @@ impl StorageProof {
             }
         }
     }
+
+    #[cfg(test)]
+    pub fn check(&self) {
+        if let Self::Update {
+            trie_rows,
+            old_leaf,
+            new_leaf,
+            ..
+        } = self
+        {
+            // Check that trie rows are consistent and produce claimed roots.
+            trie_rows.check(self.old_root(), self.new_root());
+
+            // Check that directions match old and new keys.
+            for (i, row) in trie_rows.0.iter().enumerate() {
+                let old_key = old_leaf.key();
+                let new_key = new_leaf.key();
+                match row.path_type {
+                    PathType::Start => unreachable!(),
+                    PathType::Common => {
+                        assert_eq!(row.direction, old_key.bit(i));
+                        assert_eq!(row.direction, new_key.bit(i));
+                    }
+                    PathType::ExtensionOld => {
+                        assert_eq!(row.direction, old_key.bit(i));
+                    }
+                    PathType::ExtensionNew => {
+                        assert_eq!(row.direction, new_key.bit(i));
+                    }
+                }
+            }
+
+            // Check that final trie_row values match leaf hashes
+            if let Some(row) = trie_rows.0.last() {
+                assert_eq!(old_leaf.hash(), row.old);
+                assert_eq!(new_leaf.hash(), row.new);
+            }
+        }
+    }
 }
 
 impl StorageLeaf {
@@ -166,10 +216,6 @@ impl StorageLeaf {
         }
     }
 
-    pub fn key_hash(&self) -> Fr {
-        hash(Fr::one(), self.key())
-    }
-
     // maybe make this an option?
     pub fn value(&self) -> U256 {
         match self {
@@ -192,7 +238,7 @@ impl StorageLeaf {
             Self::Leaf { value_hash, .. } => *value_hash,
             Self::Entry { .. } => {
                 let (high, low) = u256_hi_lo(&self.value());
-                hash(Fr::from_u128(high), Fr::from_u128(low))
+                domain_hash(Fr::from_u128(high), Fr::from_u128(low), HashDomain::Pair)
             }
         }
     }
@@ -201,27 +247,28 @@ impl StorageLeaf {
         if let Self::Empty { .. } = self {
             Fr::zero()
         } else {
-            hash(self.key_hash(), self.value_hash())
+            domain_hash(self.key(), self.value_hash(), HashDomain::Leaf)
         }
     }
 
-    fn poseidon_lookups(&self) -> Vec<(Fr, Fr, Fr)> {
-        let mut lookups = vec![(Fr::one(), self.key(), self.key_hash())];
+    fn poseidon_lookups(&self) -> Vec<(Fr, Fr, HashDomain, Fr)> {
         match self {
-            Self::Empty { .. } => (),
+            Self::Empty { .. } => vec![],
             Self::Leaf { value_hash, .. } => {
-                lookups.push((self.key_hash(), *value_hash, self.hash()))
+                vec![(self.key(), *value_hash, HashDomain::Leaf, self.hash())]
             }
-            Self::Entry { storage_key, .. } => {
-                let (key_high, key_low) = u256_hi_lo(storage_key);
-                lookups.extend(vec![
-                    (Fr::from_u128(key_high), Fr::from_u128(key_low), self.key()),
-                    (self.value_high(), self.value_low(), self.value_hash()),
-                    (self.key_hash(), self.value_hash(), self.hash()),
-                ]);
+            Self::Entry { .. } => {
+                vec![
+                    (
+                        self.value_high(),
+                        self.value_low(),
+                        HashDomain::Pair,
+                        self.value_hash(),
+                    ),
+                    (self.key(), self.value_hash(), HashDomain::Leaf, self.hash()),
+                ]
             }
         }
-        lookups
     }
 }
 
@@ -243,10 +290,13 @@ impl From<&SMTTrace> for StorageProof {
         );
 
         let [old_entry, new_entry] = trace.state_update.unwrap().map(Option::unwrap);
+        assert_eq!(old_entry.key, new_entry.key);
+        let storage_key = u256_from_hex(old_entry.key);
         let old_leaf = StorageLeaf::new(key, &old_leaf, &old_entry);
         let new_leaf = StorageLeaf::new(key, &new_leaf, &new_entry);
 
         let storage_proof = Self::Update {
+            storage_key,
             key,
             trie_rows,
             old_leaf,

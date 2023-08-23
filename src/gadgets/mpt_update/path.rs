@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use strum_macros::EnumIter;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, EnumIter, Hash)]
 pub enum PathType {
     Start,        // Used as boundary marker between updates
     Common,       // Hashes for both the old and new path are being updated.
