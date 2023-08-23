@@ -75,7 +75,7 @@ impl<T: IntoEnumIterator + Hash + Eq + PartialOrd + Ord> OneHot<T> {
                 * self
                     .columns
                     .get(&t)
-                    .map_or_else(|| !self.sum(-1), BinaryColumn::current)
+                    .map_or_else(|| !self.sum(-1), BinaryColumn::previous)
         })
     }
 
