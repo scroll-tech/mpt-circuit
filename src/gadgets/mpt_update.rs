@@ -1921,19 +1921,14 @@ fn configure_empty_storage<F: FieldExt>(
             .path_type
             .current_matches(&[PathType::Start, PathType::Common]),
     );
+    cb.assert_equal(
+        "hash doesn't change for empty account",
+        config.old_hash.current(),
+        config.new_hash.current(),
+    );
 
     let is_final_segment = config.segment_type.next_matches(&[SegmentType::Start]);
     cb.condition(is_final_segment, |cb| {
-        cb.assert_equal(
-            "old_hash = new_hash",
-            config.old_hash.current(),
-            config.new_hash.current(),
-        );
-        cb.assert_equal(
-            "old value = new value for empty account proof",
-            config.old_value.current(),
-            config.new_value.current(),
-        );
         nonexistence_proof::configure(
             cb,
             config.old_value,
@@ -1960,6 +1955,8 @@ fn configure_empty_storage<F: FieldExt>(
             }
             SegmentType::AccountLeaf3 => {
                 cb.assert_zero("direction is 0", config.direction.current());
+                // Note that this constraint doesn't apply if the account doesn't exist. This
+                // is ok, because every storage key for an empty account is empty.
                 configure_word_rlc(
                     cb,
                     [config.key, key_high, key_low],
