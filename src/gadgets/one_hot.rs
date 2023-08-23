@@ -1,22 +1,22 @@
 use crate::constraint_builder::{BinaryColumn, BinaryQuery, ConstraintBuilder, Query};
 use halo2_proofs::{arithmetic::FieldExt, circuit::Region, plonk::ConstraintSystem};
-use std::{cmp::Eq, collections::HashMap, hash::Hash};
+use std::{cmp::Eq, collections::BTreeMap, hash::Hash};
 use strum::IntoEnumIterator;
 
 // One hot encoding for an enum with T::COUNT variants with COUNT - 1 binary columns.
 // It's useful to have 1 less column so that the default assigment for the gadget
 // is valid (it will represent the first variant).
 #[derive(Clone)]
-pub struct OneHot<T: Hash> {
-    columns: HashMap<T, BinaryColumn>,
+pub struct OneHot<T: Hash + PartialOrd + Ord> {
+    columns: BTreeMap<T, BinaryColumn>,
 }
 
-impl<T: IntoEnumIterator + Hash + Eq> OneHot<T> {
+impl<T: IntoEnumIterator + Hash + Eq + PartialOrd + Ord> OneHot<T> {
     pub fn configure<F: FieldExt>(
         cs: &mut ConstraintSystem<F>,
         cb: &mut ConstraintBuilder<F>,
     ) -> Self {
-        let mut columns = HashMap::new();
+        let mut columns = BTreeMap::new();
         for variant in Self::nonfirst_variants() {
             columns.insert(variant, cb.binary_columns::<1>(cs)[0]);
         }
@@ -75,7 +75,7 @@ impl<T: IntoEnumIterator + Hash + Eq> OneHot<T> {
                 * self
                     .columns
                     .get(&t)
-                    .map_or_else(|| !self.sum(-1), BinaryColumn::current)
+                    .map_or_else(|| !self.sum(-1), BinaryColumn::previous)
         })
     }
 

@@ -1,8 +1,9 @@
 use crate::{
     constraint_builder::{AdviceColumn, ConstraintBuilder, Query, SecondPhaseAdviceColumn},
     gadgets::{is_zero::IsZeroGadget, poseidon::PoseidonLookup},
+    types::HashDomain,
 };
-use halo2_proofs::{arithmetic::FieldExt, circuit::Region, halo2curves::bn256::Fr};
+use halo2_proofs::arithmetic::FieldExt;
 
 pub fn configure<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
@@ -12,7 +13,6 @@ pub fn configure<F: FieldExt>(
     key_equals_other_key: IsZeroGadget,
     hash: AdviceColumn,
     hash_is_zero: IsZeroGadget,
-    other_key_hash: AdviceColumn,
     other_leaf_data_hash: AdviceColumn,
     poseidon: &impl PoseidonLookup,
 ) {
@@ -38,32 +38,14 @@ pub fn configure<F: FieldExt>(
 
     cb.condition(is_type_1, |cb| {
         cb.poseidon_lookup(
-            "other_key_hash == h(1, other_key)",
-            [Query::one(), other_key.current(), other_key_hash.current()],
-            poseidon,
-        );
-        cb.poseidon_lookup(
-            "hash == h(key_hash, other_leaf_data_hash)",
+            "hash == h(other_key, other_leaf_data_hash)",
             [
-                other_key_hash.current(),
+                other_key.current(),
                 other_leaf_data_hash.current(),
+                Query::from(u64::from(HashDomain::Leaf)),
                 hash.current(),
             ],
             poseidon,
         );
     });
-}
-
-pub fn assign(
-    region: &mut Region<'_, Fr>,
-    offset: usize,
-    (key_equals_other_key, key_minus_other_key): (IsZeroGadget, Fr),
-    (final_hash_is_zero, final_hash): (IsZeroGadget, Fr),
-    (other_key_hash_row, other_key_hash): (AdviceColumn, Fr),
-    (other_leaf_data_hash_row, other_leaf_data_hash): (AdviceColumn, Fr),
-) {
-    key_equals_other_key.assign(region, offset, key_minus_other_key);
-    final_hash_is_zero.assign(region, offset, final_hash);
-    other_key_hash_row.assign(region, offset, other_key_hash);
-    other_leaf_data_hash_row.assign(region, offset, other_leaf_data_hash);
 }
