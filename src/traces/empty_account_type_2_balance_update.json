@@ -1,0 +1,68 @@
+{
+  "address": "0x1414141414141414141414141414141414141414",
+  "accountKey": "0x0528ff2808cf785c378aaf2765ac1000c537dbd43cb0022b2387f200ba160324",
+  "accountPath": [
+    {
+      "root": "0xb3e9ff02c109b1d6aefa774523aaf5bef1207226e85a3726ecb505227ad1e621",
+      "path": [
+        {
+          "value": "0x4c132495916e6529f791ad1d6977c5b9cf8720a58a7f196ea6fae35dffd80c15",
+          "sibling": "0xa66d39d51412f50d7df0c6388c765c74b023a3e5d9eba9cbc80b6ef17f76ab1e",
+          "node_type": 9
+        },
+        {
+          "value": "0xf485d05d32be22082faed55e8c38826fec4a8250f41ce4639d51fb249c322127",
+          "sibling": "0xea63c2cf7aaed65918936ba7b61df455d10abed099b690d5b14825ed27aa7e1a",
+          "node_type": 9
+        },
+        {
+          "value": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "sibling": "0xa6a9b79363aac191b917d19aadd68390479fb9b83a481186e30beecf2c338812",
+          "node_type": 8
+        }
+      ],
+      "pathPart": "0x5"
+    },
+    {
+      "root": "0x5a2414efcc32e8be0e1d26a4a3f46ee4ff8211c44220dbdd64960bb0fce5b722",
+      "leaf": {
+        "value": "0x0d4de0a5d4665c3881fec254a7f1cb43ab19f029249081648edc6bfe3f16a610",
+        "sibling": "0x0528ff2808cf785c378aaf2765ac1000c537dbd43cb0022b2387f200ba160324",
+        "node_type": 4
+      },
+      "path": [
+        {
+          "value": "0x95a80bcaea9bb560c48f62956dd193398bd4cbad882e8068cf422894fee6c92a",
+          "sibling": "0xa66d39d51412f50d7df0c6388c765c74b023a3e5d9eba9cbc80b6ef17f76ab1e",
+          "node_type": 9
+        },
+        {
+          "value": "0x66f056352b83824dcfa7b41df3d23aa80b36014068572a2e57273357a0f0c22d",
+          "sibling": "0xea63c2cf7aaed65918936ba7b61df455d10abed099b690d5b14825ed27aa7e1a",
+          "node_type": 9
+        },
+        {
+          "value": "0x8e80d651ba2bec43ee4c9d929740149affbe4327f21d8c7c7944bc88430b271c",
+          "sibling": "0xa6a9b79363aac191b917d19aadd68390479fb9b83a481186e30beecf2c338812",
+          "node_type": 8
+        }
+      ],
+      "pathPart": "0x5"
+    }
+  ],
+  "accountUpdate": [
+    null,
+    {
+      "nonce": 0,
+      "balance": "0x1caac51a83",
+      "codeHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "poseidonCodeHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "codeSize": 0
+    }
+  ],
+  "statePath": [
+    null,
+    null
+  ],
+  "commonStateRoot": "0x0000000000000000000000000000000000000000000000000000000000000000"
+}
