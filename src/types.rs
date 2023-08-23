@@ -13,7 +13,6 @@ use itertools::{EitherOrBoth, Itertools};
 use num_bigint::BigUint;
 use num_traits::identities::Zero;
 
-// mod account;
 pub mod storage;
 pub mod trie;
 use storage::StorageProof;
