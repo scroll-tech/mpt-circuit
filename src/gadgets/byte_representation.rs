@@ -67,12 +67,10 @@ impl ByteRepresentationConfig {
         cb.condition(is_first.current(), |cb| {
             cb.assert_zero("index is 0 for first row", index.current())
         });
-        cb.condition(!is_first.current(), |cb| {
-            cb.assert_zero(
-                "index increases by 1 or resets to 0 for nonfirst rows",
-                index.current() * (index.current() - index.previous() - 1),
-            )
-        });
+        cb.assert_zero(
+            "index increases by 1 or resets to 0 for nonfirst rows",
+            index.current() * (index.current() - index.previous() - 1),
+        );
         cb.assert_equal(
             "current value = previous value * 256 * (index == 0) + byte",
             value.current(),
