@@ -156,8 +156,9 @@ impl MptCircuitConfig {
                 let n_assigned_rows = self.mpt_update.assign(&mut region, proofs, randomness);
 
                 assert!(
-                    n_assigned_rows <= n_rows,
-                    "mpt circuit requires {n_assigned_rows} rows > limit of {n_rows} rows"
+                    2 + n_assigned_rows <= n_rows,
+                    "mpt circuit requires {n_assigned_rows} rows for mpt updates + 1 initial \
+                    all-zero row + at least 1 final padding row. Only {n_rows} rows available."
                 );
 
                 for offset in 1 + n_assigned_rows..n_rows {
