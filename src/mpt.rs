@@ -12,6 +12,7 @@ use crate::{
         poseidon::PoseidonLookup,
         rlc_randomness::RlcRandomness,
     },
+    mpt_table::MPTProofType,
     types::Proof,
 };
 use halo2_proofs::{
@@ -20,11 +21,13 @@ use halo2_proofs::{
     halo2curves::bn256::Fr,
     plonk::{Challenge, ConstraintSystem, Error, Expression, VirtualCells},
 };
+use itertools::Itertools;
 
 /// Config for MptCircuit
 #[derive(Clone)]
 pub struct MptCircuitConfig {
     selector: SelectorColumn,
+    is_final_row: SelectorColumn,
     rlc_randomness: RlcRandomness,
     mpt_update: MptUpdateConfig,
     canonical_representation: CanonicalRepresentationConfig,
@@ -68,10 +71,38 @@ impl MptCircuitConfig {
             &canonical_representation,
         );
 
+        // This ensures that the final mpt update in the circuit is complete, since the padding
+        // for the mpt update is a valid proof that shows the account with address 0 does not
+        // exist in an mpt with root = 0 (i.e. the mpt is empty).
+        let is_final_row = SelectorColumn(cs.fixed_column());
+        let padding_row_expressions = [
+            1.into(),
+            0.into(),
+            0.into(),
+            (MPTProofType::AccountDoesNotExist as u64).into(),
+            0.into(),
+            0.into(),
+            0.into(),
+            0.into(),
+        ];
+        cb.condition(is_final_row.current(), |cb| {
+            for (padding_row_expression, lookup_expression) in padding_row_expressions
+                .into_iter()
+                .zip_eq(mpt_update.lookup())
+            {
+                cb.assert_equal(
+                    "final mpt update is padding",
+                    padding_row_expression,
+                    lookup_expression,
+                )
+            }
+        });
+
         cb.build(cs);
 
         Self {
             selector,
+            is_final_row,
             rlc_randomness,
             mpt_update,
             key_bit,
@@ -125,13 +156,15 @@ impl MptCircuitConfig {
                 let n_assigned_rows = self.mpt_update.assign(&mut region, proofs, randomness);
 
                 assert!(
-                    n_assigned_rows <= n_rows,
-                    "mpt circuit requires {n_assigned_rows} rows > limit of {n_rows} rows"
+                    2 + n_assigned_rows <= n_rows,
+                    "mpt circuit requires {n_assigned_rows} rows for mpt updates + 1 initial \
+                    all-zero row + at least 1 final padding row. Only {n_rows} rows available."
                 );
 
                 for offset in 1 + n_assigned_rows..n_rows {
                     self.mpt_update.assign_padding_row(&mut region, offset);
                 }
+                self.is_final_row.enable(&mut region, n_rows - 1);
 
                 Ok(())
             },
