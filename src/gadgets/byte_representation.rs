@@ -68,7 +68,7 @@ impl ByteRepresentationConfig {
             cb.assert_zero("index is 0 for first row", index.current())
         });
         cb.assert_zero(
-            "index increases by 1 or resets to 0 for nonfirst rows",
+            "index is 0 or increases by 1",
             index.current() * (index.current() - index.previous() - 1),
         );
         cb.assert_equal(
