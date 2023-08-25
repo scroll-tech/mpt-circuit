@@ -21,6 +21,7 @@ use halo2_proofs::{
     halo2curves::bn256::Fr,
     plonk::{Challenge, ConstraintSystem, Error, Expression, VirtualCells},
 };
+use itertools::Itertools;
 
 /// Config for MptCircuit
 #[derive(Clone)]
@@ -74,20 +75,28 @@ impl MptCircuitConfig {
         // for the mpt update is a valid proof that shows the account with address 0 does not
         // exist in an mpt with root = 0 (i.e. the mpt is empty).
         let is_final_row = SelectorColumn(cs.fixed_column());
-        cb.add_lookup(
-            "final mpt update is padding",
-            [
-                1.into(),
-                0.into(),
-                0.into(),
-                (MPTProofType::AccountDoesNotExist as u64).into(),
-                0.into(),
-                0.into(),
-                0.into(),
-                0.into(),
-            ],
-            mpt_update.lookup().map(|q| q * is_final_row.current()),
-        );
+        let padding_row_expressions = [
+            1.into(),
+            0.into(),
+            0.into(),
+            (MPTProofType::AccountDoesNotExist as u64).into(),
+            0.into(),
+            0.into(),
+            0.into(),
+            0.into(),
+        ];
+        cb.condition(is_final_row.current(), |cb| {
+            for (padding_row_expression, lookup_expression) in padding_row_expressions
+                .into_iter()
+                .zip_eq(mpt_update.lookup())
+            {
+                cb.assert_equal(
+                    "final mpt update is padding",
+                    padding_row_expression,
+                    lookup_expression,
+                )
+            }
+        });
 
         cb.build(cs);
 
