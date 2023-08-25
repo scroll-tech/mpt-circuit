@@ -152,6 +152,9 @@ impl MptUpdateConfig {
                 [address_high.current(), Query::from(15)],
                 bytes.lookup(),
             );
+            // We don't need to check that address_low is 4 bytes because the rw circuit, which is
+            // the only circuit that does lookups into mpt circuit, already checks that all
+            // addresses are 20 bytes.
             cb.add_lookup(
                 "rlc_old_root = rlc(old_root)",
                 [old_hash.current(), old_hash_rlc.current(), Query::from(31)],
