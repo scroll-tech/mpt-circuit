@@ -1,5 +1,7 @@
 use super::{byte_bit::RangeCheck256Lookup, is_zero::IsZeroGadget, rlc_randomness::RlcRandomness};
-use crate::constraint_builder::{AdviceColumn, ConstraintBuilder, Query, SecondPhaseAdviceColumn};
+use crate::constraint_builder::{
+    AdviceColumn, ConstraintBuilder, Query, SecondPhaseAdviceColumn, SelectorColumn,
+};
 use ethers_core::types::{Address, H256};
 use halo2_proofs::{
     arithmetic::FieldExt,
@@ -27,6 +29,7 @@ pub struct ByteRepresentationConfig {
     index: AdviceColumn,
 
     // internal columns
+    is_first: SelectorColumn,
     byte: AdviceColumn,
     index_is_zero: IsZeroGadget,
 }
@@ -56,12 +59,16 @@ impl ByteRepresentationConfig {
         range_check: &impl RangeCheck256Lookup,
         randomness: &RlcRandomness,
     ) -> Self {
+        let is_first = SelectorColumn(cs.fixed_column());
         let [value, index, byte] = cb.advice_columns(cs);
         let [rlc] = cb.second_phase_advice_columns(cs);
         let index_is_zero = IsZeroGadget::configure(cs, cb, index);
 
+        cb.condition(is_first.current(), |cb| {
+            cb.assert_zero("index is 0 for first row", index.current())
+        });
         cb.assert_zero(
-            "index increases by 1 or resets to 0",
+            "index is 0 or increases by 1",
             index.current() * (index.current() - index.previous() - 1),
         );
         cb.assert_equal(
@@ -82,6 +89,7 @@ impl ByteRepresentationConfig {
             index,
             index_is_zero,
             byte,
+            is_first,
         }
     }
 
@@ -94,6 +102,7 @@ impl ByteRepresentationConfig {
         frs: &[Fr],
         randomness: Value<F>,
     ) {
+        self.is_first.enable(region, 0);
         let byte_representations = u64s
             .iter()
             .map(u64_to_big_endian)
