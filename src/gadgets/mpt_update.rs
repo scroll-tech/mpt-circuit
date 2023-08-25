@@ -1480,9 +1480,7 @@ fn configure_balance<F: FieldExt>(
             SegmentType::AccountLeaf3 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
                 cb.condition(
-                    config
-                        .path_type
-                        .current_matches(&[PathType::Common, PathType::ExtensionOld]),
+                    config.path_type.current_matches(&[PathType::Common]),
                     |cb| {
                         cb.add_lookup(
                             "old balance is rlc(old_hash) and fits into 31 bytes",
@@ -1508,6 +1506,15 @@ fn configure_balance<F: FieldExt>(
                                 config.new_value.current(),
                             ],
                             rlc.lookup(),
+                        );
+                    },
+                );
+                cb.condition(
+                    config.path_type.current_matches(&[PathType::ExtensionNew]),
+                    |cb| {
+                        cb.assert_zero(
+                            "nonce and code size are 0 for new account",
+                            config.sibling.current(),
                         );
                     },
                 );
