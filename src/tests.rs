@@ -922,6 +922,23 @@ fn empty_mpt() {
 }
 
 #[test]
+fn empty_mpt_empty_account() {
+    assert!(*HASH_SCHEME_DONE);
+    let mut generator = WitnessGenerator::from(&ZktrieState::default());
+    let trace = generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::AccountDoesNotExist,
+        Address::repeat_byte(232),
+        U256::zero(),
+        U256::zero(),
+        None,
+    );
+    let json = serde_json::to_string_pretty(&trace).unwrap();
+    let trace: SMTTrace = serde_json::from_str(&json).unwrap();
+
+    mock_prove(vec![(MPTProofType::AccountDoesNotExist, trace)]);
+}
+
+#[test]
 fn singleton_mpt() {
     assert!(*HASH_SCHEME_DONE);
     let mut generator = WitnessGenerator::from(&ZktrieState::default());
