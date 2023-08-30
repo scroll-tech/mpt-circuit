@@ -440,7 +440,7 @@ impl MptUpdateConfig {
                 })
                 .unwrap_or(PathType::Common);
             let (final_old_hash, final_new_hash) = match proof.address_hash_traces.first() {
-                None => unimplemented!("single account mpt not handled"),
+                None => (proof.old.hash(), proof.new.hash()),
                 Some((_, _, old_hash, new_hash, _, _, _)) => (*old_hash, *new_hash),
             };
 
