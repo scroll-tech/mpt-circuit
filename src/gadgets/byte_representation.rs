@@ -97,15 +97,17 @@ impl ByteRepresentationConfig {
     pub fn assign<F: FieldExt>(
         &self,
         region: &mut Region<'_, F>,
+        u32s: &[u32],
         u64s: &[u64],
         u128s: &[u128],
         frs: &[Fr],
         randomness: Value<F>,
     ) {
         self.is_first.enable(region, 0);
-        let byte_representations = u64s
+        let byte_representations = u32s
             .iter()
-            .map(u64_to_big_endian)
+            .map(u32_to_big_endian)
+            .chain(u64s.iter().map(u64_to_big_endian))
             .chain(u128s.iter().map(u128_to_big_endian))
             .chain(frs.iter().map(fr_to_big_endian));
 
@@ -133,6 +135,9 @@ impl ByteRepresentationConfig {
     }
 }
 
+fn u32_to_big_endian(x: &u32) -> Vec<u8> {
+    x.to_be_bytes().to_vec()
+}
 fn u64_to_big_endian(x: &u64) -> Vec<u8> {
     x.to_be_bytes().to_vec()
 }
@@ -173,6 +178,7 @@ mod test {
 
     #[derive(Clone, Default, Debug)]
     struct TestCircuit {
+        u32s: Vec<u32>,
         u64s: Vec<u64>,
         u128s: Vec<u128>,
         frs: Vec<Fr>,
@@ -219,6 +225,7 @@ mod test {
                     byte_bit.assign(&mut region);
                     byte_representation.assign(
                         &mut region,
+                        &self.u32s,
                         &self.u64s,
                         &self.u128s,
                         &self.frs,
@@ -233,6 +240,7 @@ mod test {
     #[test]
     fn test_byte_representation() {
         let circuit = TestCircuit {
+            u32s: vec![0, 1, u32::MAX],
             u64s: vec![u64::MAX],
             u128s: vec![0, 1, u128::MAX],
             frs: vec![Fr::from(2342)],

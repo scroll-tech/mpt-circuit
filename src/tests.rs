@@ -1036,7 +1036,7 @@ fn singleton_mpt_empty_account() {
 }
 
 #[test]
-fn createNameRegistratorPerTxsNotEnoughGas_d0_g0_v0() {
+fn create_name_registrator_per_txs_not_enough_gas_d0_g0_v0() {
     // These mpt updates are by the test case at
     // https://github.com/ethereum/tests/blob/747a4828f36c5fc8ab4f288d1cf4f1fe6662f3d6/src/GeneralStateTestsFiller/stCallCreateCallCodeTest/createNameRegistratorPerTxsNotEnoughGasFiller.json
     mock_prove(

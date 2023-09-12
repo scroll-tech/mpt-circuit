@@ -83,7 +83,9 @@ impl<F: FieldExt> MptUpdateLookup<F> for MptUpdateConfig {
         let proof_type = self.proof_type.current() * is_start();
         let old_value = self.old_value.current() * is_start();
         let new_value = self.new_value.current() * is_start();
-        let address = self.intermediate_values[0].current() * is_start();
+        let [address_high, address_low, ..] = self.intermediate_values;
+        let address =
+            address_high.current() + address_low.current() * Query::Constant(F::from_u128(1 << 96));
         let storage_key_rlc = self.storage_key_rlc.current() * is_start();
         [
             is_start().into(),
@@ -131,17 +133,13 @@ impl MptUpdateConfig {
             path_type.current_matches(&[PathType::Start]).into(),
         );
         cb.condition(is_start.clone().and(cb.every_row_selector()), |cb| {
-            let [address, address_high, ..] = intermediate_values;
+            let [address_high, address_low, ..] = intermediate_values;
             let [old_hash_rlc, new_hash_rlc, ..] = second_phase_intermediate_values;
-            let address_low: Query<F> = (address.current() - address_high.current() * (1 << 32))
-                * (1 << 32)
-                * (1 << 32)
-                * (1 << 32);
             cb.poseidon_lookup(
-                "account mpt key = h(address_high, address_low)",
+                "account mpt key = h(address_high, address_low << 96)",
                 [
                     address_high.current(),
-                    address_low,
+                    address_low.current() * Query::Constant(F::from_u128(1 << 96)),
                     Query::from(u64::from(HashDomain::Pair)),
                     key.current(),
                 ],
@@ -150,6 +148,11 @@ impl MptUpdateConfig {
             cb.add_lookup(
                 "address_high is 16 bytes",
                 [address_high.current(), Query::from(15)],
+                bytes.lookup(),
+            );
+            cb.add_lookup(
+                "address_low is 4 bytes",
+                [address_low.current(), Query::from(3)],
                 bytes.lookup(),
             );
             cb.add_lookup(
@@ -393,11 +396,15 @@ impl MptUpdateConfig {
             self.other_key.assign(region, offset, other_key);
             self.domain.assign(region, offset, HashDomain::Pair);
 
-            self.intermediate_values[0].assign(region, offset, address_to_fr(proof.claim.address));
-            self.intermediate_values[1].assign(
+            self.intermediate_values[0].assign(
                 region,
                 offset,
                 Fr::from_u128(address_high(proof.claim.address)),
+            );
+            self.intermediate_values[1].assign(
+                region,
+                offset,
+                u64::from(address_low(proof.claim.address)),
             );
 
             let rlc_fr = |x: Fr| {
@@ -2013,9 +2020,9 @@ fn address_high(a: Address) -> u128 {
     u128::from_be_bytes(high_bytes)
 }
 
-fn address_low(a: Address) -> u128 {
+fn address_low(a: Address) -> u32 {
     let low_bytes: [u8; 4] = a.0[16..].try_into().unwrap();
-    u128::from(u32::from_be_bytes(low_bytes)) << 96
+    u32::from_be_bytes(low_bytes)
 }
 
 // ... the return traces: ([inp;2], domain, hash)
@@ -2042,7 +2049,7 @@ pub fn hash_traces(proofs: &[Proof]) -> Vec<([Fr; 2], Fr, Fr)> {
         hash_traces.push((
             [
                 Fr::from_u128(address_high(proof.claim.address)),
-                Fr::from_u128(address_low(proof.claim.address)),
+                Fr::from_u128(u128::from(address_low(proof.claim.address)) << 96),
             ],
             HashDomain::Pair.into(),
             key,
@@ -2113,13 +2120,15 @@ pub fn key_bit_lookups(proofs: &[Proof]) -> Vec<(Fr, usize, bool)> {
 }
 
 /// ...
-pub fn byte_representations(proofs: &[Proof]) -> (Vec<u64>, Vec<u128>, Vec<Fr>) {
+pub fn byte_representations(proofs: &[Proof]) -> (Vec<u32>, Vec<u64>, Vec<u128>, Vec<Fr>) {
+    let mut u32s = vec![];
     let mut u64s = vec![];
     let mut u128s = vec![0];
     let mut frs = vec![];
 
     for proof in proofs {
         u128s.push(address_high(proof.claim.address));
+        u32s.push(address_low(proof.claim.address));
         match MPTProofType::from(proof.claim) {
             MPTProofType::NonceChanged | MPTProofType::CodeSizeExists => {
                 u128s.push(address_high(proof.claim.address));
@@ -2188,7 +2197,7 @@ pub fn byte_representations(proofs: &[Proof]) -> (Vec<u64>, Vec<u128>, Vec<Fr>) 
             _ => {}
         }
     }
-    (u64s, u128s, frs)
+    (u32s, u64s, u128s, frs)
 }
 
 /// ..

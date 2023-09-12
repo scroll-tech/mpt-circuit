@@ -119,7 +119,7 @@ impl MptCircuitConfig {
         n_rows: usize,
     ) -> Result<(), Error> {
         let randomness = self.rlc_randomness.value(layouter);
-        let (u64s, u128s, frs) = byte_representations(proofs);
+        let (u32s, u64s, u128s, frs) = byte_representations(proofs);
 
         layouter.assign_region(
             || "mpt circuit",
@@ -150,8 +150,14 @@ impl MptCircuitConfig {
                 );
                 self.key_bit.assign(&mut region, &key_bit_lookups(proofs));
                 self.byte_bit.assign(&mut region);
-                self.byte_representation
-                    .assign(&mut region, &u64s, &u128s, &frs, randomness);
+                self.byte_representation.assign(
+                    &mut region,
+                    &u32s,
+                    &u64s,
+                    &u128s,
+                    &frs,
+                    randomness,
+                );
 
                 let n_assigned_rows = self.mpt_update.assign(&mut region, proofs, randomness);
 
