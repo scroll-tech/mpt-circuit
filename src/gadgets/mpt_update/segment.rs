@@ -25,6 +25,7 @@ pub fn transitions(proof: MPTProofType) -> HashMap<SegmentType, Vec<SegmentType>
             (
                 SegmentType::Start,
                 vec![
+                    SegmentType::Start,        // empty account proof in an empty mpt
                     SegmentType::AccountTrie,  // mpt has > 1 account
                     SegmentType::AccountLeaf0, // mpt has <= 1 account
                 ],
@@ -106,6 +107,7 @@ pub fn transitions(proof: MPTProofType) -> HashMap<SegmentType, Vec<SegmentType>
             (
                 SegmentType::Start,
                 vec![
+                    SegmentType::Start,        // empty account proof in an empty mpt
                     SegmentType::AccountTrie,  // mpt has > 1 account
                     SegmentType::AccountLeaf0, // mpt has 1 account
                 ],

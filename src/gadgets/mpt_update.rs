@@ -443,7 +443,7 @@ impl MptUpdateConfig {
                 })
                 .unwrap_or(PathType::Common);
             let (final_old_hash, final_new_hash) = match proof.address_hash_traces.first() {
-                None => unimplemented!("single account mpt not handled"),
+                None => (proof.old.hash(), proof.new.hash()),
                 Some((_, _, old_hash, new_hash, _, _, _)) => (*old_hash, *new_hash),
             };
 
@@ -1291,7 +1291,7 @@ fn configure_nonce<F: FieldExt>(
     );
     for variant in SegmentType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
-            SegmentType::AccountTrie => {
+            SegmentType::Start | SegmentType::AccountTrie => {
                 cb.condition(
                     config.segment_type.next_matches(&[SegmentType::Start]),
                     |cb| {
@@ -1423,7 +1423,7 @@ fn configure_code_size<F: FieldExt>(
     );
     for variant in SegmentType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
-            SegmentType::AccountTrie => {
+            SegmentType::Start | SegmentType::AccountTrie => {
                 cb.condition(
                     config.segment_type.next_matches(&[SegmentType::Start]),
                     |cb| {
@@ -1507,7 +1507,7 @@ fn configure_balance<F: FieldExt>(
 ) {
     for variant in SegmentType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
-            SegmentType::AccountTrie => {
+            SegmentType::Start | SegmentType::AccountTrie => {
                 cb.condition(
                     config.segment_type.next_matches(&[SegmentType::Start]),
                     |cb| {
@@ -1693,7 +1693,7 @@ fn configure_keccak_code_hash<F: FieldExt>(
     );
     for variant in SegmentType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
-            SegmentType::AccountTrie => {
+            SegmentType::Start | SegmentType::AccountTrie => {
                 cb.condition(
                     config.segment_type.next_matches(&[SegmentType::Start]),
                     |cb| {
