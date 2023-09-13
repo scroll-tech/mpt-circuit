@@ -84,8 +84,9 @@ impl<F: FieldExt> MptUpdateLookup<F> for MptUpdateConfig {
         let old_value = self.old_value.current() * is_start();
         let new_value = self.new_value.current() * is_start();
         let [address_high, address_low, ..] = self.intermediate_values;
-        let address =
-            address_high.current() + address_low.current() * Query::Constant(F::from_u128(1 << 96));
+        let address = (address_high.current()
+            + address_low.current() * Query::Constant(F::from_u128(1 << 96)))
+            * is_start();
         let storage_key_rlc = self.storage_key_rlc.current() * is_start();
         [
             is_start().into(),
