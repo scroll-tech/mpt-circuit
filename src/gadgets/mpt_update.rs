@@ -26,11 +26,11 @@ use crate::{
     util::{account_key, domain_hash, lagrange_polynomial, rlc, u256_hi_lo, u256_to_big_endian},
     MPTProofType,
 };
-use ethers_core::{k256::elliptic_curve::PrimeField, types::Address};
+use ethers_core::types::Address;
 use halo2_proofs::{
     arithmetic::{Field, FieldExt},
     circuit::{Region, Value},
-    halo2curves::bn256::Fr,
+    halo2curves::{bn256::Fr, group::ff::PrimeField},
     plonk::ConstraintSystem,
 };
 use itertools::izip;

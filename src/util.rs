@@ -1,11 +1,8 @@
 use crate::{constraint_builder::Query, serde::HexBytes, types::HashDomain};
-use ethers_core::{
-    k256::elliptic_curve::PrimeField,
-    types::{Address, U256},
-};
+use ethers_core::types::{Address, U256};
 use halo2_proofs::{
     arithmetic::{Field, FieldExt},
-    halo2curves::bn256::Fr,
+    halo2curves::{bn256::Fr, group::ff::PrimeField},
 };
 use hash_circuit::hash::Hashable;
 use num_bigint::BigUint;
