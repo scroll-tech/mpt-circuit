@@ -185,7 +185,6 @@ pub struct Proof {
 pub struct EthAccount {
     pub nonce: u64,
     pub code_size: u64,
-    poseidon_codehash: Fr,
     pub balance: Fr,
     pub keccak_codehash: U256,
     pub storage_root: Fr,
@@ -196,7 +195,6 @@ impl From<AccountData> for EthAccount {
         Self {
             nonce: account_data.nonce,
             code_size: account_data.code_size,
-            poseidon_codehash: fr_from_biguint(&account_data.poseidon_code_hash),
             balance: fr_from_biguint(&account_data.balance),
             keccak_codehash: u256_from_biguint(&account_data.code_hash),
             storage_root: Fr::zero(), // TODO: fixmeeee!!!
@@ -957,37 +955,8 @@ fn check_hash_traces_new(traces: &[(bool, HashDomain, Fr, Fr, Fr, bool, bool)]) 
     }
 }
 
-fn bits(x: usize, len: usize) -> Vec<bool> {
-    let mut bits = vec![];
-    let mut x = x;
-    while x != 0 {
-        bits.push(x % 2 == 1);
-        x /= 2;
-    }
-    bits.resize(len, false);
-    bits.reverse();
-    bits
-}
-
 fn fr(x: HexBytes<32>) -> Fr {
     Fr::from_bytes(&x.0).unwrap()
-}
-
-fn split_word(x: U256) -> (Fr, Fr) {
-    let mut bytes = [0; 32];
-    x.to_big_endian(&mut bytes);
-    let high_bytes: [u8; 16] = bytes[..16].try_into().unwrap();
-    let low_bytes: [u8; 16] = bytes[16..].try_into().unwrap();
-
-    let high = Fr::from_u128(u128::from_be_bytes(high_bytes));
-    let low = Fr::from_u128(u128::from_be_bytes(low_bytes));
-    (high, low)
-
-    // TODO: what's wrong with this?
-    // let [limb_0, limb_1, limb_2, limb_3] = key.0;
-    // let key_high = Fr::from_u128(u128::from(limb_2) + u128::from(limb_3) << 64);
-    // let key_low = Fr::from_u128(u128::from(limb_0) + u128::from(limb_1) << 64);
-    // hash(key_high, key_low)
 }
 
 fn big_uint_to_fr(i: &BigUint) -> Fr {

@@ -2,7 +2,6 @@ use super::{byte_bit::RangeCheck256Lookup, is_zero::IsZeroGadget, rlc_randomness
 use crate::constraint_builder::{
     AdviceColumn, ConstraintBuilder, Query, SecondPhaseAdviceColumn, SelectorColumn,
 };
-use ethers_core::types::{Address, H256};
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Region, Value},
@@ -144,14 +143,6 @@ fn u64_to_big_endian(x: &u64) -> Vec<u8> {
 
 fn u128_to_big_endian(x: &u128) -> Vec<u8> {
     x.to_be_bytes().to_vec()
-}
-
-fn address_to_big_endian(x: &Address) -> Vec<u8> {
-    x.0.to_vec()
-}
-
-fn h256_to_big_endian(x: &H256) -> Vec<u8> {
-    x.0.to_vec()
 }
 
 fn fr_to_big_endian(x: &Fr) -> Vec<u8> {

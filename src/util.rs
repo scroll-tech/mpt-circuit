@@ -2,7 +2,7 @@ use crate::{constraint_builder::Query, serde::HexBytes, types::HashDomain};
 use ethers_core::types::{Address, U256};
 use halo2_proofs::{
     arithmetic::{Field, FieldExt},
-    halo2curves::{bn256::Fr, group::ff::PrimeField},
+    halo2curves::bn256::Fr,
 };
 use hash_circuit::hash::Hashable;
 use num_bigint::BigUint;
@@ -50,15 +50,6 @@ pub(crate) fn split_word(x: U256) -> (Fr, Fr) {
     // hash(key_high, key_low)
 }
 
-pub(crate) fn hi_lo(x: &BigUint) -> (Fr, Fr) {
-    let mut u64_digits = x.to_u64_digits();
-    u64_digits.resize(4, 0);
-    (
-        Fr::from_u128((u128::from(u64_digits[3]) << 64) + u128::from(u64_digits[2])),
-        Fr::from_u128((u128::from(u64_digits[1]) << 64) + u128::from(u64_digits[0])),
-    )
-}
-
 pub(crate) fn u256_hi_lo(x: &U256) -> (u128, u128) {
     let u64_digits = x.0;
     (
@@ -84,12 +75,6 @@ pub fn rlc(be_bytes: &[u8], randomness: Fr) -> Fr {
 
 pub fn u256_from_biguint(x: &BigUint) -> U256 {
     U256::from_big_endian(&x.to_bytes_be())
-}
-
-pub fn u256_to_fr(x: U256) -> Fr {
-    let mut bytes = [0u8; 32];
-    x.to_little_endian(&mut bytes);
-    Fr::from_repr(bytes).unwrap()
 }
 
 pub fn u256_to_big_endian(x: &U256) -> Vec<u8> {
