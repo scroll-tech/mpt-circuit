@@ -1,10 +1,9 @@
-use crate::constraint_builder::{AdviceColumn, ConstraintBuilder, FixedColumn, Query};
-use halo2_proofs::{
-    arithmetic::FieldExt,
-    plonk::{Advice, Column, Fixed},
-};
+use crate::constraint_builder::{AdviceColumn, FixedColumn};
+use halo2_proofs::plonk::{Advice, Column, Fixed};
 #[cfg(test)]
-use halo2_proofs::{circuit::Region, halo2curves::bn256::Fr, plonk::ConstraintSystem};
+use halo2_proofs::{
+    arithmetic::FieldExt, circuit::Region, halo2curves::bn256::Fr, plonk::ConstraintSystem,
+};
 #[cfg(test)]
 use hash_circuit::hash::Hashable;
 
@@ -17,42 +16,6 @@ pub trait PoseidonLookup {
     fn lookup_columns_generic(&self) -> (Column<Fixed>, [Column<Advice>; 6]) {
         let (fixed, adv) = self.lookup_columns();
         (fixed.0, adv.map(|col| col.0))
-    }
-}
-
-impl<F: FieldExt> ConstraintBuilder<F> {
-    pub fn poseidon_lookup(
-        &mut self,
-        name: &'static str,
-        [left, right, domain, hash]: [Query<F>; 4],
-        poseidon: &impl PoseidonLookup,
-    ) {
-        let extended_queries = [
-            Query::one(),
-            hash,
-            left,
-            right,
-            Query::zero(),
-            domain,
-            Query::one(),
-        ];
-
-        let (q_enable, [hash, left, right, control, domain_spec, head_mark]) =
-            poseidon.lookup_columns();
-
-        self.add_lookup(
-            name,
-            extended_queries,
-            [
-                q_enable.current(),
-                hash.current(),
-                left.current(),
-                right.current(),
-                control.current(),
-                domain_spec.current(),
-                head_mark.current(),
-            ],
-        )
     }
 }
 

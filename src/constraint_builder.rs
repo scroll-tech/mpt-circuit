@@ -1,3 +1,4 @@
+use crate::gadgets::poseidon::PoseidonLookup;
 use halo2_proofs::{
     arithmetic::FieldExt,
     plonk::{ConstraintSystem, SecondPhase},
@@ -81,6 +82,40 @@ impl<F: FieldExt> ConstraintBuilder<F> {
             .zip(right.into_iter())
             .collect();
         self.lookups.push((name, lookup))
+    }
+
+    pub fn poseidon_lookup(
+        &mut self,
+        name: &'static str,
+        [left, right, domain, hash]: [Query<F>; 4],
+        poseidon: &impl PoseidonLookup,
+    ) {
+        let extended_queries = [
+            Query::one(),
+            hash,
+            left,
+            right,
+            Query::zero(),
+            domain,
+            Query::one(),
+        ];
+
+        let (q_enable, [hash, left, right, control, domain_spec, head_mark]) =
+            poseidon.lookup_columns();
+
+        self.add_lookup(
+            name,
+            extended_queries,
+            [
+                q_enable.current(),
+                hash.current(),
+                left.current(),
+                right.current(),
+                control.current(),
+                domain_spec.current(),
+                head_mark.current(),
+            ],
+        )
     }
 
     pub fn build_columns<const A: usize, const B: usize, const C: usize>(
