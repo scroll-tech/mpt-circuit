@@ -83,27 +83,6 @@ impl<F: FieldExt> ConstraintBuilder<F> {
         self.lookups.push((name, lookup))
     }
 
-    pub fn add_lookup_with_default<const N: usize>(
-        &mut self,
-        name: &'static str,
-        left: [Query<F>; N],
-        right: [Query<F>; N],
-        default: [Query<F>; N],
-    ) {
-        let condition = self
-            .conditions
-            .iter()
-            .skip(1) // Save a degree by skipping every row selector
-            .fold(BinaryQuery::one(), |a, b| a.and(b.clone()));
-        let lookup = left
-            .into_iter()
-            .zip(default.into_iter())
-            .map(|(a, b)| condition.select(a, b))
-            .zip(right.into_iter())
-            .collect();
-        self.lookups.push((name, lookup))
-    }
-
     pub fn build_columns<const A: usize, const B: usize, const C: usize>(
         &self,
         cs: &mut ConstraintSystem<F>,
