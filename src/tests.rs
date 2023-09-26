@@ -11,7 +11,7 @@ use halo2_proofs::{
 };
 use mpt_zktrie::state::{builder::HASH_SCHEME_DONE, witness::WitnessGenerator, ZktrieState};
 
-const N_ROWS: usize = 1024;
+const N_ROWS: usize = 8 * 256 + 1;
 const STORAGE_ADDRESS: Address = Address::repeat_byte(1);
 
 fn initial_generator() -> WitnessGenerator {

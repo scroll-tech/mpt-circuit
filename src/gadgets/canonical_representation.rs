@@ -250,7 +250,7 @@ mod test {
             layouter.assign_region(
                 || "",
                 |mut region| {
-                    for offset in 0..256 {
+                    for offset in 0..(8 * 256) {
                         selector.enable(&mut region, offset);
                     }
                     byte_bit.assign(&mut region);
