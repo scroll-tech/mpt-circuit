@@ -3,6 +3,7 @@ use halo2_proofs::{
     arithmetic::FieldExt,
     plonk::{ConstraintSystem, SecondPhase},
 };
+use itertools::Itertools;
 
 mod binary_column;
 mod binary_query;
@@ -74,13 +75,14 @@ impl<F: FieldExt> ConstraintBuilder<F> {
         let condition = self
             .conditions
             .iter()
-            .skip(1) // Save a degree by skipping every row selector
             .fold(BinaryQuery::one(), |a, b| a.and(b.clone()));
-        let lookup = left
+        let mut lookup: Vec<_> = left
             .into_iter()
             .map(|q| q * condition.clone())
             .zip(right.into_iter())
             .collect();
+        // If condition is true, every_row_selector must be enabled.
+        lookup.push((condition.into(), self.every_row_selector().into()));
         self.lookups.push((name, lookup))
     }
 
@@ -90,6 +92,11 @@ impl<F: FieldExt> ConstraintBuilder<F> {
         [left, right, domain, hash]: [Query<F>; 4],
         poseidon: &impl PoseidonLookup,
     ) {
+        let condition = self
+            .conditions
+            .iter()
+            .skip(1) // Save a degree by skipping every row selector
+            .fold(BinaryQuery::one(), |a, b| a.and(b.clone()));
         let extended_queries = [
             Query::one(),
             hash,
@@ -98,24 +105,28 @@ impl<F: FieldExt> ConstraintBuilder<F> {
             Query::zero(),
             domain,
             Query::one(),
-        ];
+        ]
+        .map(|q| q * condition.clone());
 
         let (q_enable, [hash, left, right, control, domain_spec, head_mark]) =
             poseidon.lookup_columns();
+        let poseidon_lookup_queries = [
+            q_enable.current(),
+            hash.current(),
+            left.current(),
+            right.current(),
+            control.current(),
+            domain_spec.current(),
+            head_mark.current(),
+        ];
 
-        self.add_lookup(
+        self.lookups.push((
             name,
-            extended_queries,
-            [
-                q_enable.current(),
-                hash.current(),
-                left.current(),
-                right.current(),
-                control.current(),
-                domain_spec.current(),
-                head_mark.current(),
-            ],
-        )
+            extended_queries
+                .into_iter()
+                .zip_eq(poseidon_lookup_queries)
+                .collect(),
+        ))
     }
 
     pub fn build_columns<const A: usize, const B: usize, const C: usize>(
