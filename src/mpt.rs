@@ -179,13 +179,12 @@ impl MptCircuitConfig {
     /// The number of minimum number of rows required for the mpt circuit.
     pub fn n_rows_required(proofs: &[Proof]) -> usize {
         let (u32s, u64s, u128s, frs) = byte_representations(proofs);
-
-        // +1 for the final padding row to satisfy the "final mpt update is padding" constraint.
-        1 + *[
-            MptUpdateConfig::n_rows_required(proofs),
+        // We need two addtional rows: disabled row for disabled mpt update lookups and one final
+        // padding row to satisfy the "final mpt update is padding" constraint.
+        2 + *[
+            // MptUpdateConfig::n_rows_required(proofs),
             CanonicalRepresentationConfig::n_rows_required(&mpt_update_keys(proofs)),
             KeyBitConfig::n_rows_required(&key_bit_lookups(proofs)),
-            // TODO: move rlc lookup for frs into CanonicalRepresentationConfig.
             ByteRepresentationConfig::n_rows_required(&u32s, &u64s, &u128s, &frs),
             ByteBitGadget::n_rows_required(),
         ]
