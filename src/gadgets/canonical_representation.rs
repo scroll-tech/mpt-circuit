@@ -130,19 +130,19 @@ impl CanonicalRepresentationConfig {
         }
     }
 
-    pub fn assign<'a>(
+    pub fn assign(
         &self,
         region: &mut Region<'_, Fr>,
         randomness: Value<Fr>,
-        values: impl IntoIterator<Item = &'a Fr>,
+        values: &[Fr],
+        n_rows: usize,
     ) {
         let modulus = U256::from_str_radix(Fr::MODULUS, 16).unwrap();
         let mut modulus_bytes = [0u8; 32];
         modulus.to_big_endian(&mut modulus_bytes);
 
         let mut offset = 0;
-        // TODO: we add a final Fr::zero() to handle the always enabled selector. Add a default assignment instead?
-        for value in values.into_iter().copied().chain([Fr::zero()]) {
+        for value in values.iter() {
             let mut bytes = value.to_bytes();
             bytes.reverse();
             let mut differences_are_zero_so_far = true;
@@ -171,7 +171,7 @@ impl CanonicalRepresentationConfig {
                 );
                 differences_are_zero_so_far &= difference.is_zero_vartime();
 
-                self.value.assign(region, offset, value);
+                self.value.assign(region, offset, *value);
 
                 rlc = rlc * randomness + Value::known(Fr::from(u64::from(*byte)));
                 self.rlc.assign(region, offset, rlc);
@@ -179,6 +179,43 @@ impl CanonicalRepresentationConfig {
                 offset += 1
             }
         }
+
+        let expected_offset = Self::n_rows_required(values);
+        debug_assert!(
+            offset == expected_offset,
+            "assign used {:?} rows but {:?} rows expected from `n_rows_required`",
+            offset,
+            expected_offset
+        );
+
+        let n_padding_values = n_rows / 32 - values.len();
+        for _ in 0..n_padding_values {
+            for (index, modulus_byte) in modulus_bytes.iter().enumerate() {
+                self.modulus_byte
+                    .assign(region, offset, u64::from(*modulus_byte));
+
+                self.index
+                    .assign(region, offset, u64::try_from(index).unwrap());
+                if index.is_zero() {
+                    self.index_is_zero.enable(region, offset);
+                } else if index == 31 {
+                    self.index_is_31.enable(region, offset);
+                }
+
+                let difference = Fr::from(u64::from(*modulus_byte));
+                self.difference.assign(region, offset, difference);
+                self.difference_is_zero.assign(region, offset, difference);
+
+                self.differences_are_zero_so_far
+                    .assign(region, offset, index == 0);
+
+                offset += 1
+            }
+        }
+    }
+
+    pub fn n_rows_required(values: &[Fr]) -> usize {
+        values.len() * 32
     }
 }
 
@@ -254,7 +291,7 @@ mod test {
                         selector.enable(&mut region, offset);
                     }
                     byte_bit.assign(&mut region);
-                    canonical_representation.assign(&mut region, randomness, &self.values);
+                    canonical_representation.assign(&mut region, randomness, &self.values, 256);
                     Ok(())
                 },
             )

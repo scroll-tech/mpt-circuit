@@ -93,7 +93,6 @@ impl ByteRepresentationConfig {
         }
     }
 
-    // can this we done with an Iterator<Item: impl ToBigEndianBytes> instead?
     pub fn assign<F: FieldExt>(
         &self,
         region: &mut Region<'_, F>,
@@ -132,6 +131,18 @@ impl ByteRepresentationConfig {
                 offset += 1;
             }
         }
+
+        let expected_offset = Self::n_rows_required(u32s, u64s, u128s, frs);
+        debug_assert!(
+            offset == expected_offset,
+            "assign used {:?} rows but {:?} rows expected from `n_rows_required`",
+            offset,
+            expected_offset
+        );
+    }
+
+    pub fn n_rows_required(u32s: &[u32], u64s: &[u64], u128s: &[u128], frs: &[Fr]) -> usize {
+        u32s.len() * 4 + u64s.len() * 8 + u128s.len() * 16 + frs.len() * 31
     }
 }
 

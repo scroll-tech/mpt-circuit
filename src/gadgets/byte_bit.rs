@@ -40,6 +40,18 @@ impl ByteBitGadget {
                 offset += 1;
             }
         }
+
+        let expected_offset = Self::n_rows_required();
+        debug_assert!(
+            offset == expected_offset,
+            "assign used {:?} rows but {:?} rows expected from `n_rows_required`",
+            offset,
+            expected_offset
+        );
+    }
+
+    pub fn n_rows_required() -> usize {
+        256 * 8
     }
 }
 

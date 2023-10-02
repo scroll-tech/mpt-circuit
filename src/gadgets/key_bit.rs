@@ -108,6 +108,10 @@ impl KeyBitConfig {
             self.byte.assign(region, offset, u64::from(byte));
         }
     }
+
+    pub fn n_rows_required(lookups: &[(Fr, usize, bool)]) -> usize {
+        lookups.len()
+    }
 }
 
 impl KeyBitLookup for KeyBitConfig {
@@ -197,7 +201,7 @@ mod test {
 
                     key_bit.assign(&mut region, &self.lookups);
                     byte_bit.assign(&mut region);
-                    canonical_representation.assign(&mut region, randomness, &keys);
+                    canonical_representation.assign(&mut region, randomness, &keys, 256);
                     Ok(())
                 },
             )
