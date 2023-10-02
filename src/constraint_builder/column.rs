@@ -51,7 +51,7 @@ impl FixedColumn {
     {
         region
             .assign_fixed(
-                || "asdfasdfawe",
+                || "fixed",
                 self.0,
                 offset,
                 || Value::known(value.try_into().unwrap()),
