@@ -183,9 +183,7 @@ impl CanonicalRepresentationConfig {
         let expected_offset = Self::n_rows_required(values);
         debug_assert!(
             offset == expected_offset,
-            "assign used {:?} rows but {:?} rows expected from `n_rows_required`",
-            offset,
-            expected_offset
+            "assign used {offset} rows but {expected_offset} rows expected from `n_rows_required`",
         );
 
         let n_padding_values = n_rows / 32 - values.len();

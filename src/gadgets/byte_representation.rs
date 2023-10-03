@@ -135,9 +135,7 @@ impl ByteRepresentationConfig {
         let expected_offset = Self::n_rows_required(u32s, u64s, u128s, frs);
         debug_assert!(
             offset == expected_offset,
-            "assign used {:?} rows but {:?} rows expected from `n_rows_required`",
-            offset,
-            expected_offset
+            "assign used {offset} rows but {expected_offset} rows expected from `n_rows_required`",
         );
     }
 

@@ -597,18 +597,15 @@ impl MptUpdateConfig {
 
         let expected_offset = Self::n_rows_required(proofs);
         debug_assert!(
-            n_rows == expected_offset,
-            "assign used {:?} rows but {:?} rows expected from `n_rows_required`",
-            n_rows,
-            expected_offset
+            offset == expected_offset,
+            "assign used {offset} rows but {expected_offset} rows expected from `n_rows_required`",
         );
 
         n_rows
     }
 
-    // Note this doesn't take into account the fact that assigning starts at offset = 1.
     pub fn n_rows_required(proofs: &[Proof]) -> usize {
-        proofs.iter().map(Proof::n_rows).sum()
+        proofs.iter().map(Proof::n_rows).sum::<usize>() + 1
     }
 
     fn assign_account_trie_rows(
