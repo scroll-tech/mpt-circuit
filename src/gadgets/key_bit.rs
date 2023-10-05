@@ -89,6 +89,8 @@ impl KeyBitConfig {
     pub fn assign(&self, region: &mut Region<'_, Fr>, lookups: &[(Fr, usize, bool)]) {
         // TODO; dedup lookups
         for (offset, (value, index, bit)) in lookups.iter().enumerate() {
+            // TODO: either move the disabled row to the end of the assigment or get rid of it entirely.
+            let offset = offset + 1; // Start assigning at offet = 1 because the first row is disabled.
             let bytes = value.to_bytes();
 
             let index_div_8 = index / 8; // index = (31 - index/8) * 8
@@ -195,7 +197,7 @@ mod test {
             layouter.assign_region(
                 || "",
                 |mut region| {
-                    for offset in 0..(8 * 256) {
+                    for offset in 1..(1 + 8 * 256) {
                         selector.enable(&mut region, offset);
                     }
 

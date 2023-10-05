@@ -1046,3 +1046,37 @@ fn create_name_registrator_per_txs_not_enough_gas_d0_g0_v0() {
         .unwrap(),
     );
 }
+
+#[test]
+fn test_n_rows_required() {
+    assert!(*HASH_SCHEME_DONE);
+    let mut generator = WitnessGenerator::from(&ZktrieState::default());
+    generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::BalanceChanged,
+        Address::repeat_byte(1),
+        U256::from(23),
+        U256::zero(),
+        None,
+    );
+
+    let trace = generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::AccountDoesNotExist,
+        Address::repeat_byte(2),
+        U256::zero(),
+        U256::zero(),
+        None,
+    );
+    let json = serde_json::to_string_pretty(&trace).unwrap();
+    let trace: SMTTrace = serde_json::from_str(&json).unwrap();
+
+    let witness = vec![(MPTProofType::AccountDoesNotExist, trace); 3000];
+    let proofs: Vec<_> = witness.clone().into_iter().map(Proof::from).collect();
+
+    let n_rows_required = MptCircuitConfig::n_rows_required(&proofs);
+
+    let circuit = TestCircuit::new(n_rows_required, witness);
+    let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
+    assert_eq!(prover.verify(), Ok(()),);
+
+    panic!();
+}

@@ -31,7 +31,7 @@ impl ByteBitGadget {
     }
 
     pub fn assign<F: FieldExt>(&self, region: &mut Region<'_, F>) {
-        let mut offset = 0;
+        let mut offset = 1;
         for byte in 0..256 {
             for index in 0..8 {
                 self.byte.assign(region, offset, byte);
@@ -49,7 +49,7 @@ impl ByteBitGadget {
     }
 
     pub fn n_rows_required() -> usize {
-        256 * 8
+        256 * 8 + 1
     }
 }
 

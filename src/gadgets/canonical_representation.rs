@@ -141,7 +141,7 @@ impl CanonicalRepresentationConfig {
         let mut modulus_bytes = [0u8; 32];
         modulus.to_big_endian(&mut modulus_bytes);
 
-        let mut offset = 0;
+        let mut offset = 1;
         for value in values.iter() {
             let mut bytes = value.to_bytes();
             bytes.reverse();
@@ -213,7 +213,7 @@ impl CanonicalRepresentationConfig {
     }
 
     pub fn n_rows_required(values: &[Fr]) -> usize {
-        values.len() * 32
+        values.len() * 32 + 1
     }
 }
 
@@ -285,7 +285,7 @@ mod test {
             layouter.assign_region(
                 || "",
                 |mut region| {
-                    for offset in 0..(8 * 256) {
+                    for offset in 1..(1 + 8 * 256) {
                         selector.enable(&mut region, offset);
                     }
                     byte_bit.assign(&mut region);

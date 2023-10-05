@@ -2129,6 +2129,9 @@ pub fn key_bit_lookups(proofs: &[Proof]) -> Vec<(Fr, usize, bool)> {
         }
         lookups.extend(proof.storage.key_bit_lookups());
     }
+
+    lookups.sort();
+    lookups.dedup();
     lookups
 }
 
@@ -2210,6 +2213,19 @@ pub fn byte_representations(proofs: &[Proof]) -> (Vec<u32>, Vec<u64>, Vec<u128>,
             _ => {}
         }
     }
+
+    u32s.sort();
+    u32s.dedup();
+
+    u64s.sort();
+    u64s.dedup();
+
+    u128s.sort();
+    u128s.dedup();
+
+    frs.sort();
+    frs.dedup();
+
     (u32s, u64s, u128s, frs)
 }
 
@@ -2224,5 +2240,7 @@ pub fn mpt_update_keys(proofs: &[Proof]) -> Vec<Fr> {
         keys.push(proof.claim.old_root);
         keys.push(proof.claim.new_root);
     }
+    keys.sort();
+    keys.dedup();
     keys
 }

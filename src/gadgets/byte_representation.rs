@@ -110,7 +110,7 @@ impl ByteRepresentationConfig {
             .chain(u128s.iter().map(u128_to_big_endian))
             .chain(frs.iter().map(fr_to_big_endian));
 
-        let mut offset = 0;
+        let mut offset = 1;
         for byte_representation in byte_representations {
             let mut value = F::zero();
             let mut rlc = Value::known(F::zero());
@@ -140,7 +140,7 @@ impl ByteRepresentationConfig {
     }
 
     pub fn n_rows_required(u32s: &[u32], u64s: &[u64], u128s: &[u128], frs: &[Fr]) -> usize {
-        u32s.len() * 4 + u64s.len() * 8 + u128s.len() * 16 + frs.len() * 31
+        1 + u32s.len() * 4 + u64s.len() * 8 + u128s.len() * 16 + frs.len() * 31
     }
 }
 
