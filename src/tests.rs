@@ -1076,7 +1076,5 @@ fn test_n_rows_required() {
 
     let circuit = TestCircuit::new(n_rows_required, witness);
     let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
-    assert_eq!(prover.verify(), Ok(()),);
-
-    panic!();
+    assert_eq!(prover.verify(), Ok(()));
 }
