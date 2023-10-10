@@ -118,8 +118,6 @@ impl MptCircuitConfig {
         proofs: &[Proof],
         n_rows: usize,
     ) -> Result<(), Error> {
-        dbg!(Self::n_rows_required(proofs));
-
         let randomness = self.rlc_randomness.value(layouter);
         let (u32s, u64s, u128s, frs) = byte_representations(proofs);
 
@@ -182,7 +180,7 @@ impl MptCircuitConfig {
     pub fn n_rows_required(proofs: &[Proof]) -> usize {
         let (u32s, u64s, u128s, frs) = byte_representations(proofs);
 
-        // +1 for the final  padding row to satisfy the "final mpt update is padding" constraint.
+        // +1 for the final padding row to satisfy the "final mpt update is padding" constraint.
         1 + *[
             MptUpdateConfig::n_rows_required(proofs),
             CanonicalRepresentationConfig::n_rows_required(&mpt_update_keys(proofs)),
