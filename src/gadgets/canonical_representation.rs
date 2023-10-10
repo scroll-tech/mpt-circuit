@@ -213,6 +213,7 @@ impl CanonicalRepresentationConfig {
     }
 
     pub fn n_rows_required(values: &[Fr]) -> usize {
+        // +1 because assigment starts on offset = 1 instead of offset = 0.
         values.len() * 32 + 1
     }
 }

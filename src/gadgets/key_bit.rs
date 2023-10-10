@@ -112,7 +112,8 @@ impl KeyBitConfig {
     }
 
     pub fn n_rows_required(lookups: &[(Fr, usize, bool)]) -> usize {
-        lookups.len()
+        // +1 because assigment starts on offset = 1 instead of offset = 0.
+        1 + lookups.len()
     }
 }
 

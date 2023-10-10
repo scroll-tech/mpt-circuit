@@ -140,6 +140,7 @@ impl ByteRepresentationConfig {
     }
 
     pub fn n_rows_required(u32s: &[u32], u64s: &[u64], u128s: &[u128], frs: &[Fr]) -> usize {
+        // +1 because assigment starts on offset = 1 instead of offset = 0.
         1 + u32s.len() * 4 + u64s.len() * 8 + u128s.len() * 16 + frs.len() * 31
     }
 }

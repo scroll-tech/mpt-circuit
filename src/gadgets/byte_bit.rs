@@ -49,6 +49,7 @@ impl ByteBitGadget {
     }
 
     pub fn n_rows_required() -> usize {
+        // +1 because assigment starts on offset = 1 instead of offset = 0.
         256 * 8 + 1
     }
 }
