@@ -605,6 +605,7 @@ impl MptUpdateConfig {
     }
 
     pub fn n_rows_required(proofs: &[Proof]) -> usize {
+        // +1 because assigment starts on offset = 1 instead of offset = 0.
         proofs.iter().map(Proof::n_rows).sum::<usize>() + 1
     }
 
@@ -2097,6 +2098,8 @@ pub fn hash_traces(proofs: &[Proof]) -> Vec<([Fr; 2], Fr, Fr)> {
             }
         }
     }
+    hash_traces.sort();
+    hash_traces.dedup();
     hash_traces
 }
 
