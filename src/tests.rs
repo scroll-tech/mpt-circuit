@@ -6,10 +6,12 @@ use ethers_core::types::{Address, U256};
 use halo2_proofs::{
     circuit::{Layouter, SimpleFloorPlanner},
     dev::MockProver,
-    halo2curves::bn256::Fr,
-    plonk::{Circuit, ConstraintSystem, Error, FirstPhase},
+    halo2curves::bn256::{Bn256, Fr},
+    plonk::{keygen_vk, Circuit, ConstraintSystem, Error, FirstPhase},
+    poly::kzg::commitment::ParamsKZG,
 };
 use mpt_zktrie::state::{builder::HASH_SCHEME_DONE, witness::WitnessGenerator, ZktrieState};
+use rand_chacha::rand_core::SeedableRng;
 
 const N_ROWS: usize = 8 * 256 + 1;
 const STORAGE_ADDRESS: Address = Address::repeat_byte(1);
@@ -113,6 +115,34 @@ fn degree() {
     let mut meta = ConstraintSystem::<Fr>::default();
     TestCircuit::configure(&mut meta);
     assert_eq!(meta.degree(), 9);
+}
+
+#[test]
+fn verifying_key_constant() {
+    let params = ParamsKZG::<Bn256>::setup(17, rand_chacha::ChaCha20Rng::seed_from_u64(2));
+
+    let no_updates = TestCircuit::new(N_ROWS, vec![]);
+    let one_update = TestCircuit::new(
+        N_ROWS,
+        vec![(
+            MPTProofType::BalanceChanged,
+            serde_json::from_str(&include_str!(
+                "traces/empty_account_type_1_balance_update.json"
+            ))
+            .unwrap(),
+        )],
+    );
+    let vk_no_updates = keygen_vk(&params, &no_updates).unwrap();
+    let vk_one_update = keygen_vk(&params, &one_update).unwrap();
+
+    assert_eq!(
+        vk_no_updates.fixed_commitments(),
+        vk_one_update.fixed_commitments()
+    );
+    assert_eq!(
+        vk_no_updates.permutation().commitments(),
+        vk_one_update.permutation().commitments()
+    );
 }
 
 #[test]
