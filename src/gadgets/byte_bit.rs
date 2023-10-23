@@ -1,5 +1,11 @@
 use super::super::constraint_builder::{ConstraintBuilder, FixedColumn, Query};
-use halo2_proofs::{arithmetic::FieldExt, circuit::Region, plonk::ConstraintSystem};
+use crate::assignment_map::Column;
+use halo2_proofs::{
+    arithmetic::FieldExt,
+    circuit::{Region, Value},
+    plonk::{ConstraintSystem, Error},
+};
+use rayon::prelude::*;
 
 // TODO: fix name to configggggggg
 #[derive(Clone)]
@@ -31,21 +37,30 @@ impl ByteBitGadget {
     }
 
     pub fn assign<F: FieldExt>(&self, region: &mut Region<'_, F>) {
-        let mut offset = 1;
-        for byte in 0..256 {
-            for index in 0..8 {
-                self.byte.assign(region, offset, byte);
-                self.index.assign(region, offset, index);
-                self.bit.assign(region, offset, byte & (1 << index) != 0);
-                offset += 1;
-            }
+        let assignments: Vec<_> = self.assignments::<F>().collect();
+        for ((column, offset), value) in assignments.into_iter() {
+            match column {
+                Column::Fixed(s) => region.assign_fixed(|| "fixed", s.0, offset, || value),
+                _ => unreachable!(),
+            };
         }
+    }
 
-        let expected_offset = Self::n_rows_required();
-        debug_assert!(
-            offset == expected_offset,
-            "assign used {offset} rows but {expected_offset} rows expected from `n_rows_required`",
-        );
+    pub fn assignments<F: FieldExt>(
+        &self,
+    ) -> impl ParallelIterator<Item = ((Column, usize), Value<F>)> + '_ {
+        (0..256u64).into_par_iter().flat_map(move |byte| {
+            let starting_offset = byte * 8;
+            (0..8u64).into_par_iter().flat_map_iter(move |index| {
+                let offset = usize::try_from(1 + starting_offset + index).unwrap();
+                [
+                    self.byte.assignment(offset, byte),
+                    self.index.assignment(offset, index),
+                    self.bit.assignment(offset, byte & (1 << index) != 0),
+                ]
+                .into_iter()
+            })
+        })
     }
 
     pub fn n_rows_required() -> usize {

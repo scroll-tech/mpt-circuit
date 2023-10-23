@@ -1,14 +1,18 @@
 use super::{byte_bit::RangeCheck256Lookup, is_zero::IsZeroGadget, rlc_randomness::RlcRandomness};
-use crate::constraint_builder::{
-    AdviceColumn, ConstraintBuilder, Query, SecondPhaseAdviceColumn, SelectorColumn,
+use crate::{
+    assignment_map::Column,
+    constraint_builder::{
+        AdviceColumn, ConstraintBuilder, Query, SecondPhaseAdviceColumn, SelectorColumn,
+    },
 };
-use ethers_core::types::{Address, H256};
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Region, Value},
     halo2curves::bn256::Fr,
     plonk::ConstraintSystem,
 };
+use rayon::prelude::*;
+use std::iter::repeat;
 
 pub trait RlcLookup {
     fn lookup<F: FieldExt>(&self) -> [Query<F>; 3];
@@ -139,6 +143,59 @@ impl ByteRepresentationConfig {
         );
     }
 
+    pub fn assignments<F: FieldExt>(
+        &self,
+        u32s: Vec<u32>,
+        u64s: Vec<u64>,
+        u128s: Vec<u128>,
+        frs: Vec<Fr>,
+        randomness: Value<F>,
+    ) -> impl ParallelIterator<Item = ((Column, usize), Value<F>)> + '_ {
+        let starting_offsets: Vec<_> = repeat(4)
+            .take(u32s.len())
+            .chain(repeat(8).take(u64s.len()))
+            .chain(repeat(16).take(u128s.len()))
+            .chain(repeat(31).take(frs.len()))
+            .scan(1, |cumulative_sum, n_rows| {
+                let result = Some(*cumulative_sum);
+                *cumulative_sum += n_rows;
+                result
+            })
+            .collect();
+        u32s.into_par_iter()
+            .map(|x| u32_to_big_endian(&x))
+            .chain(u64s.into_par_iter().map(|x| u64_to_big_endian(&x)))
+            .chain(u128s.into_par_iter().map(|x| u128_to_big_endian(&x)))
+            .chain(frs.into_par_iter().map(|x| fr_to_big_endian(&x)))
+            .zip_eq(starting_offsets.into_par_iter())
+            .enumerate()
+            .flat_map_iter(move |(i, (bytes, starting_offset))| {
+                let mut assignments = vec![];
+                if i == 0 {
+                    assignments.push(self.is_first.assignment(starting_offset, true));
+                }
+                let mut value = F::zero();
+                let mut rlc = Value::known(F::zero());
+                for (index, byte) in bytes.iter().enumerate() {
+                    let byte = F::from(u64::from(*byte));
+                    value = value * F::from(256) + byte;
+                    rlc = rlc * randomness + Value::known(byte);
+
+                    let offset = starting_offset + index;
+                    assignments.extend(vec![
+                        self.byte.assignment(offset, byte),
+                        self.value.assignment(offset, value),
+                        self.rlc.assignment(offset, rlc),
+                    ]);
+                    assignments.extend(
+                        self.index_is_zero
+                            .assignments(offset, u64::try_from(index).unwrap()),
+                    );
+                }
+                assignments.into_iter()
+            })
+    }
+
     pub fn n_rows_required(u32s: &[u32], u64s: &[u64], u128s: &[u128], frs: &[Fr]) -> usize {
         // +1 because assigment starts on offset = 1 instead of offset = 0.
         1 + u32s.len() * 4 + u64s.len() * 8 + u128s.len() * 16 + frs.len() * 31
@@ -154,14 +211,6 @@ fn u64_to_big_endian(x: &u64) -> Vec<u8> {
 
 fn u128_to_big_endian(x: &u128) -> Vec<u8> {
     x.to_be_bytes().to_vec()
-}
-
-fn address_to_big_endian(x: &Address) -> Vec<u8> {
-    x.0.to_vec()
-}
-
-fn h256_to_big_endian(x: &H256) -> Vec<u8> {
-    x.0.to_vec()
 }
 
 fn fr_to_big_endian(x: &Fr) -> Vec<u8> {
