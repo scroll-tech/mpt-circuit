@@ -1,4 +1,5 @@
 use super::{BinaryQuery, Query};
+use crate::assignment_map::Column as ColumnEnum;
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Region, Value},
@@ -6,7 +7,7 @@ use halo2_proofs::{
 };
 use std::fmt::Debug;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Hash, Eq, PartialEq)]
 pub struct SelectorColumn(pub Column<Fixed>);
 
 impl SelectorColumn {
@@ -23,9 +24,20 @@ impl SelectorColumn {
             .assign_fixed(|| "selector", self.0, offset, || Value::known(F::one()))
             .expect("failed enable selector");
     }
+
+    pub fn assignment<F: FieldExt>(
+        &self,
+        offset: usize,
+        enable: bool,
+    ) -> ((ColumnEnum, usize), Value<F>) {
+        (
+            (ColumnEnum::from(*self), offset),
+            Value::known(if enable { F::one() } else { F::zero() }),
+        )
+    }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Hash, Eq, PartialEq)]
 pub struct FixedColumn(pub Column<Fixed>);
 
 impl FixedColumn {
@@ -58,9 +70,23 @@ impl FixedColumn {
             )
             .expect("failed assign_fixed");
     }
+
+    pub fn assignment<F: FieldExt, T: Copy + TryInto<F>>(
+        &self,
+        offset: usize,
+        value: T,
+    ) -> ((ColumnEnum, usize), Value<F>)
+    where
+        <T as TryInto<F>>::Error: Debug,
+    {
+        (
+            (ColumnEnum::from(*self), offset),
+            Value::known(value.try_into().unwrap()),
+        )
+    }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Hash, Eq, PartialEq)]
 pub struct AdviceColumn(pub Column<Advice>);
 
 impl AdviceColumn {
@@ -101,9 +127,23 @@ impl AdviceColumn {
             )
             .expect("failed assign_advice");
     }
+
+    pub fn assignment<F: FieldExt, T: Copy + TryInto<F>>(
+        &self,
+        offset: usize,
+        value: T,
+    ) -> ((ColumnEnum, usize), Value<F>)
+    where
+        <T as TryInto<F>>::Error: Debug,
+    {
+        (
+            (ColumnEnum::from(*self), offset),
+            Value::known(value.try_into().unwrap()),
+        )
+    }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Hash, Eq, PartialEq)]
 pub struct SecondPhaseAdviceColumn(pub Column<Advice>);
 
 impl SecondPhaseAdviceColumn {
@@ -123,5 +163,13 @@ impl SecondPhaseAdviceColumn {
         region
             .assign_advice(|| "second phase advice", self.0, offset, || value)
             .expect("failed assign_advice");
+    }
+
+    pub fn assignment<F: FieldExt>(
+        &self,
+        offset: usize,
+        value: Value<F>,
+    ) -> ((ColumnEnum, usize), Value<F>) {
+        ((ColumnEnum::from(*self), offset), value)
     }
 }

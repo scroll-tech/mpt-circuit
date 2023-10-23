@@ -1,4 +1,5 @@
 use crate::{
+    assignment_map::AssignmentMap,
     constraint_builder::{ConstraintBuilder, SelectorColumn},
     gadgets::{
         byte_bit::ByteBitGadget,
@@ -22,6 +23,7 @@ use halo2_proofs::{
     plonk::{Challenge, ConstraintSystem, Error, Expression, VirtualCells},
 };
 use itertools::Itertools;
+use rayon::prelude::*;
 
 /// Config for MptCircuit
 #[derive(Clone)]
@@ -144,15 +146,15 @@ impl MptCircuitConfig {
                 self.canonical_representation
                     .assign(&mut region, randomness, &keys, n_rows);
                 self.key_bit.assign(&mut region, &key_bit_lookups(proofs));
-                self.byte_bit.assign(&mut region);
-                self.byte_representation.assign(
-                    &mut region,
-                    &u32s,
-                    &u64s,
-                    &u128s,
-                    &frs,
-                    randomness,
-                );
+                // self.byte_bit.assign(&mut region);
+                // self.byte_representation.assign(
+                //     &mut region,
+                //     &u32s,
+                //     &u64s,
+                //     &u128s,
+                //     &frs,
+                //     randomness,
+                // );
 
                 let n_assigned_rows = self.mpt_update.assign(&mut region, proofs, randomness);
 
@@ -169,7 +171,20 @@ impl MptCircuitConfig {
 
                 Ok(())
             },
-        )
+        );
+
+        layouter.assign_regions(
+            || "mpt circuit parallel assignment",
+            AssignmentMap::new(
+                self.byte_bit.assignments().chain(
+                    self.byte_representation
+                        .assignments(u32s, u64s, u128s, frs, randomness),
+                ),
+            )
+            .assignments(),
+        )?;
+
+        Ok(())
     }
 
     pub fn lookup_exprs<F: FieldExt>(&self, meta: &mut VirtualCells<'_, F>) -> [Expression<F>; 8] {
