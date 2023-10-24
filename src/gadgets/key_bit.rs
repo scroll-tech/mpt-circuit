@@ -204,7 +204,7 @@ mod test {
 
                     key_bit.assign(&mut region, &self.lookups);
                     byte_bit.assign(&mut region);
-                    canonical_representation.assign(&mut region, randomness, &keys, 256);
+                    canonical_representation.assign(&mut region, randomness, keys.clone(), 256);
                     Ok(())
                 },
             )
