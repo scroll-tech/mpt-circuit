@@ -148,7 +148,8 @@ impl CanonicalRepresentationConfig {
                 Column::SecondPhaseAdvice(s) => {
                     region.assign_advice(|| "second phase advice", s.0, offset, || value)
                 }
-            };
+            }
+            .unwrap();
         }
     }
 

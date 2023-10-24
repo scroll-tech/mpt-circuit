@@ -97,7 +97,9 @@ impl KeyBitConfig {
         let assignments: Vec<_> = self.assignments(lookups).collect();
         for ((column, offset), value) in assignments.into_iter() {
             match column {
-                Column::Advice(s) => region.assign_advice(|| "advice", s.0, offset, || value),
+                Column::Advice(s) => region
+                    .assign_advice(|| "advice", s.0, offset, || value)
+                    .unwrap(),
                 _ => unreachable!(),
             };
         }

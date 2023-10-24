@@ -158,7 +158,7 @@ impl MptCircuitConfig {
 
                 Ok(())
             },
-        );
+        )?;
 
         let mut keys = mpt_update_keys(proofs);
         keys.sort();
