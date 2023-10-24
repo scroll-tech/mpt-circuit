@@ -46,43 +46,43 @@ impl<F: FieldExt> AssignmentMap<F> {
     // }
 
     pub fn assignments(self) -> Vec<impl FnMut(Region<'_, F>) -> Result<(), Error>> {
-        // self.0
-        //     .into_iter()
-        //     .map(|((column, offset), value)| {
-        //         move |mut region: Region<'_, F>| {
-        //             match column {
-        //                 Column::Selector(s) => {
-        //                     region.assign_fixed(|| "selector", s.0, offset, || value)
-        //                 }
-        //                 Column::Fixed(s) => region.assign_fixed(|| "fixed", s.0, offset, || value),
-        //                 Column::Advice(s) => {
-        //                     region.assign_advice(|| "advice", s.0, offset, || value)
-        //                 }
-        //                 Column::SecondPhaseAdvice(s) => {
-        //                     region.assign_advice(|| "second phase advice", s.0, offset, || value)
-        //                 }
-        //             };
-        //             Ok(())
-        //         }
-        //     })
-        //     .collect()
-        vec![move |mut region: Region<'_, F>| {
-            let x = self.0.clone();
-            for ((column, offset), value) in x.into_iter() {
-                match column {
-                    Column::Selector(s) => {
-                        region.assign_fixed(|| "selector", s.0, offset, || value)
+        self.0
+            .into_iter()
+            .map(|((column, offset), value)| {
+                move |mut region: Region<'_, F>| {
+                    match column {
+                        Column::Selector(s) => {
+                            region.assign_fixed(|| "selector", s.0, offset, || value)
+                        }
+                        Column::Fixed(s) => region.assign_fixed(|| "fixed", s.0, offset, || value),
+                        Column::Advice(s) => {
+                            region.assign_advice(|| "advice", s.0, offset, || value)
+                        }
+                        Column::SecondPhaseAdvice(s) => {
+                            region.assign_advice(|| "second phase advice", s.0, offset, || value)
+                        }
                     }
-                    Column::Fixed(s) => region.assign_fixed(|| "fixed", s.0, offset, || value),
-                    Column::Advice(s) => region.assign_advice(|| "advice", s.0, offset, || value),
-                    Column::SecondPhaseAdvice(s) => {
-                        region.assign_advice(|| "second phase advice", s.0, offset, || value)
-                    }
+                    .map(|_| ())
                 }
-                .unwrap();
-            }
-            Ok(())
-        }]
+            })
+            .collect()
+        // vec![move |mut region: Region<'_, F>| {
+        //     let x = self.0.clone();
+        //     for ((column, offset), value) in x.into_iter() {
+        //         match column {
+        //             Column::Selector(s) => {
+        //                 region.assign_fixed(|| "selector", s.0, offset, || value)
+        //             }
+        //             Column::Fixed(s) => region.assign_fixed(|| "fixed", s.0, offset, || value),
+        //             Column::Advice(s) => region.assign_advice(|| "advice", s.0, offset, || value),
+        //             Column::SecondPhaseAdvice(s) => {
+        //                 region.assign_advice(|| "second phase advice", s.0, offset, || value)
+        //             }
+        //         }
+        //         .unwrap();
+        //     }
+        //     Ok(())
+        // }]
     }
 }
 
