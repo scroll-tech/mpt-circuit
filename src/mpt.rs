@@ -146,15 +146,6 @@ impl MptCircuitConfig {
                 self.canonical_representation
                     .assign(&mut region, randomness, &keys, n_rows);
                 self.key_bit.assign(&mut region, &key_bit_lookups(proofs));
-                // self.byte_bit.assign(&mut region);
-                // self.byte_representation.assign(
-                //     &mut region,
-                //     &u32s,
-                //     &u64s,
-                //     &u128s,
-                //     &frs,
-                //     randomness,
-                // );
 
                 let n_assigned_rows = self.mpt_update.assign(&mut region, proofs, randomness);
 
