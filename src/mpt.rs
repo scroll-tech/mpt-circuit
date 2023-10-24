@@ -143,8 +143,6 @@ impl MptCircuitConfig {
                     keys.len()
                 );
 
-                self.canonical_representation
-                    .assign(&mut region, randomness, &keys, n_rows);
                 self.key_bit.assign(&mut region, &key_bit_lookups(proofs));
 
                 let n_assigned_rows = self.mpt_update.assign(&mut region, proofs, randomness);
@@ -164,13 +162,22 @@ impl MptCircuitConfig {
             },
         );
 
+        let mut keys = mpt_update_keys(proofs);
+        keys.sort();
+        keys.dedup();
         layouter.assign_regions(
             || "mpt circuit parallel assignment",
             AssignmentMap::new(
-                self.byte_bit.assignments().chain(
-                    self.byte_representation
-                        .assignments(u32s, u64s, u128s, frs, randomness),
-                ),
+                self.byte_bit
+                    .assignments()
+                    .chain(
+                        self.byte_representation
+                            .assignments(u32s, u64s, u128s, frs, randomness),
+                    )
+                    .chain(
+                        self.canonical_representation
+                            .assignments(keys, n_rows, randomness),
+                    ),
             )
             .assignments(),
         )?;
