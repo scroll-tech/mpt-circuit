@@ -100,47 +100,25 @@ impl ByteRepresentationConfig {
     pub fn assign<F: FieldExt>(
         &self,
         region: &mut Region<'_, F>,
-        u32s: &[u32],
-        u64s: &[u64],
-        u128s: &[u128],
-        frs: &[Fr],
+        u32s: Vec<u32>,
+        u64s: Vec<u64>,
+        u128s: Vec<u128>,
+        frs: Vec<Fr>,
         randomness: Value<F>,
     ) {
-        self.is_first.enable(region, 0);
-        let byte_representations = u32s
-            .iter()
-            .map(u32_to_big_endian)
-            .chain(u64s.iter().map(u64_to_big_endian))
-            .chain(u128s.iter().map(u128_to_big_endian))
-            .chain(frs.iter().map(fr_to_big_endian));
-
-        let mut offset = 1;
-        for byte_representation in byte_representations {
-            let mut value = F::zero();
-            let mut rlc = Value::known(F::zero());
-            for (index, byte) in byte_representation.iter().enumerate() {
-                let byte = F::from(u64::from(*byte));
-                self.byte.assign(region, offset, byte);
-
-                value = value * F::from(256) + byte;
-                self.value.assign(region, offset, value);
-
-                rlc = rlc * randomness + Value::known(byte);
-                self.rlc.assign(region, offset, rlc);
-
-                let index = u64::try_from(index).unwrap();
-                self.index.assign(region, offset, index);
-                self.index_is_zero.assign(region, offset, index);
-
-                offset += 1;
-            }
+        let assignments: Vec<_> = self
+            .assignments::<F>(u32s, u64s, u128s, frs, randomness)
+            .collect();
+        for ((column, offset), value) in assignments.into_iter() {
+            match column {
+                Column::Selector(s) => region.assign_fixed(|| "fixed", s.0, offset, || value),
+                Column::Advice(s) => region.assign_advice(|| "advice", s.0, offset, || value),
+                Column::SecondPhaseAdvice(s) => {
+                    region.assign_advice(|| "second phase advice", s.0, offset, || value)
+                }
+                _ => unreachable!(),
+            };
         }
-
-        let expected_offset = Self::n_rows_required(u32s, u64s, u128s, frs);
-        debug_assert!(
-            offset == expected_offset,
-            "assign used {offset} rows but {expected_offset} rows expected from `n_rows_required`",
-        );
     }
 
     pub fn assignments<F: FieldExt>(
@@ -284,10 +262,10 @@ mod test {
                     byte_bit.assign(&mut region);
                     byte_representation.assign(
                         &mut region,
-                        &self.u32s,
-                        &self.u64s,
-                        &self.u128s,
-                        &self.frs,
+                        self.u32s.clone(),
+                        self.u64s.clone(),
+                        self.u128s.clone(),
+                        self.frs.clone(),
                         randomness,
                     );
                     Ok(())
