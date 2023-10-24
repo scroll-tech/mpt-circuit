@@ -117,7 +117,8 @@ impl ByteRepresentationConfig {
                     region.assign_advice(|| "second phase advice", s.0, offset, || value)
                 }
                 _ => unreachable!(),
-            };
+            }
+            .unwrap();
         }
     }
 

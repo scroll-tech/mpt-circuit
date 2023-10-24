@@ -4,8 +4,7 @@ use crate::constraint_builder::{
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Region, Value},
-    halo2curves::bn256::Fr,
-    plonk::{Challenge, ConstraintSystem, Error, Expression, VirtualCells},
+    plonk::Error,
 };
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -79,7 +78,8 @@ impl<F: FieldExt> AssignmentMap<F> {
                     Column::SecondPhaseAdvice(s) => {
                         region.assign_advice(|| "second phase advice", s.0, offset, || value)
                     }
-                };
+                }
+                .unwrap();
             }
             Ok(())
         }]

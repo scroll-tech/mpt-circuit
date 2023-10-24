@@ -3,7 +3,7 @@ use crate::assignment_map::Column;
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Region, Value},
-    plonk::{ConstraintSystem, Error},
+    plonk::ConstraintSystem,
 };
 use rayon::prelude::*;
 
@@ -42,7 +42,8 @@ impl ByteBitGadget {
             match column {
                 Column::Fixed(s) => region.assign_fixed(|| "fixed", s.0, offset, || value),
                 _ => unreachable!(),
-            };
+            }
+            .unwrap();
         }
     }
 
