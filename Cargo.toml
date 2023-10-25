@@ -39,6 +39,8 @@ rand_chacha = "0.3.0"
 plotters = "0.3"
 bencher = "0.1"
 subtle = "2"
+test-log = "0.2.13"
+env_logger = "*"
 
 [[bin]]
 name = "integration-test"

@@ -1158,6 +1158,7 @@ name = "halo2-mpt-circuits"
 version = "0.1.0"
 dependencies = [
  "bencher",
+ "env_logger",
  "ethers-core",
  "halo2_proofs",
  "hex",
@@ -1177,6 +1178,7 @@ dependencies = [
  "strum",
  "strum_macros",
  "subtle",
+ "test-log",
  "thiserror",
 ]
 
@@ -2515,6 +2517,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6093bad37da69aab9d123a8091e4be0aa4a03e4d601ec641c327398315f62b64"
 dependencies = [
  "winapi-util",
+]
+
+[[package]]
+name = "test-log"
+version = "0.2.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f66edd6b6cd810743c0c71e1d085e92b01ce6a72782032e3f794c8284fe4bcdd"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.38",
 ]
 
 [[package]]

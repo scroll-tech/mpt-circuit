@@ -6,15 +6,27 @@ use halo2_proofs::{
     circuit::{Region, Value},
     plonk::Error,
 };
+use itertools::Itertools;
 use rayon::prelude::*;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 #[derive(Clone, Default)]
-pub struct AssignmentMap<F: FieldExt>(HashMap<(Column, usize), Value<F>>);
+pub struct AssignmentMap<F: FieldExt>(BTreeMap<usize, Vec<(Column, Value<F>)>>);
 
 impl<F: FieldExt> AssignmentMap<F> {
-    pub fn new(assignments: impl ParallelIterator<Item = ((Column, usize), Value<F>)>) -> Self {
-        Self(assignments.collect())
+    pub fn new(stream: impl ParallelIterator<Item = ((Column, usize), Value<F>)>) -> Self {
+        let mut sorted_by_offset: Vec<_> = stream
+            .map(|((column, offset), value)| (offset, column, value))
+            .collect();
+        sorted_by_offset.sort_by(|x, y| x.0.cmp(&y.0));
+        let grouped_by_offset = sorted_by_offset.iter().group_by(|(offset, _, _)| offset);
+        let y: BTreeMap<_, _> = grouped_by_offset
+                .into_iter()
+                .map(|(offset, group)| (*offset, group.map(|(_offset, column, value)| (*column, *value)).collect()))
+                .collect();
+        dbg!(y.len());
+        // panic!();
+        Self(y)
     }
 
     // pub fn enable_selector(&mut self, column: SelectorColumn, offset: usize) {
@@ -46,47 +58,55 @@ impl<F: FieldExt> AssignmentMap<F> {
     // }
 
     pub fn assignments(self) -> Vec<impl FnMut(Region<'_, F>) -> Result<(), Error>> {
-        // self.0
-        //     .into_iter()
-        //     .map(|((column, offset), value)| {
-        //         move |mut region: Region<'_, F>| {
-        //             match column {
-        //                 Column::Selector(s) => {
-        //                     region.assign_fixed(|| "selector", s.0, offset, || value)
-        //                 }
-        //                 Column::Fixed(s) => region.assign_fixed(|| "fixed", s.0, offset, || value),
-        //                 Column::Advice(s) => {
-        //                     region.assign_advice(|| "advice", s.0, offset, || value)
-        //                 }
-        //                 Column::SecondPhaseAdvice(s) => {
-        //                     region.assign_advice(|| "second phase advice", s.0, offset, || value)
-        //                 }
-        //             };
-        //             Ok(())
-        //         }
-        //     })
-        //     .collect()
-        vec![move |mut region: Region<'_, F>| {
-            let x = self.0.clone();
-            for ((column, offset), value) in x.into_iter() {
-                match column {
-                    Column::Selector(s) => {
-                        region.assign_fixed(|| "selector", s.0, offset, || value)
+        self.0
+            .into_iter()
+            .map(|(offset, column_assignments)| {
+                dbg!(offset);
+                move |mut region: Region<'_, F>| {
+                    for (column, value) in column_assignments.iter() {
+                        match *column {
+                            Column::Selector(s) => {
+                                region.assign_fixed(|| "selector", s.0, offset, || *value)
+                            }
+                            Column::Fixed(s) => {
+                                region.assign_fixed(|| "fixed", s.0, offset, || *value)
+                            }
+                            Column::Advice(s) => {
+                                region.assign_advice(|| "advice", s.0, offset, || *value)
+                            }
+                            Column::SecondPhaseAdvice(s) => region.assign_advice(
+                                || "second phase advice",
+                                s.0,
+                                offset,
+                                || *value,
+                            ),
+                        }.unwrap();
                     }
-                    Column::Fixed(s) => region.assign_fixed(|| "fixed", s.0, offset, || value),
-                    Column::Advice(s) => region.assign_advice(|| "advice", s.0, offset, || value),
-                    Column::SecondPhaseAdvice(s) => {
-                        region.assign_advice(|| "second phase advice", s.0, offset, || value)
-                    }
+                    Ok(())
                 }
-                .unwrap();
-            }
-            Ok(())
-        }]
+            })
+            .collect()
+        // vec![move |mut region: Region<'_, F>| {
+        //     let x = self.0.clone();
+        //     for ((column, offset), value) in x.into_iter() {
+        //         match column {
+        //             Column::Selector(s) => {
+        //                 region.assign_fixed(|| "selector", s.0, offset, || value)
+        //             }
+        //             Column::Fixed(s) => region.assign_fixed(|| "fixed", s.0, offset, || value),
+        //             Column::Advice(s) => region.assign_advice(|| "advice", s.0, offset, || value),
+        //             Column::SecondPhaseAdvice(s) => {
+        //                 region.assign_advice(|| "second phase advice", s.0, offset, || value)
+        //             }
+        //         }
+        //         .unwrap();
+        //     }
+        //     Ok(())
+        // }]
     }
 }
 
-#[derive(Clone, Copy, Hash, Eq, PartialEq)]
+#[derive(Clone, Copy, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub enum Column {
     Selector(SelectorColumn),
     Fixed(FixedColumn),
