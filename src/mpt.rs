@@ -16,9 +16,8 @@ use crate::{
     types::Proof,
 };
 use halo2_proofs::{
-    arithmetic::FieldExt,
     circuit::Layouter,
-    halo2curves::bn256::Fr,
+    halo2curves::{bn256::Fr, ff::FromUniformBytes},
     plonk::{Challenge, ConstraintSystem, Error, Expression, VirtualCells},
 };
 use itertools::Itertools;
@@ -177,7 +176,10 @@ impl MptCircuitConfig {
         )
     }
 
-    pub fn lookup_exprs<F: FieldExt>(&self, meta: &mut VirtualCells<'_, F>) -> [Expression<F>; 8] {
+    pub fn lookup_exprs<F: FromUniformBytes<64> + Ord>(
+        &self,
+        meta: &mut VirtualCells<'_, F>,
+    ) -> [Expression<F>; 8] {
         self.mpt_update.lookup().map(|q| q.run(meta))
     }
 }
