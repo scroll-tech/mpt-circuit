@@ -4,11 +4,13 @@ use super::{
 };
 use crate::constraint_builder::{AdviceColumn, ConstraintBuilder, Query, SelectorColumn};
 use halo2_proofs::{
-    arithmetic::FieldExt, circuit::Region, halo2curves::bn256::Fr, plonk::ConstraintSystem,
+    circuit::Region,
+    halo2curves::{bn256::Fr, ff::FromUniformBytes},
+    plonk::ConstraintSystem,
 };
 
 pub trait KeyBitLookup {
-    fn lookup<F: FieldExt>(&self) -> [Query<F>; 3];
+    fn lookup<F: FromUniformBytes<64> + Ord>(&self) -> [Query<F>; 3];
 }
 
 #[derive(Clone)]
@@ -27,7 +29,7 @@ pub struct KeyBitConfig {
 }
 
 impl KeyBitConfig {
-    pub fn configure<F: FieldExt>(
+    pub fn configure<F: FromUniformBytes<64> + Ord>(
         cs: &mut ConstraintSystem<F>,
         cb: &mut ConstraintBuilder<F>,
         representation: &impl CanonicalRepresentationLookup,
@@ -111,7 +113,7 @@ impl KeyBitConfig {
 }
 
 impl KeyBitLookup for KeyBitConfig {
-    fn lookup<F: FieldExt>(&self) -> [Query<F>; 3] {
+    fn lookup<F: FromUniformBytes<64> + Ord>(&self) -> [Query<F>; 3] {
         [
             self.value.current(),
             self.index.current(),

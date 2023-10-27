@@ -5,8 +5,8 @@ use crate::{
     types::{trie::TrieRows, HashDomain},
     util::{domain_hash, fr, storage_key_hash, u256_from_hex, u256_hi_lo},
 };
-use ethers_core::types::U256;
-use halo2_proofs::{arithmetic::FieldExt, halo2curves::bn256::Fr};
+use ethers_core::{k256::elliptic_curve::PrimeField, types::U256};
+use halo2_proofs::halo2curves::bn256::Fr;
 
 #[derive(Clone, Debug)]
 pub enum StorageProof {
