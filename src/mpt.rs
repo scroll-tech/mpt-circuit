@@ -66,8 +66,6 @@ impl MptCircuitConfig {
             poseidon,
             &key_bit,
             &byte_representation,
-            &byte_representation,
-            &rlc_randomness,
             &canonical_representation,
             &canonical_representation,
         );

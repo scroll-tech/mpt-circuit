@@ -5,13 +5,12 @@ pub use path::PathType;
 use segment::SegmentType;
 
 use super::{
-    byte_representation::{BytesLookup, RlcLookup},
+    byte_representation::BytesLookup,
     canonical_representation::{FrHiLoLookup, FrRlcLookup},
     is_zero::IsZeroGadget,
     key_bit::KeyBitLookup,
     one_hot::OneHot,
     poseidon::PoseidonLookup,
-    rlc_randomness::RlcRandomness,
 };
 use crate::{
     constraint_builder::{
@@ -23,8 +22,7 @@ use crate::{
         ClaimKind, HashDomain, Proof,
     },
     util::{
-        account_key, domain_hash, fr_to_u256, lagrange_polynomial, rlc, u256_hi_lo,
-        u256_to_big_endian, u256_to_fr,
+        account_key, domain_hash, fr_to_u256, lagrange_polynomial, rlc, u256_hi_lo, u256_to_fr,
     },
     MPTProofType,
 };
@@ -115,9 +113,7 @@ impl MptUpdateConfig {
         cb: &mut ConstraintBuilder<F>,
         poseidon: &impl PoseidonLookup,
         key_bit: &impl KeyBitLookup,
-        rlc: &impl RlcLookup,
         bytes: &impl BytesLookup,
-        rlc_randomness: &RlcRandomness,
         fr_rlc: &impl FrRlcLookup,
         fr_hi_lo: &impl FrHiLoLookup,
     ) -> Self {
@@ -326,17 +322,10 @@ impl MptUpdateConfig {
                     MPTProofType::CodeHashExists => {
                         configure_keccak_code_hash(cb, &config, poseidon)
                     }
-                    MPTProofType::StorageChanged => {
-                        configure_storage(cb, &config, poseidon, bytes, rlc, rlc_randomness.query())
+                    MPTProofType::StorageChanged => configure_storage(cb, &config, poseidon),
+                    MPTProofType::StorageDoesNotExist => {
+                        configure_empty_storage(cb, &config, poseidon)
                     }
-                    MPTProofType::StorageDoesNotExist => configure_empty_storage(
-                        cb,
-                        &config,
-                        poseidon,
-                        bytes,
-                        rlc,
-                        rlc_randomness.query(),
-                    ),
                     MPTProofType::AccountDestructed => cb.assert_unreachable("unimplemented!"),
                 }
             };
@@ -369,9 +358,6 @@ impl MptUpdateConfig {
         let mut offset = 1; // selector on first row is disabled.
         for proof in proofs {
             let proof_type = MPTProofType::from(proof.claim);
-            let storage_key =
-                randomness.map(|r| rlc(&u256_to_big_endian(&proof.claim.storage_key()), r));
-
             for i in 0..proof.n_rows() {
                 self.proof_type.assign(region, offset + i, proof_type);
                 self.storage_key
@@ -546,14 +532,11 @@ impl MptUpdateConfig {
                         other_leaf_data_hash_column.assign(region, offset, other_leaf_data_hash);
                     }
                     SegmentType::AccountLeaf3 => {
-                        if let ClaimKind::Storage { key, .. } | ClaimKind::IsEmpty(Some(key)) =
+                        if let ClaimKind::Storage { .. } | ClaimKind::IsEmpty(Some(_)) =
                             proof.claim.kind
                         {
+                            let [_, _, new_domain, ..] = self.intermediate_values;
                             self.key.assign(region, offset + 3, proof.storage.key());
-                            let [storage_key_high, storage_key_low, new_domain, ..] =
-                                self.intermediate_values;
-                            let [rlc_storage_key_high, rlc_storage_key_low, ..] =
-                                self.second_phase_intermediate_values;
                             self.other_key
                                 .assign(region, offset + 3, proof.storage.other_key());
                             new_domain.assign(region, offset + 3, HashDomain::AccountFields);
@@ -565,12 +548,7 @@ impl MptUpdateConfig {
             self.key.assign(region, offset, key);
             self.other_key.assign(region, offset, other_key);
             self.is_zero_gadgets[2].assign_value_and_inverse(region, offset, key - other_key);
-            if let ClaimKind::CodeHash { old, new } = proof.claim.kind {
-                let [old_high, old_low, new_high, new_low, ..] = self.intermediate_values;
-                let [old_rlc_high, old_rlc_low, new_rlc_high, new_rlc_low, ..] =
-                    self.second_phase_intermediate_values;
-            };
-            self.assign_storage(region, next_offset, &proof.storage, randomness);
+            self.assign_storage(region, next_offset, &proof.storage);
             n_rows += proof.n_rows();
             offset = 1 + n_rows;
         }
@@ -658,7 +636,6 @@ impl MptUpdateConfig {
         region: &mut Region<'_, Fr>,
         offset: usize,
         storage: &StorageProof,
-        randomness: Value<Fr>,
     ) -> usize {
         match storage {
             StorageProof::Root(_) => 0,
@@ -678,7 +655,6 @@ impl MptUpdateConfig {
                     other_key,
                     old_leaf,
                     new_leaf,
-                    randomness,
                 );
                 let n_rows = n_trie_rows + n_leaf_rows;
 
@@ -749,7 +725,6 @@ impl MptUpdateConfig {
         other_key: Fr,
         old: &StorageLeaf,
         new: &StorageLeaf,
-        randomness: Value<Fr>,
     ) -> usize {
         let path_type = match (old, new) {
             (StorageLeaf::Entry { .. }, StorageLeaf::Entry { .. }) => PathType::Common,
@@ -787,10 +762,6 @@ impl MptUpdateConfig {
         };
         self.old_hash.assign(region, offset, old_hash);
         self.new_hash.assign(region, offset, new_hash);
-
-        let [old_high, old_low, new_high, new_low, ..] = self.intermediate_values;
-        let [old_rlc_high, old_rlc_low, new_rlc_high, new_rlc_low, ..] =
-            self.second_phase_intermediate_values;
 
         let [old_hash_is_zero_storage_hash, new_hash_is_zero_storage_hash, ..] =
             self.is_zero_gadgets;
@@ -1748,9 +1719,6 @@ fn configure_storage<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
-    bytes: &impl BytesLookup,
-    rlc: &impl RlcLookup,
-    randomness: Query<F>,
 ) {
     for variant in SegmentType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
@@ -1769,8 +1737,6 @@ fn configure_storage<F: FieldExt>(
                     config.path_type.current_matches(&[PathType::Common]),
                 );
                 cb.assert_zero("direction is 0", config.direction.current());
-                let [key_high, key_low, ..] = config.intermediate_values;
-                let [rlc_key_high, rlc_key_low, ..] = config.second_phase_intermediate_values;
                 let [storage_key_hi, storage_key_lo] = config.storage_key.current();
                 cb.poseidon_lookup(
                     "key = poseidon(storage key hi, storage key lo)",
@@ -1856,12 +1822,8 @@ fn configure_empty_storage<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
-    bytes: &impl BytesLookup,
-    rlc: &impl RlcLookup,
-    randomness: Query<F>,
 ) {
-    let [key_high, key_low, _, other_leaf_data_hash, ..] = config.intermediate_values;
-    let [rlc_key_high, rlc_key_low, ..] = config.second_phase_intermediate_values;
+    let [_, _, _, other_leaf_data_hash, ..] = config.intermediate_values;
     let [.., key_equals_other_key, hash_is_zero] = config.is_zero_gadgets;
 
     cb.assert_zero(
