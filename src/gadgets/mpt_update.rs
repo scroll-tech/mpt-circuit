@@ -131,8 +131,8 @@ impl MptUpdateConfig {
         let is_start = segment_type.current_matches(&[SegmentType::Start]);
         cb.assert_equal(
             "segment is Start iff path is Start",
-            is_start.clone().into(),
-            path_type.current_matches(&[PathType::Start]).into(),
+            Query::from(is_start.clone()),
+            Query::from(path_type.current_matches(&[PathType::Start])),
         );
         cb.condition(is_start.clone().and(cb.every_row_selector()), |cb| {
             let [address_high, address_low, ..] = intermediate_values;

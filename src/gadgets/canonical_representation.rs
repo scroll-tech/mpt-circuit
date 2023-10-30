@@ -81,11 +81,10 @@ impl CanonicalRepresentationConfig {
             );
             cb.assert_equal(
                 "differences_are_zero_so_far = difference == 0 && differences_are_zero_so_far.previous() when index != 0",
-                differences_are_zero_so_far.current().into(),
-                differences_are_zero_so_far
+                Query::from(differences_are_zero_so_far.current()),
+                Query::from(differences_are_zero_so_far
                     .previous()
-                    .and(difference_is_zero.previous())
-                    .into(),
+                    .and(difference_is_zero.previous())),
             );
             cb.assert_equal(
                 "???",

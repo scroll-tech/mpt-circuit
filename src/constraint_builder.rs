@@ -9,12 +9,15 @@ mod binary_column;
 mod binary_query;
 mod column;
 mod query;
+mod to_queries;
 mod word_columns;
 
 pub use binary_column::BinaryColumn;
 pub use binary_query::BinaryQuery;
 pub use column::{AdviceColumn, FixedColumn, SecondPhaseAdviceColumn, SelectorColumn};
 pub use query::Query;
+use to_queries::ToQueries;
+pub use word_columns::WordColumns;
 
 pub struct ConstraintBuilder<F: FieldExt> {
     constraints: Vec<(&'static str, Query<F>)>,
@@ -41,16 +44,36 @@ impl<F: FieldExt> ConstraintBuilder<F> {
             .clone()
     }
 
-    pub fn assert_zero(&mut self, name: &'static str, query: Query<F>) {
+    pub fn assert_zero<const N: usize, T: ToQueries<F, N>>(
+        &mut self,
+        name: &'static str,
+        queries: T,
+    ) {
         let condition = self
             .conditions
             .iter()
             .fold(BinaryQuery::one(), |a, b| a.and(b.clone()));
-        self.constraints.push((name, condition.condition(query)))
+        for query in queries.to_queries() {
+            self.constraints
+                .push((name, condition.clone().condition(query)));
+        }
     }
 
-    pub fn assert_equal(&mut self, name: &'static str, left: Query<F>, right: Query<F>) {
-        self.assert_zero(name, left - right)
+    pub fn assert_equal<const N: usize, T: ToQueries<F, N>>(
+        &mut self,
+        name: &'static str,
+        left: T,
+        right: T,
+    ) {
+        let differences: [Query<F>; N] = left
+            .to_queries()
+            .into_iter()
+            .zip_eq(right.to_queries())
+            .map(|(left, right)| left - right)
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+        self.assert_zero(name, differences)
     }
 
     pub fn assert(&mut self, name: &'static str, condition: BinaryQuery<F>) {

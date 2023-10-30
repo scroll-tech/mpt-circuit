@@ -13,7 +13,7 @@ pub enum ColumnType {
     Challenge,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum Query<F: Clone> {
     Constant(F),
     Advice(Column<Advice>, i32),
