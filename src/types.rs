@@ -2,8 +2,8 @@ use crate::{
     gadgets::mpt_update::PathType,
     serde::{AccountData, HexBytes, SMTNode, SMTPath, SMTTrace},
     util::{
-        account_key, check_domain_consistency, domain_hash, fr_from_biguint, fr_to_u256, rlc,
-        u256_from_biguint, u256_from_hex, u256_to_big_endian,
+        account_key, check_domain_consistency, domain_hash, fr_from_biguint, fr_to_u256,
+        u256_from_biguint, u256_from_hex,
     },
     MPTProofType,
 };

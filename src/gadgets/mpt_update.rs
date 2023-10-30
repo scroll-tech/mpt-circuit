@@ -323,14 +323,9 @@ impl MptUpdateConfig {
                     MPTProofType::AccountDoesNotExist => {
                         configure_empty_account(cb, &config, poseidon)
                     }
-                    MPTProofType::CodeHashExists => configure_keccak_code_hash(
-                        cb,
-                        &config,
-                        poseidon,
-                        bytes,
-                        rlc,
-                        rlc_randomness.query(),
-                    ),
+                    MPTProofType::CodeHashExists => {
+                        configure_keccak_code_hash(cb, &config, poseidon)
+                    }
                     MPTProofType::StorageChanged => {
                         configure_storage(cb, &config, poseidon, bytes, rlc, rlc_randomness.query())
                     }
@@ -1718,9 +1713,6 @@ fn configure_keccak_code_hash<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
-    bytes: &impl BytesLookup,
-    rlc: &impl RlcLookup,
-    randomness: Query<F>,
 ) {
     cb.assert(
         "new accounts have balance or nonce set first",
@@ -1771,10 +1763,6 @@ fn configure_keccak_code_hash<F: FieldExt>(
             }
             SegmentType::AccountLeaf3 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
-
-                let [old_high, old_low, new_high, new_low, ..] = config.intermediate_values;
-                let [rlc_old_high, rlc_old_low, rlc_new_high, rlc_new_low, ..] =
-                    config.second_phase_intermediate_values;
                 cb.poseidon_lookup(
                     "old value hash = poseidon(value hi, value lo)",
                     [
@@ -1844,11 +1832,6 @@ fn configure_storage<F: FieldExt>(
             }
             SegmentType::StorageLeaf0 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
-
-                let [old_high, old_low, new_high, new_low, ..] = config.intermediate_values;
-                let [rlc_old_high, rlc_old_low, rlc_new_high, rlc_new_low, ..] =
-                    config.second_phase_intermediate_values;
-
                 cb.condition(
                     config
                         .path_type
