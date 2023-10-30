@@ -65,6 +65,9 @@ impl<F: FieldExt> ConstraintBuilder<F> {
         left: T,
         right: T,
     ) {
+        let a = left.to_queries();
+        let b = right.to_queries();
+        assert_eq!(a.len(), b.len());
         let differences: [Query<F>; N] = left
             .to_queries()
             .into_iter()

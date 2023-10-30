@@ -69,6 +69,7 @@ impl MptCircuitConfig {
             &byte_representation,
             &rlc_randomness,
             &canonical_representation,
+            &canonical_representation,
         );
 
         // This ensures that the final mpt update in the circuit is complete, since the padding
@@ -80,6 +81,8 @@ impl MptCircuitConfig {
             0.into(),
             0.into(),
             (MPTProofType::AccountDoesNotExist as u64).into(),
+            0.into(),
+            0.into(),
             0.into(),
             0.into(),
             0.into(),
@@ -172,7 +175,7 @@ impl MptCircuitConfig {
         )
     }
 
-    pub fn lookup_exprs<F: FieldExt>(&self, meta: &mut VirtualCells<'_, F>) -> [Expression<F>; 8] {
+    pub fn lookup_exprs<F: FieldExt>(&self, meta: &mut VirtualCells<'_, F>) -> [Expression<F>; 10] {
         self.mpt_update.lookup().map(|q| q.run(meta))
     }
 

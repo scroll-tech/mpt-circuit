@@ -22,6 +22,11 @@ pub trait FrRlcLookup {
     fn lookup<F: FieldExt>(&self) -> [Query<F>; 2];
 }
 
+// Lookup to prove that for (hi: u128, lo: u128, x: Fr) hi << 128 + lo = x and no smaller hi exists.
+pub trait FrHiLoLookup {
+    fn lookup<F: FieldExt>(&self) -> [Query<F>; 3];
+}
+
 #[derive(Clone)]
 pub struct CanonicalRepresentationConfig {
     // Lookup columns
@@ -232,6 +237,22 @@ impl FrRlcLookup for CanonicalRepresentationConfig {
         [
             self.value.current() * self.index_is_31.current(),
             self.rlc.current() * self.index_is_31.current(),
+        ]
+    }
+}
+
+impl FrHiLoLookup for CanonicalRepresentationConfig {
+    fn lookup<F: FieldExt>(&self) -> [Query<F>; 3] {
+        let value_hi = (0..16)
+            .map(|i| self.byte.rotation(i))
+            .fold(Query::zero(), |acc, x| acc * 256 + x)
+            * self.index_is_zero.current();
+        let value_lo = self.value.current() * self.index_is_zero.current()
+            - value_hi.clone() * Query::from(1 << 32).square().square();
+        [
+            self.value.current() * self.index_is_zero.current(),
+            value_hi,
+            value_lo,
         ]
     }
 }
