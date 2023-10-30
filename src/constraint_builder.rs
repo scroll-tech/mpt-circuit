@@ -9,6 +9,7 @@ mod binary_column;
 mod binary_query;
 mod column;
 mod query;
+mod word_columns;
 
 pub use binary_column::BinaryColumn;
 pub use binary_query::BinaryQuery;
