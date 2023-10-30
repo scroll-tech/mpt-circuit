@@ -80,6 +80,7 @@ impl MptCircuitConfig {
             1.into(),
             0.into(),
             0.into(),
+            0.into(),
             (MPTProofType::AccountDoesNotExist as u64).into(),
             0.into(),
             0.into(),
@@ -175,7 +176,7 @@ impl MptCircuitConfig {
         )
     }
 
-    pub fn lookup_exprs<F: FieldExt>(&self, meta: &mut VirtualCells<'_, F>) -> [Expression<F>; 10] {
+    pub fn lookup_exprs<F: FieldExt>(&self, meta: &mut VirtualCells<'_, F>) -> [Expression<F>; 11] {
         self.mpt_update.lookup().map(|q| q.run(meta))
     }
 

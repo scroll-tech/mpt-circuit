@@ -1,10 +1,8 @@
 mod nonexistence_proof;
 mod path;
 mod segment;
-mod word_rlc;
 pub use path::PathType;
 use segment::SegmentType;
-use word_rlc::{assign as assign_word_rlc, configure as configure_word_rlc};
 
 use super::{
     byte_representation::{BytesLookup, RlcLookup},
@@ -48,7 +46,7 @@ lazy_static! {
 }
 
 pub trait MptUpdateLookup<F: FieldExt> {
-    fn lookup(&self) -> [Query<F>; 10];
+    fn lookup(&self) -> [Query<F>; 11];
 }
 
 #[derive(Clone)]
@@ -60,7 +58,7 @@ pub struct MptUpdateConfig {
     old_value: WordColumns,
     new_value: WordColumns,
     proof_type: OneHot<MPTProofType>,
-    storage_key_rlc: SecondPhaseAdviceColumn,
+    storage_key: WordColumns,
 
     segment_type: OneHot<SegmentType>,
     path_type: OneHot<PathType>,
@@ -80,7 +78,7 @@ pub struct MptUpdateConfig {
 }
 
 impl<F: FieldExt> MptUpdateLookup<F> for MptUpdateConfig {
-    fn lookup(&self) -> [Query<F>; 10] {
+    fn lookup(&self) -> [Query<F>; 11] {
         let is_start = || self.segment_type.current_matches(&[SegmentType::Start]);
         let old_root_rlc = self.second_phase_intermediate_values[0].current() * is_start();
         let new_root_rlc = self.second_phase_intermediate_values[1].current() * is_start();
@@ -93,11 +91,13 @@ impl<F: FieldExt> MptUpdateLookup<F> for MptUpdateConfig {
         let address = (address_high.current() * Query::Constant(F::from_u128(1 << 32))
             + address_low.current())
             * is_start();
-        let storage_key_rlc = self.storage_key_rlc.current() * is_start();
+        let storage_key_hi = self.storage_key.hi().current() * is_start();
+        let storage_key_lo = self.storage_key.lo().current() * is_start();
         [
             is_start().into(),
             address,
-            storage_key_rlc,
+            storage_key_hi,
+            storage_key_lo,
             proof_type,
             new_root_rlc,
             old_root_rlc,
@@ -122,7 +122,6 @@ impl MptUpdateConfig {
         fr_hi_lo: &impl FrHiLoLookup,
     ) -> Self {
         let proof_type: OneHot<MPTProofType> = OneHot::configure(cs, cb);
-        let [storage_key_rlc] = cb.second_phase_advice_columns(cs);
         let [domain, old_hash, new_hash, depth, key, other_key, direction, sibling] =
             cb.advice_columns(cs);
 
@@ -133,7 +132,8 @@ impl MptUpdateConfig {
             .advice_columns(cs)
             .map(|column| IsZeroGadget::configure(cs, cb, column));
 
-        let [old_value, new_value] = [(); 2].map(|_| WordColumns::configure(cs, cb, bytes));
+        let [old_value, new_value, storage_key] =
+            [(); 3].map(|_| WordColumns::configure(cs, cb, bytes));
 
         let segment_type = OneHot::configure(cs, cb);
         let path_type = OneHot::configure(cs, cb);
@@ -185,9 +185,9 @@ impl MptUpdateConfig {
                 proof_type.previous(),
             );
             cb.assert_equal(
-                "storage_key_rlc does not change",
-                storage_key_rlc.current(),
-                storage_key_rlc.previous(),
+                "storage_key does not change",
+                storage_key.current(),
+                storage_key.previous(),
             );
             cb.assert_equal(
                 "old_value does not change",
@@ -255,7 +255,7 @@ impl MptUpdateConfig {
             proof_type,
             old_value,
             new_value,
-            storage_key_rlc,
+            storage_key,
             segment_type,
             path_type,
             other_key,
@@ -374,7 +374,8 @@ impl MptUpdateConfig {
 
             for i in 0..proof.n_rows() {
                 self.proof_type.assign(region, offset + i, proof_type);
-                self.storage_key_rlc.assign(region, offset + i, storage_key);
+                self.storage_key
+                    .assign(region, offset + i, proof.claim.storage_key());
                 self.old_value
                     .assign(region, offset + i, proof.claim.old_value());
                 self.new_value
@@ -553,14 +554,6 @@ impl MptUpdateConfig {
                                 self.intermediate_values;
                             let [rlc_storage_key_high, rlc_storage_key_low, ..] =
                                 self.second_phase_intermediate_values;
-                            assign_word_rlc(
-                                region,
-                                offset + 3,
-                                key,
-                                [storage_key_high, storage_key_low],
-                                [rlc_storage_key_high, rlc_storage_key_low],
-                                randomness,
-                            );
                             self.other_key
                                 .assign(region, offset + 3, proof.storage.other_key());
                             new_domain.assign(region, offset + 3, HashDomain::AccountFields);
@@ -576,26 +569,6 @@ impl MptUpdateConfig {
                 let [old_high, old_low, new_high, new_low, ..] = self.intermediate_values;
                 let [old_rlc_high, old_rlc_low, new_rlc_high, new_rlc_low, ..] =
                     self.second_phase_intermediate_values;
-                if let Some(value) = old {
-                    assign_word_rlc(
-                        region,
-                        offset + 3,
-                        value,
-                        [old_high, old_low],
-                        [old_rlc_high, old_rlc_low],
-                        randomness,
-                    );
-                }
-                if let Some(value) = new {
-                    assign_word_rlc(
-                        region,
-                        offset + 3,
-                        value,
-                        [new_high, new_low],
-                        [new_rlc_high, new_rlc_low],
-                        randomness,
-                    );
-                }
             };
             self.assign_storage(region, next_offset, &proof.storage, randomness);
             n_rows += proof.n_rows();
@@ -818,28 +791,6 @@ impl MptUpdateConfig {
         let [old_high, old_low, new_high, new_low, ..] = self.intermediate_values;
         let [old_rlc_high, old_rlc_low, new_rlc_high, new_rlc_low, ..] =
             self.second_phase_intermediate_values;
-
-        if let StorageLeaf::Entry { .. } = old {
-            assign_word_rlc(
-                region,
-                offset,
-                old.value(),
-                [old_high, old_low],
-                [old_rlc_high, old_rlc_low],
-                randomness,
-            );
-        }
-
-        if let StorageLeaf::Entry { .. } = new {
-            assign_word_rlc(
-                region,
-                offset,
-                new.value(),
-                [new_high, new_low],
-                [new_rlc_high, new_rlc_low],
-                randomness,
-            );
-        }
 
         let [old_hash_is_zero_storage_hash, new_hash_is_zero_storage_hash, ..] =
             self.is_zero_gadgets;
@@ -1820,14 +1771,16 @@ fn configure_storage<F: FieldExt>(
                 cb.assert_zero("direction is 0", config.direction.current());
                 let [key_high, key_low, ..] = config.intermediate_values;
                 let [rlc_key_high, rlc_key_low, ..] = config.second_phase_intermediate_values;
-                configure_word_rlc(
-                    cb,
-                    [config.key, key_high, key_low],
-                    [config.storage_key_rlc, rlc_key_high, rlc_key_low],
+                let [storage_key_hi, storage_key_lo] = config.storage_key.current();
+                cb.poseidon_lookup(
+                    "key = poseidon(storage key hi, storage key lo)",
+                    [
+                        storage_key_hi,
+                        storage_key_lo,
+                        Query::from(u64::from(HashDomain::Pair)),
+                        config.key.current(),
+                    ],
                     poseidon,
-                    bytes,
-                    rlc,
-                    randomness.clone(),
                 );
             }
             SegmentType::StorageLeaf0 => {
@@ -1961,14 +1914,16 @@ fn configure_empty_storage<F: FieldExt>(
                 cb.assert_zero("direction is 0", config.direction.current());
                 // Note that this constraint doesn't apply if the account doesn't exist. This
                 // is ok, because every storage key for an empty account is empty.
-                configure_word_rlc(
-                    cb,
-                    [config.key, key_high, key_low],
-                    [config.storage_key_rlc, rlc_key_high, rlc_key_low],
+                let [storage_key_hi, storage_key_lo] = config.storage_key.current();
+                cb.poseidon_lookup(
+                    "key = poseidon(storage key hi, storage key lo)",
+                    [
+                        storage_key_hi,
+                        storage_key_lo,
+                        Query::from(u64::from(HashDomain::Pair)),
+                        config.key.current(),
+                    ],
                     poseidon,
-                    bytes,
-                    rlc,
-                    randomness.clone(),
                 );
             }
             _ => (),
