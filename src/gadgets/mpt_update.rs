@@ -44,7 +44,7 @@ lazy_static! {
 }
 
 pub trait MptUpdateLookup<F: FieldExt> {
-    fn lookup(&self) -> [Query<F>; 11];
+    fn lookup(&self) -> [Query<F>; 13];
 }
 
 #[derive(Clone)]
@@ -76,29 +76,37 @@ pub struct MptUpdateConfig {
 }
 
 impl<F: FieldExt> MptUpdateLookup<F> for MptUpdateConfig {
-    fn lookup(&self) -> [Query<F>; 11] {
+    fn lookup(&self) -> [Query<F>; 13] {
         let is_start = || self.segment_type.current_matches(&[SegmentType::Start]);
-        let old_root_rlc = self.second_phase_intermediate_values[0].current() * is_start();
-        let new_root_rlc = self.second_phase_intermediate_values[1].current() * is_start();
         let proof_type = self.proof_type.current() * is_start();
         let old_value_hi = self.old_value.hi().current() * is_start();
         let old_value_lo = self.old_value.lo().current() * is_start();
         let new_value_hi = self.new_value.hi().current() * is_start();
         let new_value_lo = self.new_value.lo().current() * is_start();
-        let [address_high, address_low, ..] = self.intermediate_values;
-        let address = (address_high.current() * Query::Constant(F::from_u128(1 << 32))
-            + address_low.current())
-            * is_start();
+        let [address_high, address_low, _, _, old_root_hi, old_root_lo, new_root_hi, new_root_lo, ..] =
+            self.intermediate_values;
+        let address =
+            (address_high.current() * Query::from(1u64 << 32) + address_low.current()) * is_start();
         let storage_key_hi = self.storage_key.hi().current() * is_start();
         let storage_key_lo = self.storage_key.lo().current() * is_start();
+        let old_root_hi = old_root_hi.current() * is_start();
+        let old_root_lo = old_root_lo.current() * is_start();
+        // let old_root_lo = self.old_hash.current()
+        // - old_root_hi.current() * Query::from(1u64 << 32).square().square() * is_start();
+        let new_root_hi = new_root_hi.current() * is_start();
+        let new_root_lo = new_root_lo.current() * is_start();
+        // let new_root_lo = self.new_hash.current()
+        // - new_root_hi.current() * Query::from(1u64 << 32).square().square() * is_start();
         [
             is_start().into(),
             address,
             storage_key_hi,
             storage_key_lo,
             proof_type,
-            new_root_rlc,
-            old_root_rlc,
+            new_root_hi,
+            new_root_lo,
+            old_root_hi,
+            old_root_lo,
             new_value_hi,
             new_value_lo,
             old_value_hi,
@@ -141,8 +149,7 @@ impl MptUpdateConfig {
             Query::from(path_type.current_matches(&[PathType::Start])),
         );
         cb.condition(is_start.clone().and(cb.every_row_selector()), |cb| {
-            let [address_high, address_low, ..] = intermediate_values;
-            let [old_hash_rlc, new_hash_rlc, ..] = second_phase_intermediate_values;
+            let [address_high, address_low, _, _, old_root_hi, old_root_lo, new_root_hi, new_root_lo,..] = intermediate_values;
             cb.poseidon_lookup(
                 "account mpt key = h(address_high, address_low << 96)",
                 [
@@ -163,15 +170,16 @@ impl MptUpdateConfig {
                 [address_low.current(), Query::from(3)],
                 bytes.lookup(),
             );
+            // let old_root_lo = old_hash.current() - old_root_hi.current() * Query::Constant(F::from_u128(1 << 64)).square();
             cb.add_lookup(
-                "rlc_old_root = rlc(old_root)",
-                [old_hash.current(), old_hash_rlc.current()],
-                fr_rlc.lookup(),
+                "hi lo decomposition for old root",
+                [old_hash.current(), old_root_hi.current(), old_root_lo.current()],
+                fr_hi_lo.lookup(),
             );
             cb.add_lookup(
-                "rlc_new_root = rlc(new_root)",
-                [new_hash.current(), new_hash_rlc.current()],
-                fr_rlc.lookup(),
+                "hi lo decomposition for new root",
+                [new_hash.current(), new_root_hi.current(), new_root_lo.current()],
+                fr_hi_lo.lookup(),
             );
         });
         cb.condition(!is_start, |cb| {
@@ -392,33 +400,24 @@ impl MptUpdateConfig {
             self.other_key.assign(region, offset, other_key);
             self.domain.assign(region, offset, HashDomain::Pair);
 
-            self.intermediate_values[0].assign(
+            let [address_high_column, address_low_column, _, _, old_root_hi_column, old_root_lo_column, new_root_hi_column, new_root_lo_column, ..] =
+                self.intermediate_values;
+
+            address_high_column.assign(
                 region,
                 offset,
                 Fr::from_u128(address_high(proof.claim.address)),
             );
-            self.intermediate_values[1].assign(
-                region,
-                offset,
-                u64::from(address_low(proof.claim.address)),
-            );
+            address_low_column.assign(region, offset, u64::from(address_low(proof.claim.address)));
 
-            let rlc_fr = |x: Fr| {
-                let mut bytes = x.to_bytes();
-                bytes.reverse();
-                randomness.map(|r| rlc(&bytes, r))
-            };
+            let (old_root_hi, old_root_lo) = u256_hi_lo(&fr_to_u256(proof.claim.old_root));
+            old_root_hi_column.assign(region, offset, Fr::from_u128(old_root_hi));
+            old_root_lo_column.assign(region, offset, Fr::from_u128(old_root_lo));
 
-            self.second_phase_intermediate_values[0].assign(
-                region,
-                offset,
-                rlc_fr(proof.claim.old_root),
-            );
-            self.second_phase_intermediate_values[1].assign(
-                region,
-                offset,
-                rlc_fr(proof.claim.new_root),
-            );
+            let (new_root_hi, new_root_lo) = u256_hi_lo(&fr_to_u256(proof.claim.new_root));
+            dbg!(proof.claim.old_root, proof.claim.new_root);
+            new_root_hi_column.assign(region, offset, Fr::from_u128(new_root_hi));
+            new_root_lo_column.assign(region, offset, Fr::from_u128(new_root_lo));
 
             offset += 1;
 
@@ -2188,7 +2187,7 @@ pub fn mpt_update_keys(proofs: &[Proof]) -> Vec<Fr> {
         keys.push(proof.claim.old_root);
         keys.push(proof.claim.new_root);
 
-        // you need to do this for balance to0!!!
+        dbg!(proof.claim.old_root, proof.claim.new_root);
         if let ClaimKind::PoseidonCodeHash { old, new } = proof.claim.kind {
             if let Some(codehash) = old {
                 keys.push(codehash);

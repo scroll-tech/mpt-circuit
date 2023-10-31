@@ -86,6 +86,8 @@ impl MptCircuitConfig {
             0.into(),
             0.into(),
             0.into(),
+            0.into(),
+            0.into(),
         ];
         cb.condition(is_final_row.current(), |cb| {
             for (padding_row_expression, lookup_expression) in padding_row_expressions
@@ -174,7 +176,7 @@ impl MptCircuitConfig {
         )
     }
 
-    pub fn lookup_exprs<F: FieldExt>(&self, meta: &mut VirtualCells<'_, F>) -> [Expression<F>; 11] {
+    pub fn lookup_exprs<F: FieldExt>(&self, meta: &mut VirtualCells<'_, F>) -> [Expression<F>; 13] {
         self.mpt_update.lookup().map(|q| q.run(meta))
     }
 
