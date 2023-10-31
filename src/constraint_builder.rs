@@ -1,7 +1,7 @@
 use crate::gadgets::poseidon::PoseidonLookup;
 use halo2_proofs::{
     arithmetic::FieldExt,
-    plonk::{ConstraintSystem, SecondPhase},
+    plonk::{ConstraintSystem},
 };
 use itertools::Itertools;
 
@@ -14,7 +14,7 @@ mod word_columns;
 
 pub use binary_column::BinaryColumn;
 pub use binary_query::BinaryQuery;
-pub use column::{AdviceColumn, FixedColumn, SecondPhaseAdviceColumn, SelectorColumn};
+pub use column::{AdviceColumn, FixedColumn, SelectorColumn};
 pub use query::Query;
 use to_queries::ToQueries;
 pub use word_columns::WordColumns;
@@ -171,13 +171,6 @@ impl<F: FieldExt> ConstraintBuilder<F> {
         cs: &mut ConstraintSystem<F>,
     ) -> [AdviceColumn; N] {
         [0; N].map(|_| AdviceColumn(cs.advice_column()))
-    }
-
-    pub fn second_phase_advice_columns<const N: usize>(
-        &self,
-        cs: &mut ConstraintSystem<F>,
-    ) -> [SecondPhaseAdviceColumn; N] {
-        [0; N].map(|_| SecondPhaseAdviceColumn(cs.advice_column_in(SecondPhase)))
     }
 
     pub fn binary_columns<const N: usize>(

@@ -10,7 +10,7 @@ use super::{
 };
 use crate::{
     constraint_builder::{
-        AdviceColumn, BinaryQuery, ConstraintBuilder, Query, SecondPhaseAdviceColumn, WordColumns,
+        AdviceColumn, BinaryQuery, ConstraintBuilder, Query, WordColumns,
     },
     types::{
         storage::{StorageLeaf, StorageProof},
@@ -65,7 +65,6 @@ pub struct MptUpdateConfig {
     sibling: AdviceColumn,
 
     intermediate_values: [AdviceColumn; 10], // can be 4?
-    second_phase_intermediate_values: [SecondPhaseAdviceColumn; 10], // 4?
     is_zero_gadgets: [IsZeroGadget; 4],      // can be 3
 }
 
@@ -119,8 +118,6 @@ impl MptUpdateConfig {
             cb.advice_columns(cs);
 
         let intermediate_values: [AdviceColumn; 10] = cb.advice_columns(cs);
-        let second_phase_intermediate_values: [SecondPhaseAdviceColumn; 10] =
-            cb.second_phase_advice_columns(cs);
         let is_zero_gadgets = cb
             .advice_columns(cs)
             .map(|column| IsZeroGadget::configure(cs, cb, column));
@@ -256,7 +253,6 @@ impl MptUpdateConfig {
             direction,
             sibling,
             intermediate_values,
-            second_phase_intermediate_values,
             is_zero_gadgets,
         };
 
