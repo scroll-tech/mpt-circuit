@@ -131,7 +131,6 @@ impl KeyBitLookup for KeyBitConfig {
 mod test {
     use super::super::{
         byte_bit::ByteBitGadget, canonical_representation::CanonicalRepresentationConfig,
-        rlc_randomness::RlcRandomness,
     };
     use super::*;
     use halo2_proofs::{
@@ -151,7 +150,6 @@ mod test {
             KeyBitConfig,
             ByteBitGadget,
             CanonicalRepresentationConfig,
-            RlcRandomness,
         );
         type FloorPlanner = SimpleFloorPlanner;
 
@@ -164,9 +162,8 @@ mod test {
             let mut cb = ConstraintBuilder::new(selector);
 
             let byte_bit = ByteBitGadget::configure(cs, &mut cb);
-            let randomness = RlcRandomness::configure(cs);
             let canonical_representation =
-                CanonicalRepresentationConfig::configure(cs, &mut cb, &byte_bit, &randomness);
+                CanonicalRepresentationConfig::configure(cs, &mut cb, &byte_bit);
             let key_bit = KeyBitConfig::configure(
                 cs,
                 &mut cb,
@@ -176,13 +173,7 @@ mod test {
                 &byte_bit,
             );
             cb.build(cs);
-            (
-                selector,
-                key_bit,
-                byte_bit,
-                canonical_representation,
-                randomness,
-            )
+            (selector, key_bit, byte_bit, canonical_representation)
         }
 
         fn synthesize(
@@ -192,8 +183,7 @@ mod test {
         ) -> Result<(), Error> {
             let keys: Vec<_> = self.lookups.iter().map(|lookup| lookup.0).collect();
 
-            let (selector, key_bit, byte_bit, canonical_representation, rlc_randomness) = config;
-            let randomness = rlc_randomness.value(&layouter);
+            let (selector, key_bit, byte_bit, canonical_representation) = config;
 
             layouter.assign_region(
                 || "",
@@ -204,7 +194,7 @@ mod test {
 
                     key_bit.assign(&mut region, &self.lookups);
                     byte_bit.assign(&mut region);
-                    canonical_representation.assign(&mut region, randomness, &keys, 256);
+                    canonical_representation.assign(&mut region, &keys, 256);
                     Ok(())
                 },
             )

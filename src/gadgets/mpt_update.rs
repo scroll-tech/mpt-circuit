@@ -2061,7 +2061,7 @@ pub fn byte_representations(proofs: &[Proof]) -> (Vec<u32>, Vec<u64>, Vec<u128>,
                 u128s.push(address_high(proof.claim.address));
                 if let Some(account) = proof.old_account {
                     u64s.push(account.nonce);
-                    u64s.push(account.code_size); // this should be covered???
+                    // u64s.push(account.code_size); // this should be covered???
                     u128s.push(
                         (1u128 << 64) * u128::from(account.code_size) + u128::from(account.nonce),
                     );
@@ -2070,7 +2070,7 @@ pub fn byte_representations(proofs: &[Proof]) -> (Vec<u32>, Vec<u64>, Vec<u128>,
                 };
                 if let Some(account) = proof.new_account {
                     u64s.push(account.nonce);
-                    u64s.push(account.code_size); // this should be covered???
+                    // u64s.push(account.code_size); // this should be covered???
                     u128s.push(
                         (1u128 << 64) * u128::from(account.code_size) + u128::from(account.nonce),
                     );

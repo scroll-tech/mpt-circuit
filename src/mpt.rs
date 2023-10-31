@@ -10,7 +10,6 @@ use crate::{
             MptUpdateLookup,
         },
         poseidon::PoseidonLookup,
-        rlc_randomness::RlcRandomness,
     },
     mpt_table::MPTProofType,
     types::Proof,
@@ -19,7 +18,7 @@ use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::Layouter,
     halo2curves::bn256::Fr,
-    plonk::{Challenge, ConstraintSystem, Error, Expression, VirtualCells},
+    plonk::{ConstraintSystem, Error, Expression, VirtualCells},
 };
 use itertools::Itertools;
 
@@ -28,7 +27,6 @@ use itertools::Itertools;
 pub struct MptCircuitConfig {
     selector: SelectorColumn,
     is_final_row: SelectorColumn,
-    rlc_randomness: RlcRandomness,
     mpt_update: MptUpdateConfig,
     canonical_representation: CanonicalRepresentationConfig,
     key_bit: KeyBitConfig,
@@ -37,20 +35,14 @@ pub struct MptCircuitConfig {
 }
 
 impl MptCircuitConfig {
-    pub fn configure(
-        cs: &mut ConstraintSystem<Fr>,
-        evm_word_challenge: Challenge,
-        poseidon: &impl PoseidonLookup,
-    ) -> Self {
+    pub fn configure(cs: &mut ConstraintSystem<Fr>, poseidon: &impl PoseidonLookup) -> Self {
         let selector = SelectorColumn(cs.fixed_column());
-        let rlc_randomness = RlcRandomness(evm_word_challenge);
         let mut cb = ConstraintBuilder::new(selector);
 
         let byte_bit = ByteBitGadget::configure(cs, &mut cb);
-        let byte_representation =
-            ByteRepresentationConfig::configure(cs, &mut cb, &byte_bit, &rlc_randomness);
+        let byte_representation = ByteRepresentationConfig::configure(cs, &mut cb, &byte_bit);
         let canonical_representation =
-            CanonicalRepresentationConfig::configure(cs, &mut cb, &byte_bit, &rlc_randomness);
+            CanonicalRepresentationConfig::configure(cs, &mut cb, &byte_bit);
         let key_bit = KeyBitConfig::configure(
             cs,
             &mut cb,
@@ -106,7 +98,6 @@ impl MptCircuitConfig {
         Self {
             selector,
             is_final_row,
-            rlc_randomness,
             mpt_update,
             key_bit,
             byte_bit,
@@ -121,7 +112,6 @@ impl MptCircuitConfig {
         proofs: &[Proof],
         n_rows: usize,
     ) -> Result<(), Error> {
-        let randomness = self.rlc_randomness.value(layouter);
         let (u32s, u64s, u128s, frs) = byte_representations(proofs);
 
         layouter.assign_region(
@@ -145,17 +135,11 @@ impl MptCircuitConfig {
                 );
 
                 self.canonical_representation
-                    .assign(&mut region, randomness, &keys, n_rows);
+                    .assign(&mut region, &keys, n_rows);
                 self.key_bit.assign(&mut region, &key_bit_lookups(proofs));
                 self.byte_bit.assign(&mut region);
-                self.byte_representation.assign(
-                    &mut region,
-                    &u32s,
-                    &u64s,
-                    &u128s,
-                    &frs,
-                    randomness,
-                );
+                self.byte_representation
+                    .assign(&mut region, &u32s, &u64s, &u128s, &frs);
 
                 let n_assigned_rows = self.mpt_update.assign(&mut region, proofs);
 

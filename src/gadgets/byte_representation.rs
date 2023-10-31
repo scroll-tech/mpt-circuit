@@ -1,18 +1,9 @@
-use super::{byte_bit::RangeCheck256Lookup, is_zero::IsZeroGadget, rlc_randomness::RlcRandomness};
-use crate::constraint_builder::{
-    AdviceColumn, ConstraintBuilder, Query, SecondPhaseAdviceColumn, SelectorColumn,
-};
+use super::{byte_bit::RangeCheck256Lookup, is_zero::IsZeroGadget};
+use crate::constraint_builder::{AdviceColumn, ConstraintBuilder, Query, SelectorColumn};
 use ethers_core::types::{Address, H256};
 use halo2_proofs::{
-    arithmetic::FieldExt,
-    circuit::{Region, Value},
-    halo2curves::bn256::Fr,
-    plonk::ConstraintSystem,
+    arithmetic::FieldExt, circuit::Region, halo2curves::bn256::Fr, plonk::ConstraintSystem,
 };
-
-pub trait RlcLookup {
-    fn lookup<F: FieldExt>(&self) -> [Query<F>; 3];
-}
 
 pub trait BytesLookup {
     fn lookup<F: FieldExt>(&self) -> [Query<F>; 2];
@@ -25,25 +16,12 @@ pub trait BytesLookup {
 pub struct ByteRepresentationConfig {
     // lookup columns
     value: AdviceColumn,
-    rlc: SecondPhaseAdviceColumn,
     index: AdviceColumn,
 
     // internal columns
     is_first: SelectorColumn,
     byte: AdviceColumn,
     index_is_zero: IsZeroGadget,
-}
-
-// WARNING: it is a soundness issue if the index lookup is >= 31 (i.e. the value can
-// overflow in the field if it has 32 or more bytes).
-impl RlcLookup for ByteRepresentationConfig {
-    fn lookup<F: FieldExt>(&self) -> [Query<F>; 3] {
-        [
-            self.value.current(),
-            self.index.current(),
-            self.rlc.current(),
-        ]
-    }
 }
 
 impl BytesLookup for ByteRepresentationConfig {
@@ -57,11 +35,9 @@ impl ByteRepresentationConfig {
         cs: &mut ConstraintSystem<F>,
         cb: &mut ConstraintBuilder<F>,
         range_check: &impl RangeCheck256Lookup,
-        randomness: &RlcRandomness,
     ) -> Self {
         let is_first = SelectorColumn(cs.fixed_column());
         let [value, index, byte] = cb.advice_columns(cs);
-        let [rlc] = cb.second_phase_advice_columns(cs);
         let index_is_zero = IsZeroGadget::configure(cs, cb, index);
 
         cb.condition(is_first.current(), |cb| {
@@ -76,16 +52,10 @@ impl ByteRepresentationConfig {
             value.current(),
             value.previous() * 256 * !index_is_zero.current() + byte.current(),
         );
-        cb.assert_equal(
-            "current rlc = previous rlc * randomness * (index != 0) + byte",
-            rlc.current(),
-            rlc.previous() * randomness.query() * !index_is_zero.current() + byte.current(),
-        );
         cb.add_lookup("0 <= byte < 256", [byte.current()], range_check.lookup());
 
         Self {
             value,
-            rlc,
             index,
             index_is_zero,
             byte,
@@ -100,7 +70,6 @@ impl ByteRepresentationConfig {
         u64s: &[u64],
         u128s: &[u128],
         frs: &[Fr],
-        randomness: Value<F>,
     ) {
         self.is_first.enable(region, 0);
         let byte_representations = u32s
@@ -113,16 +82,12 @@ impl ByteRepresentationConfig {
         let mut offset = 1;
         for byte_representation in byte_representations {
             let mut value = F::zero();
-            let mut rlc = Value::known(F::zero());
             for (index, byte) in byte_representation.iter().enumerate() {
                 let byte = F::from(u64::from(*byte));
                 self.byte.assign(region, offset, byte);
 
                 value = value * F::from(256) + byte;
                 self.value.assign(region, offset, value);
-
-                rlc = rlc * randomness + Value::known(byte);
-                self.rlc.assign(region, offset, rlc);
 
                 let index = u64::try_from(index).unwrap();
                 self.index.assign(region, offset, index);
@@ -195,12 +160,7 @@ mod test {
     }
 
     impl Circuit<Fr> for TestCircuit {
-        type Config = (
-            SelectorColumn,
-            ByteBitGadget,
-            ByteRepresentationConfig,
-            RlcRandomness,
-        );
+        type Config = (SelectorColumn, ByteBitGadget, ByteRepresentationConfig);
         type FloorPlanner = SimpleFloorPlanner;
 
         fn without_witnesses(&self) -> Self {
@@ -212,11 +172,9 @@ mod test {
             let mut cb = ConstraintBuilder::new(selector);
 
             let byte_bit = ByteBitGadget::configure(cs, &mut cb);
-            let randomness = RlcRandomness::configure(cs);
-            let byte_representation =
-                ByteRepresentationConfig::configure(cs, &mut cb, &byte_bit, &randomness);
+            let byte_representation = ByteRepresentationConfig::configure(cs, &mut cb, &byte_bit);
             cb.build(cs);
-            (selector, byte_bit, byte_representation, randomness)
+            (selector, byte_bit, byte_representation)
         }
 
         fn synthesize(
@@ -224,8 +182,7 @@ mod test {
             config: Self::Config,
             mut layouter: impl Layouter<Fr>,
         ) -> Result<(), Error> {
-            let (selector, byte_bit, byte_representation, rlc_randomness) = config;
-            let randomness = rlc_randomness.value(&layouter);
+            let (selector, byte_bit, byte_representation) = config;
             layouter.assign_region(
                 || "",
                 |mut region| {
@@ -239,7 +196,6 @@ mod test {
                         &self.u64s,
                         &self.u128s,
                         &self.frs,
-                        randomness,
                     );
                     Ok(())
                 },
