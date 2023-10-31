@@ -141,13 +141,8 @@ impl MptCircuitConfig {
                     keys.len()
                 );
 
-                self.canonical_representation.assign(
-                    &mut region,
-                    randomness,
-                    keys.iter()
-                        .chain(std::iter::repeat(&Fr::zero()))
-                        .take(total_rep_size),
-                );
+                self.canonical_representation
+                    .assign(&mut region, randomness, &keys, n_rows);
                 self.key_bit.assign(&mut region, &key_bit_lookups(proofs));
                 self.byte_bit.assign(&mut region);
                 self.byte_representation.assign(
@@ -179,5 +174,23 @@ impl MptCircuitConfig {
 
     pub fn lookup_exprs<F: FieldExt>(&self, meta: &mut VirtualCells<'_, F>) -> [Expression<F>; 8] {
         self.mpt_update.lookup().map(|q| q.run(meta))
+    }
+
+    /// The number of minimum number of rows required for the mpt circuit.
+    pub fn n_rows_required(proofs: &[Proof]) -> usize {
+        let (u32s, u64s, u128s, frs) = byte_representations(proofs);
+
+        // +1 for the final padding row to satisfy the "final mpt update is padding" constraint.
+        1 + *[
+            MptUpdateConfig::n_rows_required(proofs),
+            CanonicalRepresentationConfig::n_rows_required(&mpt_update_keys(proofs)),
+            KeyBitConfig::n_rows_required(&key_bit_lookups(proofs)),
+            // TODO: move rlc lookup for frs into CanonicalRepresentationConfig.
+            ByteRepresentationConfig::n_rows_required(&u32s, &u64s, &u128s, &frs),
+            ByteBitGadget::n_rows_required(),
+        ]
+        .iter()
+        .max()
+        .unwrap()
     }
 }

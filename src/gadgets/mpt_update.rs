@@ -594,7 +594,19 @@ impl MptUpdateConfig {
             n_rows += proof.n_rows();
             offset = 1 + n_rows;
         }
+
+        let expected_offset = Self::n_rows_required(proofs);
+        debug_assert!(
+            offset == expected_offset,
+            "assign used {offset} rows but {expected_offset} rows expected from `n_rows_required`",
+        );
+
         n_rows
+    }
+
+    pub fn n_rows_required(proofs: &[Proof]) -> usize {
+        // +1 because assigment starts on offset = 1 instead of offset = 0.
+        proofs.iter().map(Proof::n_rows).sum::<usize>() + 1
     }
 
     fn assign_account_trie_rows(
@@ -2086,6 +2098,8 @@ pub fn hash_traces(proofs: &[Proof]) -> Vec<([Fr; 2], Fr, Fr)> {
             }
         }
     }
+    hash_traces.sort();
+    hash_traces.dedup();
     hash_traces
 }
 
@@ -2118,6 +2132,9 @@ pub fn key_bit_lookups(proofs: &[Proof]) -> Vec<(Fr, usize, bool)> {
         }
         lookups.extend(proof.storage.key_bit_lookups());
     }
+
+    lookups.sort();
+    lookups.dedup();
     lookups
 }
 
@@ -2199,6 +2216,19 @@ pub fn byte_representations(proofs: &[Proof]) -> (Vec<u32>, Vec<u64>, Vec<u128>,
             _ => {}
         }
     }
+
+    u32s.sort();
+    u32s.dedup();
+
+    u64s.sort();
+    u64s.dedup();
+
+    u128s.sort();
+    u128s.dedup();
+
+    frs.sort();
+    frs.dedup();
+
     (u32s, u64s, u128s, frs)
 }
 
@@ -2213,5 +2243,7 @@ pub fn mpt_update_keys(proofs: &[Proof]) -> Vec<Fr> {
         keys.push(proof.claim.old_root);
         keys.push(proof.claim.new_root);
     }
+    keys.sort();
+    keys.dedup();
     keys
 }

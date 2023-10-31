@@ -7,6 +7,9 @@ use halo2_proofs::{
 #[cfg(test)]
 use hash_circuit::hash::Hashable;
 
+#[cfg(test)]
+const MAX_POSEIDON_ROWS: usize = 200;
+
 /// Lookup  represent the poseidon table in zkevm circuit
 pub trait PoseidonLookup {
     fn lookup_columns(&self) -> (FixedColumn, [AdviceColumn; 6]) {
@@ -48,6 +51,9 @@ impl PoseidonTable {
     }
 
     pub fn load(&self, region: &mut Region<'_, Fr>, hash_traces: &[([Fr; 2], Fr, Fr)]) {
+        // The test poseidon table starts assigning from the first row, which has a disabled
+        // selector, but this is fine because the poseidon_lookup in the ConstraintBuilder
+        // doesn't include the mpt circuit's selector column.
         for (offset, hash_trace) in hash_traces.iter().enumerate() {
             assert!(
                 Hashable::hash_with_domain([hash_trace.0[0], hash_trace.0[1]], hash_trace.1)
@@ -65,6 +71,12 @@ impl PoseidonTable {
             ] {
                 column.assign(region, offset, value);
             }
+            self.q_enable.assign(region, offset, Fr::one());
+        }
+
+        // We need to do this so that the fixed columns in the tests will not depend on the
+        // number of poseidon hashes that are looked up.
+        for offset in hash_traces.len()..MAX_POSEIDON_ROWS {
             self.q_enable.assign(region, offset, Fr::one());
         }
     }
