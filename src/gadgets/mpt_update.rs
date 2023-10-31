@@ -5,12 +5,8 @@ pub use path::PathType;
 use segment::SegmentType;
 
 use super::{
-    byte_representation::BytesLookup,
-    canonical_representation::{FrHiLoLookup, FrRlcLookup},
-    is_zero::IsZeroGadget,
-    key_bit::KeyBitLookup,
-    one_hot::OneHot,
-    poseidon::PoseidonLookup,
+    byte_representation::BytesLookup, canonical_representation::FrHiLoLookup,
+    is_zero::IsZeroGadget, key_bit::KeyBitLookup, one_hot::OneHot, poseidon::PoseidonLookup,
 };
 use crate::{
     constraint_builder::{
@@ -21,15 +17,13 @@ use crate::{
         trie::{next_domain, TrieRows},
         ClaimKind, HashDomain, Proof,
     },
-    util::{
-        account_key, domain_hash, fr_to_u256, lagrange_polynomial, rlc, u256_hi_lo, u256_to_fr,
-    },
+    util::{account_key, domain_hash, fr_to_u256, lagrange_polynomial, u256_hi_lo, u256_to_fr},
     MPTProofType,
 };
 use ethers_core::types::Address;
 use halo2_proofs::{
     arithmetic::{Field, FieldExt},
-    circuit::{Region, Value},
+    circuit::Region,
     halo2curves::{bn256::Fr, group::ff::PrimeField},
     plonk::ConstraintSystem,
 };
@@ -91,12 +85,8 @@ impl<F: FieldExt> MptUpdateLookup<F> for MptUpdateConfig {
         let storage_key_lo = self.storage_key.lo().current() * is_start();
         let old_root_hi = old_root_hi.current() * is_start();
         let old_root_lo = old_root_lo.current() * is_start();
-        // let old_root_lo = self.old_hash.current()
-        // - old_root_hi.current() * Query::from(1u64 << 32).square().square() * is_start();
         let new_root_hi = new_root_hi.current() * is_start();
         let new_root_lo = new_root_lo.current() * is_start();
-        // let new_root_lo = self.new_hash.current()
-        // - new_root_hi.current() * Query::from(1u64 << 32).square().square() * is_start();
         [
             is_start().into(),
             address,
@@ -122,7 +112,6 @@ impl MptUpdateConfig {
         poseidon: &impl PoseidonLookup,
         key_bit: &impl KeyBitLookup,
         bytes: &impl BytesLookup,
-        fr_rlc: &impl FrRlcLookup,
         fr_hi_lo: &impl FrHiLoLookup,
     ) -> Self {
         let proof_type: OneHot<MPTProofType> = OneHot::configure(cs, cb);
@@ -356,12 +345,7 @@ impl MptUpdateConfig {
     }
 
     /// ..
-    pub fn assign(
-        &self,
-        region: &mut Region<'_, Fr>,
-        proofs: &[Proof],
-        randomness: Value<Fr>,
-    ) -> usize {
+    pub fn assign(&self, region: &mut Region<'_, Fr>, proofs: &[Proof]) -> usize {
         let mut n_rows = 0;
         let mut offset = 1; // selector on first row is disabled.
         for proof in proofs {

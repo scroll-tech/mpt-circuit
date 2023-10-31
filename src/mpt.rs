@@ -67,7 +67,6 @@ impl MptCircuitConfig {
             &key_bit,
             &byte_representation,
             &canonical_representation,
-            &canonical_representation,
         );
 
         // This ensures that the final mpt update in the circuit is complete, since the padding
@@ -158,7 +157,7 @@ impl MptCircuitConfig {
                     randomness,
                 );
 
-                let n_assigned_rows = self.mpt_update.assign(&mut region, proofs, randomness);
+                let n_assigned_rows = self.mpt_update.assign(&mut region, proofs);
 
                 assert!(
                     2 + n_assigned_rows <= n_rows,
