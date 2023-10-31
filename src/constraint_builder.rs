@@ -1,8 +1,5 @@
 use crate::gadgets::poseidon::PoseidonLookup;
-use halo2_proofs::{
-    arithmetic::FieldExt,
-    plonk::{ConstraintSystem},
-};
+use halo2_proofs::{arithmetic::FieldExt, plonk::ConstraintSystem};
 use itertools::Itertools;
 
 mod binary_column;

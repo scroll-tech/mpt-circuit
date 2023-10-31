@@ -9,9 +9,7 @@ use super::{
     is_zero::IsZeroGadget, key_bit::KeyBitLookup, one_hot::OneHot, poseidon::PoseidonLookup,
 };
 use crate::{
-    constraint_builder::{
-        AdviceColumn, BinaryQuery, ConstraintBuilder, Query, WordColumns,
-    },
+    constraint_builder::{AdviceColumn, BinaryQuery, ConstraintBuilder, Query, WordColumns},
     types::{
         storage::{StorageLeaf, StorageProof},
         trie::{next_domain, TrieRows},

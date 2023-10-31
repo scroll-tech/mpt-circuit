@@ -268,11 +268,7 @@ mod test {
                         selector.enable(&mut region, offset);
                     }
                     byte_bit.assign(&mut region);
-<<<<<<< HEAD
-                    canonical_representation.assign(&mut region, randomness, &self.values, 256);
-=======
                     canonical_representation.assign(&mut region, &self.values, 256);
->>>>>>> 7ee429c (remove rlc randomness)
                     Ok(())
                 },
             )
