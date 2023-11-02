@@ -22,6 +22,7 @@ use halo2_proofs::{
     plonk::{Challenge, ConstraintSystem, Error, Expression, VirtualCells},
 };
 use itertools::Itertools;
+use std::time::Instant;
 
 /// Config for MptCircuit
 #[derive(Clone)]
@@ -121,6 +122,7 @@ impl MptCircuitConfig {
         let randomness = self.rlc_randomness.value(layouter);
         let (u32s, u64s, u128s, frs) = byte_representations(proofs);
 
+        let mpt_updates_assign_dur = Instant::now();
         let use_par = std::env::var("PARALLEL_SYN").map_or(false, |s| s == *"true");
         if use_par {
             let n_assigned_rows = self.mpt_update.assign_par(layouter, proofs, randomness);
@@ -161,6 +163,11 @@ impl MptCircuitConfig {
                 },
             )?;
         }
+        log::debug!(
+            "mpt updates assignment(use_par = {}) took {:?}",
+            use_par,
+            mpt_updates_assign_dur.elapsed()
+        );
 
         layouter.assign_region(
             || "mpt circuit",
@@ -172,9 +179,13 @@ impl MptCircuitConfig {
                 // pad canonical_representation to fixed count
                 // notice each input cost 32 rows in canonical_representation, and inside
                 // assign one extra input is added
-                let mut keys = mpt_update_keys(proofs);
-                keys.sort();
-                keys.dedup();
+                let (keys, get_keys_time) = {
+                    let dur = Instant::now();
+                    let mut keys = mpt_update_keys(proofs);
+                    keys.sort();
+                    keys.dedup();
+                    (keys, dur.elapsed())
+                };
                 let total_rep_size = n_rows / 32 - 1;
                 assert!(
                     total_rep_size >= keys.len(),
@@ -182,17 +193,56 @@ impl MptCircuitConfig {
                     keys.len()
                 );
 
-                self.canonical_representation
-                    .assign(&mut region, randomness, &keys, n_rows);
-                self.key_bit.assign(&mut region, &key_bit_lookups(proofs));
-                self.byte_bit.assign(&mut region);
-                self.byte_representation.assign(
-                    &mut region,
-                    &u32s,
-                    &u64s,
-                    &u128s,
-                    &frs,
-                    randomness,
+                let keys_assign_dur = Instant::now();
+                let canon_repr_time = {
+                    let dur = Instant::now();
+                    self.canonical_representation
+                        .assign(&mut region, randomness, &keys, n_rows);
+                    dur.elapsed()
+                };
+                let key_bit_time = {
+                    let dur = Instant::now();
+                    self.key_bit.assign(&mut region, &key_bit_lookups(proofs));
+                    dur.elapsed()
+                };
+                let byte_bit_time = {
+                    let dur = Instant::now();
+                    self.byte_bit.assign(&mut region);
+                    dur.elapsed()
+                };
+                let byte_repr_time = {
+                    let dur = Instant::now();
+                    self.byte_representation.assign(
+                        &mut region,
+                        &u32s,
+                        &u64s,
+                        &u128s,
+                        &frs,
+                        randomness,
+                    );
+                    dur.elapsed()
+                };
+                let keys_assign_time = keys_assign_dur.elapsed();
+                log::debug!("get keys took {:?}", get_keys_time);
+                log::debug!(
+                    "keys assignment (cano_repr + key_bit + byte_bit + byte_repr) took {:?}",
+                    keys_assign_time
+                );
+                log::debug!(
+                    "canon: {}",
+                    canon_repr_time.as_micros() as f64 / keys_assign_time.as_micros() as f64
+                );
+                log::debug!(
+                    "key_bit: {}",
+                    key_bit_time.as_micros() as f64 / keys_assign_time.as_micros() as f64
+                );
+                log::debug!(
+                    "byte_bit: {}",
+                    byte_bit_time.as_micros() as f64 / keys_assign_time.as_micros() as f64
+                );
+                log::debug!(
+                    "byte_repr: {}",
+                    byte_repr_time.as_micros() as f64 / keys_assign_time.as_micros() as f64
                 );
 
                 self.is_final_row.enable(&mut region, n_rows - 1);
