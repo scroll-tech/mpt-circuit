@@ -796,6 +796,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "env_logger"
+version = "0.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a12e6657c4c97ebab115a42dcee77225f7f482cdd841cf7088c657a42e9e00e7"
+dependencies = [
+ "atty",
+ "humantime",
+ "log",
+ "regex",
+ "termcolor",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1158,6 +1171,7 @@ name = "halo2-mpt-circuits"
 version = "0.1.0"
 dependencies = [
  "bencher",
+ "env_logger 0.9.3",
  "ethers-core",
  "halo2_proofs",
  "hex",
@@ -1210,7 +1224,7 @@ dependencies = [
  "blake2b_simd",
  "cfg-if 0.1.10",
  "crossbeam",
- "env_logger",
+ "env_logger 0.8.4",
  "ff 0.12.1",
  "group 0.12.1",
  "halo2curves 0.3.1 (git+https://github.com/scroll-tech/halo2curves.git?branch=0.3.1-derive-serde)",

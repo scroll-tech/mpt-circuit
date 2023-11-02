@@ -147,6 +147,7 @@ fn verifying_key_constant() {
 
 #[test]
 fn all_padding() {
+    env_logger::init();
     mock_prove(vec![]);
 }
 
@@ -816,6 +817,7 @@ fn empty_storage_type_1_update_c() {
 
 #[test]
 fn multiple_updates() {
+    env_logger::init();
     let witness = vec![
         (
             MPTProofType::StorageChanged,
