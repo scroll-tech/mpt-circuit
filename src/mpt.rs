@@ -128,8 +128,15 @@ impl MptCircuitConfig {
             layouter.assign_region(
                 || "mpt update padding rows",
                 |mut region| {
-                    for offset in 0..(n_rows - (1 + n_assigned_rows)) {
-                        self.mpt_update.assign_padding_row(&mut region, offset);
+                    if n_assigned_rows == 0 {
+                        // first row is all-zeroes row
+                        for offset in 1..n_rows {
+                            self.mpt_update.assign_padding_row(&mut region, offset);
+                        }
+                    } else {
+                        for offset in 0..(n_rows - (1 + n_assigned_rows)) {
+                            self.mpt_update.assign_padding_row(&mut region, offset);
+                        }
                     }
                     Ok(())
                 },
