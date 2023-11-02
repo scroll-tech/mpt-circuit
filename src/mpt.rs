@@ -121,6 +121,40 @@ impl MptCircuitConfig {
         let randomness = self.rlc_randomness.value(layouter);
         let (u32s, u64s, u128s, frs) = byte_representations(proofs);
 
+        let use_par = std::env::var("PARALLEL_SYN").map_or(false, |s| s == *"true");
+        if use_par {
+            let n_assigned_rows = self.mpt_update.assign_par(layouter, proofs, randomness);
+
+            layouter.assign_region(
+                || "mpt update padding rows",
+                |mut region| {
+                    for offset in 0..(n_rows - (1 + n_assigned_rows)) {
+                        self.mpt_update.assign_padding_row(&mut region, offset);
+                    }
+                    Ok(())
+                },
+            )?;
+        } else {
+            layouter.assign_region(
+                || "mpt update",
+                |mut region| {
+                    let n_assigned_rows = self.mpt_update.assign(&mut region, proofs, randomness);
+
+                    assert!(
+                        2 + n_assigned_rows <= n_rows,
+                        "mpt circuit requires {n_assigned_rows} rows for mpt updates + 1 initial \
+                    all-zero row + at least 1 final padding row. Only {n_rows} rows available."
+                    );
+
+                    for offset in 0..(n_rows - (1 + n_assigned_rows)) {
+                        self.mpt_update.assign_padding_row(&mut region, offset);
+                    }
+
+                    Ok(())
+                },
+            )?;
+        }
+
         layouter.assign_region(
             || "mpt circuit",
             |mut region| {
@@ -154,17 +188,6 @@ impl MptCircuitConfig {
                     randomness,
                 );
 
-                let n_assigned_rows = self.mpt_update.assign(&mut region, proofs, randomness);
-
-                assert!(
-                    2 + n_assigned_rows <= n_rows,
-                    "mpt circuit requires {n_assigned_rows} rows for mpt updates + 1 initial \
-                    all-zero row + at least 1 final padding row. Only {n_rows} rows available."
-                );
-
-                for offset in 1 + n_assigned_rows..n_rows {
-                    self.mpt_update.assign_padding_row(&mut region, offset);
-                }
                 self.is_final_row.enable(&mut region, n_rows - 1);
 
                 Ok(())
