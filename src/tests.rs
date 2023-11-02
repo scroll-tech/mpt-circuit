@@ -147,7 +147,6 @@ fn verifying_key_constant() {
 
 #[test]
 fn all_padding() {
-    env_logger::init();
     mock_prove(vec![]);
 }
 
