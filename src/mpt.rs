@@ -123,7 +123,6 @@ impl MptCircuitConfig {
 
         let use_par = std::env::var("PARALLEL_SYN").map_or(false, |s| s == *"true");
         if use_par {
-            println!("using par syn");
             let n_assigned_rows = self.mpt_update.assign_par(layouter, proofs, randomness);
 
             layouter.assign_region(
