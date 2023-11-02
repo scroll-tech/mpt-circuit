@@ -123,6 +123,7 @@ impl MptCircuitConfig {
 
         let use_par = std::env::var("PARALLEL_SYN").map_or(false, |s| s == *"true");
         if use_par {
+            println!("using par syn");
             let n_assigned_rows = self.mpt_update.assign_par(layouter, proofs, randomness);
 
             layouter.assign_region(
@@ -146,7 +147,7 @@ impl MptCircuitConfig {
                     all-zero row + at least 1 final padding row. Only {n_rows} rows available."
                     );
 
-                    for offset in 0..(n_rows - (1 + n_assigned_rows)) {
+                    for offset in (1 + n_assigned_rows)..n_rows {
                         self.mpt_update.assign_padding_row(&mut region, offset);
                     }
 
