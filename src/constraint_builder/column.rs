@@ -7,7 +7,7 @@ use halo2_proofs::{
 };
 use std::fmt::Debug;
 
-#[derive(Clone, Copy, Hash, Eq, PartialEq)]
+#[derive(Clone, Copy, Hash, Eq, PartialEq, PartialOrd, Ord)]
 pub struct SelectorColumn(pub Column<Fixed>);
 
 impl SelectorColumn {
@@ -37,7 +37,7 @@ impl SelectorColumn {
     }
 }
 
-#[derive(Clone, Copy, Hash, Eq, PartialEq)]
+#[derive(Clone, Copy, Hash, Eq, PartialEq, PartialOrd, Ord)]
 pub struct FixedColumn(pub Column<Fixed>);
 
 impl FixedColumn {
@@ -86,7 +86,7 @@ impl FixedColumn {
     }
 }
 
-#[derive(Clone, Copy, Hash, Eq, PartialEq)]
+#[derive(Clone, Copy, Hash, Eq, PartialEq, PartialOrd, Ord)]
 pub struct AdviceColumn(pub Column<Advice>);
 
 impl AdviceColumn {
@@ -143,7 +143,7 @@ impl AdviceColumn {
     }
 }
 
-#[derive(Clone, Copy, Hash, Eq, PartialEq)]
+#[derive(Clone, Copy, Hash, Eq, PartialEq, PartialOrd, Ord)]
 pub struct SecondPhaseAdviceColumn(pub Column<Advice>);
 
 impl SecondPhaseAdviceColumn {

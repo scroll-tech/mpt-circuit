@@ -1,5 +1,5 @@
 use crate::{
-    assignment_map::AssignmentMap,
+    assignment_map::{AssignmentMap, Column},
     constraint_builder::{ConstraintBuilder, SelectorColumn},
     gadgets::{
         byte_bit::ByteBitGadget,
@@ -18,7 +18,7 @@ use crate::{
 };
 use halo2_proofs::{
     arithmetic::FieldExt,
-    circuit::Layouter,
+    circuit::{Layouter, Value},
     halo2curves::bn256::Fr,
     plonk::{Challenge, ConstraintSystem, Error, Expression, VirtualCells},
 };
@@ -126,23 +126,6 @@ impl MptCircuitConfig {
         layouter.assign_region(
             || "mpt circuit",
             |mut region| {
-                for offset in 1..n_rows {
-                    self.selector.enable(&mut region, offset);
-                }
-
-                // pad canonical_representation to fixed count
-                // notice each input cost 32 rows in canonical_representation, and inside
-                // assign one extra input is added
-                let mut keys = mpt_update_keys(proofs);
-                keys.sort();
-                keys.dedup();
-                let total_rep_size = n_rows / 32 - 1;
-                assert!(
-                    total_rep_size >= keys.len(),
-                    "no enough space for canonical representation of all keys (need {})",
-                    keys.len()
-                );
-
                 let n_assigned_rows = self.mpt_update.assign(&mut region, proofs, randomness);
 
                 assert!(
@@ -154,7 +137,6 @@ impl MptCircuitConfig {
                 for offset in 1 + n_assigned_rows..n_rows {
                     self.mpt_update.assign_padding_row(&mut region, offset);
                 }
-                self.is_final_row.enable(&mut region, n_rows - 1);
 
                 Ok(())
             },
@@ -163,22 +145,27 @@ impl MptCircuitConfig {
         let mut keys = mpt_update_keys(proofs);
         keys.sort();
         keys.dedup();
+
+        let selector_assignments = self.selector_assignments(n_rows);
+        let byte_bit_assignments = self.byte_bit.assignments();
+        let byte_representation_assignments = self
+            .byte_representation
+            .assignments(u32s, u64s, u128s, frs, randomness);
+        let canonical_representation_assignments = self
+            .canonical_representation
+            .assignments(keys, n_rows, randomness);
+        let key_bit_assignments = self.key_bit.assignments(key_bit_lookups(proofs));
+
         layouter.assign_regions(
             || "mpt circuit parallel assignment",
             AssignmentMap::new(
-                self.byte_bit
-                    .assignments()
-                    .chain(
-                        self.byte_representation
-                            .assignments(u32s, u64s, u128s, frs, randomness),
-                    )
-                    .chain(
-                        self.canonical_representation
-                            .assignments(keys, n_rows, randomness),
-                    )
-                    .chain(self.key_bit.assignments(key_bit_lookups(proofs))),
+                selector_assignments
+                    .chain(byte_bit_assignments)
+                    .chain(byte_representation_assignments)
+                    .chain(canonical_representation_assignments)
+                    .chain(key_bit_assignments),
             )
-            .assignments(),
+            .to_vec(),
         )?;
 
         Ok(())
@@ -204,5 +191,17 @@ impl MptCircuitConfig {
         .iter()
         .max()
         .unwrap()
+    }
+
+    fn selector_assignments(
+        &self,
+        n_rows: usize,
+    ) -> impl ParallelIterator<Item = ((Column, usize), Value<Fr>)> + '_ {
+        (0..n_rows).into_par_iter().flat_map_iter(move |offset| {
+            [
+                self.selector.assignment(offset, offset != 0),
+                self.is_final_row.assignment(offset, offset == n_rows - 1),
+            ]
+        })
     }
 }
