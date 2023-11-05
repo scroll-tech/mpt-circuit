@@ -4,6 +4,8 @@ use super::super::constraint_builder::{
 };
 use super::{byte_bit::RangeCheck256Lookup, is_zero::IsZeroGadget, rlc_randomness::RlcRandomness};
 use ethers_core::types::U256;
+use halo2_proofs::circuit::Layouter;
+use halo2_proofs::plonk::Error;
 use halo2_proofs::{
     arithmetic::{Field, FieldExt},
     circuit::{Region, Value},
@@ -210,6 +212,97 @@ impl CanonicalRepresentationConfig {
                 offset += 1
             }
         }
+    }
+
+    pub fn assign_par(
+        &self,
+        layouter: &mut impl Layouter<Fr>,
+        randomness: Value<Fr>,
+        values: &[Fr],
+        n_rows: usize,
+    ) {
+        let modulus = U256::from_str_radix(Fr::MODULUS, 16).unwrap();
+        let mut modulus_bytes = [0u8; 32];
+        modulus.to_big_endian(&mut modulus_bytes);
+
+        let num_threads = std::thread::available_parallelism().unwrap().get();
+        let num_values = n_rows / 32;
+        let zero = Fr::zero();
+        log::debug!("num_real_values: {}", values.len());
+        let values = values
+            .iter()
+            .chain(std::iter::repeat(&zero))
+            .take(num_values)
+            .collect_vec();
+        let chunk_size = (num_values + num_threads - 1) / num_threads;
+        let mut is_first_passes = vec![true; num_threads];
+        let assignments = values
+            .chunks(chunk_size)
+            .zip(is_first_passes.iter_mut())
+            .enumerate()
+            .map(|(i, (values, is_first_pass))| {
+                move |mut region: Region<'_, Fr>| -> Result<(), Error> {
+                    let region = &mut region;
+                    if *is_first_pass {
+                        *is_first_pass = false;
+                        let last_off = if i == 0 {
+                            values.len() * 32
+                        } else {
+                            values.len() * 32 - 1
+                        };
+                        self.value.assign(region, last_off, Fr::zero());
+                        return Ok(());
+                    }
+                    let mut offset = if i == 0 { 1 } else { 0 };
+                    for value in values.iter() {
+                        let mut bytes = value.to_bytes();
+                        bytes.reverse();
+                        let mut differences_are_zero_so_far = true;
+                        let mut rlc = Value::known(Fr::zero());
+                        for (index, (byte, modulus_byte)) in
+                            bytes.iter().zip_eq(&modulus_bytes).enumerate()
+                        {
+                            self.byte.assign(region, offset, u64::from(*byte));
+                            self.modulus_byte
+                                .assign(region, offset, u64::from(*modulus_byte));
+
+                            self.index
+                                .assign(region, offset, u64::try_from(index).unwrap());
+                            if index.is_zero() {
+                                self.index_is_zero.enable(region, offset);
+                            } else if index == 31 {
+                                self.index_is_31.enable(region, offset);
+                            }
+
+                            let difference =
+                                Fr::from(u64::from(*modulus_byte)) - Fr::from(u64::from(*byte));
+                            self.difference.assign(region, offset, difference);
+                            self.difference_is_zero.assign(region, offset, difference);
+
+                            self.differences_are_zero_so_far.assign(
+                                region,
+                                offset,
+                                differences_are_zero_so_far,
+                            );
+                            differences_are_zero_so_far &= difference.is_zero_vartime();
+
+                            self.value.assign(region, offset, **value);
+
+                            rlc = rlc * randomness + Value::known(Fr::from(u64::from(*byte)));
+                            self.rlc.assign(region, offset, rlc);
+
+                            offset += 1
+                        }
+                    }
+
+                    Ok(())
+                }
+            })
+            .collect_vec();
+
+        layouter
+            .assign_regions(|| "canonical_repr", assignments)
+            .unwrap();
     }
 
     pub fn n_rows_required(values: &[Fr]) -> usize {

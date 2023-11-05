@@ -169,42 +169,57 @@ impl MptCircuitConfig {
             mpt_updates_assign_dur.elapsed()
         );
 
+        if use_par {
+            let key_bit_time = {
+                let dur = Instant::now();
+                self.key_bit.assign_par(layouter, &key_bit_lookups(proofs));
+                dur.elapsed()
+            };
+            log::debug!("mpt key_bit assignment took {:?}", key_bit_time);
+        }
+
+        // pad canonical_representation to fixed count
+        // notice each input cost 32 rows in canonical_representation, and inside
+        // assign one extra input is added
+        let (keys, get_keys_time) = {
+            let dur = Instant::now();
+            let mut keys = mpt_update_keys(proofs);
+            keys.sort();
+            keys.dedup();
+            (keys, dur.elapsed())
+        };
+        let total_rep_size = n_rows / 32 - 1;
+        assert!(
+            total_rep_size >= keys.len(),
+            "no enough space for canonical representation of all keys (need {})",
+            keys.len()
+        );
+        log::debug!("get keys took {:?}", get_keys_time);
+
+        if use_par {
+            let canon_repr_time = {
+                let dur = Instant::now();
+                self.canonical_representation
+                    .assign_par(layouter, randomness, &keys, n_rows);
+                dur.elapsed()
+            };
+            log::debug!("canonical_repr assignment took {:?}", canon_repr_time);
+        }
+
         layouter.assign_region(
-            || "mpt circuit",
+            || "mpt keys",
             |mut region| {
                 for offset in 1..n_rows {
                     self.selector.enable(&mut region, offset);
                 }
 
-                // pad canonical_representation to fixed count
-                // notice each input cost 32 rows in canonical_representation, and inside
-                // assign one extra input is added
-                let (keys, get_keys_time) = {
-                    let dur = Instant::now();
-                    let mut keys = mpt_update_keys(proofs);
-                    keys.sort();
-                    keys.dedup();
-                    (keys, dur.elapsed())
-                };
-                let total_rep_size = n_rows / 32 - 1;
-                assert!(
-                    total_rep_size >= keys.len(),
-                    "no enough space for canonical representation of all keys (need {})",
-                    keys.len()
-                );
-
                 let keys_assign_dur = Instant::now();
-                let canon_repr_time = {
-                    let dur = Instant::now();
+                if !use_par {
                     self.canonical_representation
                         .assign(&mut region, randomness, &keys, n_rows);
-                    dur.elapsed()
-                };
-                let key_bit_time = {
-                    let dur = Instant::now();
                     self.key_bit.assign(&mut region, &key_bit_lookups(proofs));
-                    dur.elapsed()
-                };
+                }
+
                 let byte_bit_time = {
                     let dur = Instant::now();
                     self.byte_bit.assign(&mut region);
@@ -223,19 +238,7 @@ impl MptCircuitConfig {
                     dur.elapsed()
                 };
                 let keys_assign_time = keys_assign_dur.elapsed();
-                log::debug!("get keys took {:?}", get_keys_time);
-                log::debug!(
-                    "keys assignment (cano_repr + key_bit + byte_bit + byte_repr) took {:?}",
-                    keys_assign_time
-                );
-                log::debug!(
-                    "canon: {}",
-                    canon_repr_time.as_micros() as f64 / keys_assign_time.as_micros() as f64
-                );
-                log::debug!(
-                    "key_bit: {}",
-                    key_bit_time.as_micros() as f64 / keys_assign_time.as_micros() as f64
-                );
+                log::debug!("keys assignment took {:?}", keys_assign_time);
                 log::debug!(
                     "byte_bit: {}",
                     byte_bit_time.as_micros() as f64 / keys_assign_time.as_micros() as f64
