@@ -29,6 +29,7 @@ impl IsZeroGadget {
         self.inverse_or_zero.assign_rational(
             region,
             offset,
+            // invert is deferred and then batched by the real/mock prover
             Assigned::<F>::from(value.try_into().unwrap()).invert(),
         );
     }
