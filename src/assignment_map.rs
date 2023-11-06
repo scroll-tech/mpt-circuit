@@ -8,7 +8,7 @@ use halo2_proofs::{
 };
 use itertools::Itertools;
 use rayon::prelude::*;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::BTreeMap;
 
 #[derive(Clone, Default)]
 pub struct AssignmentMap<F: FieldExt>(BTreeMap<usize, Vec<(Column, Value<F>)>>);
@@ -34,10 +34,10 @@ impl<F: FieldExt> AssignmentMap<F> {
         Self(y)
     }
 
-    pub fn to_vec(self) -> Vec<impl FnMut(Region<'_, F>) -> Result<(), Error>> {
+    pub fn into_vec(self) -> Vec<impl FnMut(Region<'_, F>) -> Result<(), Error>> {
         self.0
-            .into_iter()
-            .map(|(_offset, column_assignments)| {
+            .into_values()
+            .map(|column_assignments| {
                 move |mut region: Region<'_, F>| {
                     for (column, value) in column_assignments.iter() {
                         match *column {

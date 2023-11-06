@@ -165,7 +165,7 @@ impl MptCircuitConfig {
                     .chain(canonical_representation_assignments)
                     .chain(key_bit_assignments),
             )
-            .to_vec(),
+            .into_vec(),
         )?;
 
         Ok(())
