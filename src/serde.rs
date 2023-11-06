@@ -264,6 +264,9 @@ pub struct SMTNode {
     pub value: Hash,
     /// sibling
     pub sibling: Hash,
+    /// node type
+    #[serde(default)]
+    pub node_type: u64,
 }
 
 /// struct in SMTTrace

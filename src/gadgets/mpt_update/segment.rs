@@ -1,8 +1,9 @@
+use crate::types::HashDomain;
 use crate::MPTProofType;
 use std::collections::HashMap;
 use strum_macros::EnumIter;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, EnumIter, Hash)]
 pub enum SegmentType {
     Start, // Boundary marker between updates
     AccountTrie,
@@ -24,6 +25,7 @@ pub fn transitions(proof: MPTProofType) -> HashMap<SegmentType, Vec<SegmentType>
             (
                 SegmentType::Start,
                 vec![
+                    SegmentType::Start,        // empty account proof in an empty mpt
                     SegmentType::AccountTrie,  // mpt has > 1 account
                     SegmentType::AccountLeaf0, // mpt has <= 1 account
                 ],
@@ -105,6 +107,7 @@ pub fn transitions(proof: MPTProofType) -> HashMap<SegmentType, Vec<SegmentType>
             (
                 SegmentType::Start,
                 vec![
+                    SegmentType::Start,        // empty account proof in an empty mpt
                     SegmentType::AccountTrie,  // mpt has > 1 account
                     SegmentType::AccountLeaf0, // mpt has 1 account
                 ],
@@ -134,5 +137,22 @@ pub fn transitions(proof: MPTProofType) -> HashMap<SegmentType, Vec<SegmentType>
         ]
         .into(),
         MPTProofType::AccountDestructed => [].into(),
+    }
+}
+
+pub fn domains(segment_type: SegmentType) -> Vec<HashDomain> {
+    match segment_type {
+        SegmentType::Start => vec![HashDomain::Pair],
+
+        SegmentType::AccountTrie | SegmentType::StorageTrie => vec![
+            HashDomain::Branch0,
+            HashDomain::Branch1,
+            HashDomain::Branch2,
+            HashDomain::Branch3,
+        ],
+        SegmentType::AccountLeaf0 | SegmentType::StorageLeaf0 => vec![HashDomain::Leaf],
+        SegmentType::AccountLeaf1 | SegmentType::AccountLeaf2 | SegmentType::AccountLeaf3 => {
+            vec![HashDomain::AccountFields]
+        }
     }
 }
