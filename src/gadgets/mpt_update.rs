@@ -87,17 +87,17 @@ impl<F: FieldExt> MptUpdateLookup<F> for MptUpdateConfig {
         [
             is_start().into(),
             address,
-            storage_key_hi,
             storage_key_lo,
+            storage_key_hi,
             proof_type,
-            new_root_hi,
             new_root_lo,
-            old_root_hi,
+            new_root_hi,
             old_root_lo,
-            new_value_hi,
+            old_root_hi,
             new_value_lo,
-            old_value_hi,
+            new_value_hi,
             old_value_lo,
+            old_value_hi,
         ]
     }
 }
