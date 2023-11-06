@@ -1,36 +1,27 @@
 mod nonexistence_proof;
 mod path;
 mod segment;
-mod word_rlc;
 pub use path::PathType;
 use segment::SegmentType;
-use word_rlc::{assign as assign_word_rlc, configure as configure_word_rlc};
 
 use super::{
-    byte_representation::{BytesLookup, RlcLookup},
-    canonical_representation::FrRlcLookup,
-    is_zero::IsZeroGadget,
-    key_bit::KeyBitLookup,
-    one_hot::OneHot,
-    poseidon::PoseidonLookup,
-    rlc_randomness::RlcRandomness,
+    byte_representation::BytesLookup, canonical_representation::FrHiLoLookup,
+    is_zero::IsZeroGadget, key_bit::KeyBitLookup, one_hot::OneHot, poseidon::PoseidonLookup,
 };
 use crate::{
-    constraint_builder::{
-        AdviceColumn, BinaryQuery, ConstraintBuilder, Query, SecondPhaseAdviceColumn,
-    },
+    constraint_builder::{AdviceColumn, BinaryQuery, ConstraintBuilder, Query, WordColumns},
     types::{
         storage::{StorageLeaf, StorageProof},
         trie::{next_domain, TrieRows},
         ClaimKind, HashDomain, Proof,
     },
-    util::{account_key, domain_hash, lagrange_polynomial, rlc, u256_hi_lo, u256_to_big_endian},
+    util::{account_key, domain_hash, fr_to_u256, lagrange_polynomial, u256_hi_lo, u256_to_fr},
     MPTProofType,
 };
 use ethers_core::types::Address;
 use halo2_proofs::{
     arithmetic::{Field, FieldExt},
-    circuit::{Region, Value},
+    circuit::Region,
     halo2curves::{bn256::Fr, group::ff::PrimeField},
     plonk::ConstraintSystem,
 };
@@ -45,7 +36,7 @@ lazy_static! {
 }
 
 pub trait MptUpdateLookup<F: FieldExt> {
-    fn lookup(&self) -> [Query<F>; 8];
+    fn lookup(&self) -> [Query<F>; 13];
 }
 
 #[derive(Clone)]
@@ -54,10 +45,10 @@ pub struct MptUpdateConfig {
 
     old_hash: AdviceColumn,
     new_hash: AdviceColumn,
-    old_value: SecondPhaseAdviceColumn,
-    new_value: SecondPhaseAdviceColumn,
+    old_value: WordColumns,
+    new_value: WordColumns,
     proof_type: OneHot<MPTProofType>,
-    storage_key_rlc: SecondPhaseAdviceColumn,
+    storage_key: WordColumns,
 
     segment_type: OneHot<SegmentType>,
     path_type: OneHot<PathType>,
@@ -72,32 +63,41 @@ pub struct MptUpdateConfig {
     sibling: AdviceColumn,
 
     intermediate_values: [AdviceColumn; 10], // can be 4?
-    second_phase_intermediate_values: [SecondPhaseAdviceColumn; 10], // 4?
     is_zero_gadgets: [IsZeroGadget; 4],      // can be 3
 }
 
 impl<F: FieldExt> MptUpdateLookup<F> for MptUpdateConfig {
-    fn lookup(&self) -> [Query<F>; 8] {
+    fn lookup(&self) -> [Query<F>; 13] {
         let is_start = || self.segment_type.current_matches(&[SegmentType::Start]);
-        let old_root_rlc = self.second_phase_intermediate_values[0].current() * is_start();
-        let new_root_rlc = self.second_phase_intermediate_values[1].current() * is_start();
         let proof_type = self.proof_type.current() * is_start();
-        let old_value = self.old_value.current() * is_start();
-        let new_value = self.new_value.current() * is_start();
-        let [address_high, address_low, ..] = self.intermediate_values;
-        let address = (address_high.current() * Query::Constant(F::from_u128(1 << 32))
-            + address_low.current())
-            * is_start();
-        let storage_key_rlc = self.storage_key_rlc.current() * is_start();
+        let old_value_hi = self.old_value.hi().current() * is_start();
+        let old_value_lo = self.old_value.lo().current() * is_start();
+        let new_value_hi = self.new_value.hi().current() * is_start();
+        let new_value_lo = self.new_value.lo().current() * is_start();
+        let [address_high, address_low, _, _, old_root_hi, old_root_lo, new_root_hi, new_root_lo, ..] =
+            self.intermediate_values;
+        let address =
+            (address_high.current() * Query::from(1u64 << 32) + address_low.current()) * is_start();
+        let storage_key_hi = self.storage_key.hi().current() * is_start();
+        let storage_key_lo = self.storage_key.lo().current() * is_start();
+        let old_root_hi = old_root_hi.current() * is_start();
+        let old_root_lo = old_root_lo.current() * is_start();
+        let new_root_hi = new_root_hi.current() * is_start();
+        let new_root_lo = new_root_lo.current() * is_start();
         [
             is_start().into(),
             address,
-            storage_key_rlc,
+            storage_key_lo,
+            storage_key_hi,
             proof_type,
-            new_root_rlc,
-            old_root_rlc,
-            new_value,
-            old_value,
+            new_root_lo,
+            new_root_hi,
+            old_root_lo,
+            old_root_hi,
+            new_value_lo,
+            new_value_hi,
+            old_value_lo,
+            old_value_hi,
         ]
     }
 }
@@ -108,22 +108,20 @@ impl MptUpdateConfig {
         cb: &mut ConstraintBuilder<F>,
         poseidon: &impl PoseidonLookup,
         key_bit: &impl KeyBitLookup,
-        rlc: &impl RlcLookup,
         bytes: &impl BytesLookup,
-        rlc_randomness: &RlcRandomness,
-        fr_rlc: &impl FrRlcLookup,
+        fr_hi_lo: &impl FrHiLoLookup,
     ) -> Self {
         let proof_type: OneHot<MPTProofType> = OneHot::configure(cs, cb);
-        let [storage_key_rlc, old_value, new_value] = cb.second_phase_advice_columns(cs);
         let [domain, old_hash, new_hash, depth, key, other_key, direction, sibling] =
             cb.advice_columns(cs);
 
         let intermediate_values: [AdviceColumn; 10] = cb.advice_columns(cs);
-        let second_phase_intermediate_values: [SecondPhaseAdviceColumn; 10] =
-            cb.second_phase_advice_columns(cs);
         let is_zero_gadgets = cb
             .advice_columns(cs)
             .map(|column| IsZeroGadget::configure(cs, cb, column));
+
+        let [old_value, new_value, storage_key] =
+            [(); 3].map(|_| WordColumns::configure(cs, cb, bytes));
 
         let segment_type = OneHot::configure(cs, cb);
         let path_type = OneHot::configure(cs, cb);
@@ -131,12 +129,11 @@ impl MptUpdateConfig {
         let is_start = segment_type.current_matches(&[SegmentType::Start]);
         cb.assert_equal(
             "segment is Start iff path is Start",
-            is_start.clone().into(),
-            path_type.current_matches(&[PathType::Start]).into(),
+            Query::from(is_start.clone()),
+            Query::from(path_type.current_matches(&[PathType::Start])),
         );
         cb.condition(is_start.clone().and(cb.every_row_selector()), |cb| {
-            let [address_high, address_low, ..] = intermediate_values;
-            let [old_hash_rlc, new_hash_rlc, ..] = second_phase_intermediate_values;
+            let [address_high, address_low, _, _, old_root_hi, old_root_lo, new_root_hi, new_root_lo,..] = intermediate_values;
             cb.poseidon_lookup(
                 "account mpt key = h(address_high, address_low << 96)",
                 [
@@ -157,15 +154,16 @@ impl MptUpdateConfig {
                 [address_low.current(), Query::from(3)],
                 bytes.lookup(),
             );
+            // let old_root_lo = old_hash.current() - old_root_hi.current() * Query::Constant(F::from_u128(1 << 64)).square();
             cb.add_lookup(
-                "rlc_old_root = rlc(old_root)",
-                [old_hash.current(), old_hash_rlc.current()],
-                fr_rlc.lookup(),
+                "hi lo decomposition for old root",
+                [old_hash.current(), old_root_hi.current(), old_root_lo.current()],
+                fr_hi_lo.lookup(),
             );
             cb.add_lookup(
-                "rlc_new_root = rlc(new_root)",
-                [new_hash.current(), new_hash_rlc.current()],
-                fr_rlc.lookup(),
+                "hi lo decomposition for new root",
+                [new_hash.current(), new_root_hi.current(), new_root_lo.current()],
+                fr_hi_lo.lookup(),
             );
         });
         cb.condition(!is_start, |cb| {
@@ -175,9 +173,9 @@ impl MptUpdateConfig {
                 proof_type.previous(),
             );
             cb.assert_equal(
-                "storage_key_rlc does not change",
-                storage_key_rlc.current(),
-                storage_key_rlc.previous(),
+                "storage_key does not change",
+                storage_key.current(),
+                storage_key.previous(),
             );
             cb.assert_equal(
                 "old_value does not change",
@@ -245,7 +243,7 @@ impl MptUpdateConfig {
             proof_type,
             old_value,
             new_value,
-            storage_key_rlc,
+            storage_key,
             segment_type,
             path_type,
             other_key,
@@ -253,7 +251,6 @@ impl MptUpdateConfig {
             direction,
             sibling,
             intermediate_values,
-            second_phase_intermediate_values,
             is_zero_gadgets,
         };
 
@@ -301,35 +298,25 @@ impl MptUpdateConfig {
                 configure_segment_transitions(cb, &config.segment_type, proof_type);
                 match proof_type {
                     MPTProofType::NonceChanged => configure_nonce(cb, &config, bytes, poseidon),
-                    MPTProofType::BalanceChanged => configure_balance(cb, &config, poseidon, rlc),
+                    MPTProofType::BalanceChanged => {
+                        configure_balance(cb, &config, poseidon, fr_hi_lo)
+                    }
                     MPTProofType::CodeSizeExists => {
                         configure_code_size(cb, &config, bytes, poseidon)
                     }
                     MPTProofType::PoseidonCodeHashExists => {
-                        configure_poseidon_code_hash(cb, &config)
+                        configure_poseidon_code_hash(cb, &config, fr_hi_lo)
                     }
                     MPTProofType::AccountDoesNotExist => {
                         configure_empty_account(cb, &config, poseidon)
                     }
-                    MPTProofType::CodeHashExists => configure_keccak_code_hash(
-                        cb,
-                        &config,
-                        poseidon,
-                        bytes,
-                        rlc,
-                        rlc_randomness.query(),
-                    ),
-                    MPTProofType::StorageChanged => {
-                        configure_storage(cb, &config, poseidon, bytes, rlc, rlc_randomness.query())
+                    MPTProofType::CodeHashExists => {
+                        configure_keccak_code_hash(cb, &config, poseidon)
                     }
-                    MPTProofType::StorageDoesNotExist => configure_empty_storage(
-                        cb,
-                        &config,
-                        poseidon,
-                        bytes,
-                        rlc,
-                        rlc_randomness.query(),
-                    ),
+                    MPTProofType::StorageChanged => configure_storage(cb, &config, poseidon),
+                    MPTProofType::StorageDoesNotExist => {
+                        configure_empty_storage(cb, &config, poseidon)
+                    }
                     MPTProofType::AccountDestructed => cb.assert_unreachable("unimplemented!"),
                 }
             };
@@ -352,26 +339,19 @@ impl MptUpdateConfig {
     }
 
     /// ..
-    pub fn assign(
-        &self,
-        region: &mut Region<'_, Fr>,
-        proofs: &[Proof],
-        randomness: Value<Fr>,
-    ) -> usize {
+    pub fn assign(&self, region: &mut Region<'_, Fr>, proofs: &[Proof]) -> usize {
         let mut n_rows = 0;
         let mut offset = 1; // selector on first row is disabled.
         for proof in proofs {
             let proof_type = MPTProofType::from(proof.claim);
-            let storage_key =
-                randomness.map(|r| rlc(&u256_to_big_endian(&proof.claim.storage_key()), r));
-            let old_value = randomness.map(|r| proof.claim.old_value_assignment(r));
-            let new_value = randomness.map(|r| proof.claim.new_value_assignment(r));
-
             for i in 0..proof.n_rows() {
                 self.proof_type.assign(region, offset + i, proof_type);
-                self.storage_key_rlc.assign(region, offset + i, storage_key);
-                self.old_value.assign(region, offset + i, old_value);
-                self.new_value.assign(region, offset + i, new_value);
+                self.storage_key
+                    .assign(region, offset + i, proof.claim.storage_key());
+                self.old_value
+                    .assign(region, offset + i, proof.claim.old_value());
+                self.new_value
+                    .assign(region, offset + i, proof.claim.new_value());
             }
 
             let key = account_key(proof.claim.address);
@@ -398,33 +378,24 @@ impl MptUpdateConfig {
             self.other_key.assign(region, offset, other_key);
             self.domain.assign(region, offset, HashDomain::Pair);
 
-            self.intermediate_values[0].assign(
+            let [address_high_column, address_low_column, _, _, old_root_hi_column, old_root_lo_column, new_root_hi_column, new_root_lo_column, ..] =
+                self.intermediate_values;
+
+            address_high_column.assign(
                 region,
                 offset,
                 Fr::from_u128(address_high(proof.claim.address)),
             );
-            self.intermediate_values[1].assign(
-                region,
-                offset,
-                u64::from(address_low(proof.claim.address)),
-            );
+            address_low_column.assign(region, offset, u64::from(address_low(proof.claim.address)));
 
-            let rlc_fr = |x: Fr| {
-                let mut bytes = x.to_bytes();
-                bytes.reverse();
-                randomness.map(|r| rlc(&bytes, r))
-            };
+            let (old_root_hi, old_root_lo) = u256_hi_lo(&fr_to_u256(proof.claim.old_root));
+            old_root_hi_column.assign(region, offset, Fr::from_u128(old_root_hi));
+            old_root_lo_column.assign(region, offset, Fr::from_u128(old_root_lo));
 
-            self.second_phase_intermediate_values[0].assign(
-                region,
-                offset,
-                rlc_fr(proof.claim.old_root),
-            );
-            self.second_phase_intermediate_values[1].assign(
-                region,
-                offset,
-                rlc_fr(proof.claim.new_root),
-            );
+            let (new_root_hi, new_root_lo) = u256_hi_lo(&fr_to_u256(proof.claim.new_root));
+            dbg!(proof.claim.old_root, proof.claim.new_root);
+            new_root_hi_column.assign(region, offset, Fr::from_u128(new_root_hi));
+            new_root_lo_column.assign(region, offset, Fr::from_u128(new_root_lo));
 
             offset += 1;
 
@@ -538,22 +509,11 @@ impl MptUpdateConfig {
                         other_leaf_data_hash_column.assign(region, offset, other_leaf_data_hash);
                     }
                     SegmentType::AccountLeaf3 => {
-                        if let ClaimKind::Storage { key, .. } | ClaimKind::IsEmpty(Some(key)) =
+                        if let ClaimKind::Storage { .. } | ClaimKind::IsEmpty(Some(_)) =
                             proof.claim.kind
                         {
+                            let [_, _, new_domain, ..] = self.intermediate_values;
                             self.key.assign(region, offset + 3, proof.storage.key());
-                            let [storage_key_high, storage_key_low, new_domain, ..] =
-                                self.intermediate_values;
-                            let [rlc_storage_key_high, rlc_storage_key_low, ..] =
-                                self.second_phase_intermediate_values;
-                            assign_word_rlc(
-                                region,
-                                offset + 3,
-                                key,
-                                [storage_key_high, storage_key_low],
-                                [rlc_storage_key_high, rlc_storage_key_low],
-                                randomness,
-                            );
                             self.other_key
                                 .assign(region, offset + 3, proof.storage.other_key());
                             new_domain.assign(region, offset + 3, HashDomain::AccountFields);
@@ -565,32 +525,7 @@ impl MptUpdateConfig {
             self.key.assign(region, offset, key);
             self.other_key.assign(region, offset, other_key);
             self.is_zero_gadgets[2].assign_value_and_inverse(region, offset, key - other_key);
-            if let ClaimKind::CodeHash { old, new } = proof.claim.kind {
-                let [old_high, old_low, new_high, new_low, ..] = self.intermediate_values;
-                let [old_rlc_high, old_rlc_low, new_rlc_high, new_rlc_low, ..] =
-                    self.second_phase_intermediate_values;
-                if let Some(value) = old {
-                    assign_word_rlc(
-                        region,
-                        offset + 3,
-                        value,
-                        [old_high, old_low],
-                        [old_rlc_high, old_rlc_low],
-                        randomness,
-                    );
-                }
-                if let Some(value) = new {
-                    assign_word_rlc(
-                        region,
-                        offset + 3,
-                        value,
-                        [new_high, new_low],
-                        [new_rlc_high, new_rlc_low],
-                        randomness,
-                    );
-                }
-            };
-            self.assign_storage(region, next_offset, &proof.storage, randomness);
+            self.assign_storage(region, next_offset, &proof.storage);
             n_rows += proof.n_rows();
             offset = 1 + n_rows;
         }
@@ -678,7 +613,6 @@ impl MptUpdateConfig {
         region: &mut Region<'_, Fr>,
         offset: usize,
         storage: &StorageProof,
-        randomness: Value<Fr>,
     ) -> usize {
         match storage {
             StorageProof::Root(_) => 0,
@@ -698,7 +632,6 @@ impl MptUpdateConfig {
                     other_key,
                     old_leaf,
                     new_leaf,
-                    randomness,
                 );
                 let n_rows = n_trie_rows + n_leaf_rows;
 
@@ -769,7 +702,6 @@ impl MptUpdateConfig {
         other_key: Fr,
         old: &StorageLeaf,
         new: &StorageLeaf,
-        randomness: Value<Fr>,
     ) -> usize {
         let path_type = match (old, new) {
             (StorageLeaf::Entry { .. }, StorageLeaf::Entry { .. }) => PathType::Common,
@@ -807,32 +739,6 @@ impl MptUpdateConfig {
         };
         self.old_hash.assign(region, offset, old_hash);
         self.new_hash.assign(region, offset, new_hash);
-
-        let [old_high, old_low, new_high, new_low, ..] = self.intermediate_values;
-        let [old_rlc_high, old_rlc_low, new_rlc_high, new_rlc_low, ..] =
-            self.second_phase_intermediate_values;
-
-        if let StorageLeaf::Entry { .. } = old {
-            assign_word_rlc(
-                region,
-                offset,
-                old.value(),
-                [old_high, old_low],
-                [old_rlc_high, old_rlc_low],
-                randomness,
-            );
-        }
-
-        if let StorageLeaf::Entry { .. } = new {
-            assign_word_rlc(
-                region,
-                offset,
-                new.value(),
-                [new_high, new_low],
-                [new_rlc_high, new_rlc_low],
-                randomness,
-            );
-        }
 
         let [old_hash_is_zero_storage_hash, new_hash_is_zero_storage_hash, ..] =
             self.is_zero_gadgets;
@@ -1370,23 +1276,25 @@ fn configure_nonce<F: FieldExt>(
             SegmentType::AccountLeaf3 => {
                 cb.assert_zero("direction is 0", config.direction.current());
 
-                let new_code_size = (config.new_hash.current() - config.new_value.current())
+                cb.assert_zero("old value hi is 0", config.old_value.hi().current());
+                cb.assert_zero("new value hi is 0", config.new_value.hi().current());
+                let new_code_size = (config.new_hash.current() - config.new_value.lo().current())
                     * Query::Constant(F::from(1 << 32).square().invert().unwrap());
                 cb.add_lookup(
                     "new nonce is 8 bytes",
-                    [config.new_value.current(), Query::from(7)],
+                    [config.new_value.lo().current(), Query::from(7)],
                     bytes.lookup(),
                 );
                 cb.condition(
                     config.path_type.current_matches(&[PathType::Common]),
                     |cb| {
                         cb.add_lookup(
-                            "old nonce is 8 bytes",
-                            [config.old_value.current(), Query::from(7)],
+                            "old nonce lo is 8 bytes",
+                            [config.old_value.lo().current(), Query::from(7)],
                             bytes.lookup(),
                         );
                         let old_code_size = (config.old_hash.current()
-                            - config.old_value.current())
+                            - config.old_value.lo().current())
                             * Query::Constant(F::from(1 << 32).square().invert().unwrap());
                         cb.assert_equal(
                             "old_code_size = new_code_size for nonce update",
@@ -1439,6 +1347,14 @@ fn configure_code_size<F: FieldExt>(
             .path_type
             .current_matches(&[PathType::Start, PathType::Common]),
     );
+    cb.assert_zero(
+        "high limb for old value is 0 for code size update",
+        config.old_value.hi().current(),
+    );
+    cb.assert_zero(
+        "high limb for new value is 0 for code size update",
+        config.new_value.hi().current(),
+    );
     for variant in SegmentType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
             SegmentType::Start | SegmentType::AccountTrie => {
@@ -1484,17 +1400,17 @@ fn configure_code_size<F: FieldExt>(
                 cb.assert_zero("direction is 0", config.direction.current());
 
                 let old_nonce = config.old_hash.current()
-                    - config.old_value.current() * Query::Constant(F::from(1 << 32).square());
+                    - config.old_value.lo().current() * Query::Constant(F::from(1 << 32).square());
                 let new_nonce = config.new_hash.current()
-                    - config.new_value.current() * Query::Constant(F::from(1 << 32).square());
+                    - config.new_value.lo().current() * Query::Constant(F::from(1 << 32).square());
                 cb.add_lookup(
                     "old code size is 8 bytes",
-                    [config.old_value.current(), Query::from(7)],
+                    [config.old_value.lo().current(), Query::from(7)],
                     bytes.lookup(),
                 );
                 cb.add_lookup(
                     "new code size is 8 bytes",
-                    [config.new_value.current(), Query::from(7)],
+                    [config.new_value.lo().current(), Query::from(7)],
                     bytes.lookup(),
                 );
                 cb.assert_equal(
@@ -1521,7 +1437,7 @@ fn configure_balance<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
-    rlc: &impl RlcLookup,
+    fr_hi_lo: &impl FrHiLoLookup,
 ) {
     for variant in SegmentType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
@@ -1598,14 +1514,11 @@ fn configure_balance<F: FieldExt>(
                 cb.condition(
                     config.path_type.current_matches(&[PathType::Common]),
                     |cb| {
+                        let [old_value_hi, old_value_lo] = config.old_value.current();
                         cb.add_lookup(
-                            "old balance is rlc(old_hash) and fits into 31 bytes",
-                            [
-                                config.old_hash.current(),
-                                Query::from(30),
-                                config.old_value.current(),
-                            ],
-                            rlc.lookup(),
+                            "old_hash is old_value_hi << 128 + old_value_lo",
+                            [config.old_hash.current(), old_value_hi, old_value_lo],
+                            fr_hi_lo.lookup(),
                         );
                     },
                 );
@@ -1614,14 +1527,11 @@ fn configure_balance<F: FieldExt>(
                         .path_type
                         .current_matches(&[PathType::Common, PathType::ExtensionNew]),
                     |cb| {
+                        let [new_value_hi, new_value_lo] = config.new_value.current();
                         cb.add_lookup(
-                            "new balance is rlc(new_hash) and fits into 31 bytes",
-                            [
-                                config.new_hash.current(),
-                                Query::from(30),
-                                config.new_value.current(),
-                            ],
-                            rlc.lookup(),
+                            "new_hash is new_value_hi << 128 + new_value_lo",
+                            [config.new_hash.current(), new_value_hi, new_value_lo],
+                            fr_hi_lo.lookup(),
                         );
                     },
                 );
@@ -1647,6 +1557,7 @@ fn configure_balance<F: FieldExt>(
 fn configure_poseidon_code_hash<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
+    fr_hi_lo: &impl FrHiLoLookup,
 ) {
     cb.assert(
         "new accounts have balance or nonce set first",
@@ -1666,10 +1577,11 @@ fn configure_poseidon_code_hash<F: FieldExt>(
                         .path_type
                         .current_matches(&[PathType::Common, PathType::ExtensionOld]),
                     |cb| {
-                        cb.assert_equal(
-                            "old_hash is old poseidon code hash",
-                            config.old_value.current(),
-                            config.old_hash.current(),
+                        let [old_value_hi, old_value_lo] = config.old_value.current();
+                        cb.add_lookup(
+                            "old hash is new poseidon code hash",
+                            [config.old_hash.current(), old_value_hi, old_value_lo],
+                            fr_hi_lo.lookup(),
                         );
                     },
                 );
@@ -1678,10 +1590,11 @@ fn configure_poseidon_code_hash<F: FieldExt>(
                         .path_type
                         .current_matches(&[PathType::Common, PathType::ExtensionNew]),
                     |cb| {
-                        cb.assert_equal(
-                            "new_hash is new poseidon code hash",
-                            config.new_value.current(),
-                            config.new_hash.current(),
+                        let [new_value_hi, new_value_lo] = config.new_value.current();
+                        cb.add_lookup(
+                            "new hash is new poseidon code hash",
+                            [config.new_hash.current(), new_value_hi, new_value_lo],
+                            fr_hi_lo.lookup(),
                         );
                     },
                 );
@@ -1699,9 +1612,6 @@ fn configure_keccak_code_hash<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
-    bytes: &impl BytesLookup,
-    rlc: &impl RlcLookup,
-    randomness: Query<F>,
 ) {
     cb.assert(
         "new accounts have balance or nonce set first",
@@ -1752,27 +1662,25 @@ fn configure_keccak_code_hash<F: FieldExt>(
             }
             SegmentType::AccountLeaf3 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
-
-                let [old_high, old_low, new_high, new_low, ..] = config.intermediate_values;
-                let [rlc_old_high, rlc_old_low, rlc_new_high, rlc_new_low, ..] =
-                    config.second_phase_intermediate_values;
-                configure_word_rlc(
-                    cb,
-                    [config.old_hash, old_high, old_low],
-                    [config.old_value, rlc_old_high, rlc_old_low],
+                cb.poseidon_lookup(
+                    "old value hash = poseidon(value hi, value lo)",
+                    [
+                        config.old_value.hi().current(),
+                        config.old_value.lo().current(),
+                        Query::from(u64::from(HashDomain::Pair)),
+                        config.old_hash.current(),
+                    ],
                     poseidon,
-                    bytes,
-                    rlc,
-                    randomness.clone(),
                 );
-                configure_word_rlc(
-                    cb,
-                    [config.new_hash, new_high, new_low],
-                    [config.new_value, rlc_new_high, rlc_new_low],
+                cb.poseidon_lookup(
+                    "new value hash = poseidon(value hi, value lo)",
+                    [
+                        config.new_value.hi().current(),
+                        config.new_value.lo().current(),
+                        Query::from(u64::from(HashDomain::Pair)),
+                        config.new_hash.current(),
+                    ],
                     poseidon,
-                    bytes,
-                    rlc,
-                    randomness.clone(),
                 );
             }
             _ => {}
@@ -1788,9 +1696,6 @@ fn configure_storage<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
-    bytes: &impl BytesLookup,
-    rlc: &impl RlcLookup,
-    randomness: Query<F>,
 ) {
     for variant in SegmentType::iter() {
         let conditional_constraints = |cb: &mut ConstraintBuilder<F>| match variant {
@@ -1809,38 +1714,35 @@ fn configure_storage<F: FieldExt>(
                     config.path_type.current_matches(&[PathType::Common]),
                 );
                 cb.assert_zero("direction is 0", config.direction.current());
-                let [key_high, key_low, ..] = config.intermediate_values;
-                let [rlc_key_high, rlc_key_low, ..] = config.second_phase_intermediate_values;
-                configure_word_rlc(
-                    cb,
-                    [config.key, key_high, key_low],
-                    [config.storage_key_rlc, rlc_key_high, rlc_key_low],
+                let [storage_key_hi, storage_key_lo] = config.storage_key.current();
+                cb.poseidon_lookup(
+                    "key = poseidon(storage key hi, storage key lo)",
+                    [
+                        storage_key_hi,
+                        storage_key_lo,
+                        Query::from(u64::from(HashDomain::Pair)),
+                        config.key.current(),
+                    ],
                     poseidon,
-                    bytes,
-                    rlc,
-                    randomness.clone(),
                 );
             }
             SegmentType::StorageLeaf0 => {
                 cb.assert_equal("direction is 1", config.direction.current(), Query::one());
-
-                let [old_high, old_low, new_high, new_low, ..] = config.intermediate_values;
-                let [rlc_old_high, rlc_old_low, rlc_new_high, rlc_new_low, ..] =
-                    config.second_phase_intermediate_values;
-
                 cb.condition(
                     config
                         .path_type
                         .current_matches(&[PathType::Common, PathType::ExtensionOld]),
                     |cb| {
-                        configure_word_rlc(
-                            cb,
-                            [config.old_hash, old_high, old_low],
-                            [config.old_value, rlc_old_high, rlc_old_low],
+                        let [value_hi, value_lo] = config.old_value.current();
+                        cb.poseidon_lookup(
+                            "old value hash = poseidon(value hi, value lo)",
+                            [
+                                value_hi,
+                                value_lo,
+                                Query::from(u64::from(HashDomain::Pair)),
+                                config.old_hash.current(),
+                            ],
                             poseidon,
-                            bytes,
-                            rlc,
-                            randomness.clone(),
                         );
                     },
                 );
@@ -1849,14 +1751,16 @@ fn configure_storage<F: FieldExt>(
                         .path_type
                         .current_matches(&[PathType::Common, PathType::ExtensionNew]),
                     |cb| {
-                        configure_word_rlc(
-                            cb,
-                            [config.new_hash, new_high, new_low],
-                            [config.new_value, rlc_new_high, rlc_new_low],
+                        let [value_hi, value_lo] = config.new_value.current();
+                        cb.poseidon_lookup(
+                            "new value hash = poseidon(value hi, value lo)",
+                            [
+                                value_hi,
+                                value_lo,
+                                Query::from(u64::from(HashDomain::Pair)),
+                                config.new_hash.current(),
+                            ],
                             poseidon,
-                            bytes,
-                            rlc,
-                            randomness.clone(),
                         );
                     },
                 );
@@ -1895,12 +1799,8 @@ fn configure_empty_storage<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
-    bytes: &impl BytesLookup,
-    rlc: &impl RlcLookup,
-    randomness: Query<F>,
 ) {
-    let [key_high, key_low, _, other_leaf_data_hash, ..] = config.intermediate_values;
-    let [rlc_key_high, rlc_key_low, ..] = config.second_phase_intermediate_values;
+    let [_, _, _, other_leaf_data_hash, ..] = config.intermediate_values;
     let [.., key_equals_other_key, hash_is_zero] = config.is_zero_gadgets;
 
     cb.assert_zero(
@@ -1953,14 +1853,16 @@ fn configure_empty_storage<F: FieldExt>(
                 cb.assert_zero("direction is 0", config.direction.current());
                 // Note that this constraint doesn't apply if the account doesn't exist. This
                 // is ok, because every storage key for an empty account is empty.
-                configure_word_rlc(
-                    cb,
-                    [config.key, key_high, key_low],
-                    [config.storage_key_rlc, rlc_key_high, rlc_key_low],
+                let [storage_key_hi, storage_key_lo] = config.storage_key.current();
+                cb.poseidon_lookup(
+                    "key = poseidon(storage key hi, storage key lo)",
+                    [
+                        storage_key_hi,
+                        storage_key_lo,
+                        Query::from(u64::from(HashDomain::Pair)),
+                        config.key.current(),
+                    ],
                     poseidon,
-                    bytes,
-                    rlc,
-                    randomness.clone(),
                 );
             }
             _ => (),
@@ -2153,24 +2055,44 @@ pub fn byte_representations(proofs: &[Proof]) -> (Vec<u32>, Vec<u64>, Vec<u128>,
                 u128s.push(address_high(proof.claim.address));
                 if let Some(account) = proof.old_account {
                     u64s.push(account.nonce);
-                    u64s.push(account.code_size);
+                    // u64s.push(account.code_size); // this should be covered???
+                    u128s.push(
+                        (1u128 << 64) * u128::from(account.code_size) + u128::from(account.nonce),
+                    );
+                    u128s.push(account.nonce.into());
+                    u128s.push(account.code_size.into());
                 };
                 if let Some(account) = proof.new_account {
                     u64s.push(account.nonce);
-                    u64s.push(account.code_size);
+                    // u64s.push(account.code_size); // this should be covered???
+                    u128s.push(
+                        (1u128 << 64) * u128::from(account.code_size) + u128::from(account.nonce),
+                    );
+                    u128s.push(account.nonce.into());
+                    u128s.push(account.code_size.into());
                 };
             }
             MPTProofType::BalanceChanged => {
                 u128s.push(address_high(proof.claim.address));
                 if let Some(account) = proof.old_account {
-                    frs.push(account.balance);
+                    let (hi, lo) = u256_hi_lo(&fr_to_u256(account.balance));
+                    u128s.extend([hi, lo]);
                 };
                 if let Some(account) = proof.new_account {
-                    frs.push(account.balance);
+                    let (hi, lo) = u256_hi_lo(&fr_to_u256(account.balance));
+                    u128s.extend([hi, lo]);
                 };
             }
             MPTProofType::PoseidonCodeHashExists => {
                 u128s.push(address_high(proof.claim.address));
+                if let Some(account) = proof.old_account {
+                    let (hi, lo) = u256_hi_lo(&fr_to_u256(account.poseidon_codehash));
+                    u128s.extend([hi, lo]);
+                };
+                if let Some(account) = proof.new_account {
+                    let (hi, lo) = u256_hi_lo(&fr_to_u256(account.poseidon_codehash));
+                    u128s.extend([hi, lo]);
+                };
             }
             MPTProofType::CodeHashExists => {
                 u128s.push(address_high(proof.claim.address));
@@ -2242,6 +2164,24 @@ pub fn mpt_update_keys(proofs: &[Proof]) -> Vec<Fr> {
         keys.extend(proof.storage.key_lookups());
         keys.push(proof.claim.old_root);
         keys.push(proof.claim.new_root);
+
+        dbg!(proof.claim.old_root, proof.claim.new_root);
+        if let ClaimKind::PoseidonCodeHash { old, new } = proof.claim.kind {
+            if let Some(codehash) = old {
+                keys.push(codehash);
+            }
+            if let Some(codehash) = new {
+                keys.push(codehash);
+            }
+        }
+        if let ClaimKind::Balance { old, new } = proof.claim.kind {
+            if let Some(balance) = old {
+                keys.push(u256_to_fr(balance));
+            }
+            if let Some(balance) = new {
+                keys.push(u256_to_fr(balance));
+            }
+        }
     }
     keys.sort();
     keys.dedup();

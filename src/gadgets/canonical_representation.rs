@@ -1,12 +1,11 @@
 use super::super::constraint_builder::{
-    AdviceColumn, BinaryColumn, ConstraintBuilder, FixedColumn, Query, SecondPhaseAdviceColumn,
-    SelectorColumn,
+    AdviceColumn, BinaryColumn, ConstraintBuilder, FixedColumn, Query, SelectorColumn,
 };
-use super::{byte_bit::RangeCheck256Lookup, is_zero::IsZeroGadget, rlc_randomness::RlcRandomness};
+use super::{byte_bit::RangeCheck256Lookup, is_zero::IsZeroGadget};
 use ethers_core::types::U256;
 use halo2_proofs::{
     arithmetic::{Field, FieldExt},
-    circuit::{Region, Value},
+    circuit::Region,
     halo2curves::bn256::Fr,
     plonk::ConstraintSystem,
 };
@@ -17,9 +16,9 @@ pub trait CanonicalRepresentationLookup {
     fn lookup<F: FieldExt>(&self) -> [Query<F>; 3];
 }
 
-// Lookup to prove that Rlc(x: Fr) = y
-pub trait FrRlcLookup {
-    fn lookup<F: FieldExt>(&self) -> [Query<F>; 2];
+// Lookup to prove that for (hi: u128, lo: u128, x: Fr) hi << 128 + lo = x and no smaller hi exists.
+pub trait FrHiLoLookup {
+    fn lookup<F: FieldExt>(&self) -> [Query<F>; 3];
 }
 
 #[derive(Clone)]
@@ -28,7 +27,6 @@ pub struct CanonicalRepresentationConfig {
     value: AdviceColumn, // We're proving value.to_le_bytes()[i] = byte in this gadget
     index: FixedColumn,  // (0..32).repeat()
     byte: AdviceColumn,  // we need to prove that bytes form the canonical representation of value.
-    rlc: SecondPhaseAdviceColumn, // Accumulated random linear combination of canonical representation bytes.
 
     // Witness columns
     index_is_zero: SelectorColumn, // (0..32).repeat().map(|i| i == 0)
@@ -44,11 +42,9 @@ impl CanonicalRepresentationConfig {
         cs: &mut ConstraintSystem<Fr>,
         cb: &mut ConstraintBuilder<Fr>,
         range_check: &impl RangeCheck256Lookup,
-        randomness: &RlcRandomness,
     ) -> Self {
         let ([index_is_zero, index_is_31], [index, modulus_byte], [value, byte, difference]) =
             cb.build_columns(cs);
-        let [rlc] = cb.second_phase_advice_columns(cs);
 
         let [differences_are_zero_so_far] = cb.binary_columns(cs);
         let difference_is_zero = IsZeroGadget::configure(cs, cb, difference);
@@ -71,7 +67,6 @@ impl CanonicalRepresentationConfig {
                 "differences_are_zero_so_far = 1 when index = 0",
                 differences_are_zero_so_far.current(),
             );
-            cb.assert_equal("???????", rlc.current(), byte.current());
         });
         cb.condition(!index_is_zero.current(), |cb| {
             cb.assert_equal(
@@ -81,16 +76,10 @@ impl CanonicalRepresentationConfig {
             );
             cb.assert_equal(
                 "differences_are_zero_so_far = difference == 0 && differences_are_zero_so_far.previous() when index != 0",
-                differences_are_zero_so_far.current().into(),
-                differences_are_zero_so_far
+                Query::from(differences_are_zero_so_far.current()),
+                Query::from(differences_are_zero_so_far
                     .previous()
-                    .and(difference_is_zero.previous())
-                    .into(),
-            );
-            cb.assert_equal(
-                "???",
-                rlc.current() ,
-                rlc.previous() * randomness.query() + byte.current(),
+                    .and(difference_is_zero.previous())),
             );
         });
 
@@ -120,7 +109,6 @@ impl CanonicalRepresentationConfig {
             value,
             index,
             byte,
-            rlc,
             index_is_zero,
             index_is_31,
             modulus_byte,
@@ -130,13 +118,7 @@ impl CanonicalRepresentationConfig {
         }
     }
 
-    pub fn assign(
-        &self,
-        region: &mut Region<'_, Fr>,
-        randomness: Value<Fr>,
-        values: &[Fr],
-        n_rows: usize,
-    ) {
+    pub fn assign(&self, region: &mut Region<'_, Fr>, values: &[Fr], n_rows: usize) {
         let modulus = U256::from_str_radix(Fr::MODULUS, 16).unwrap();
         let mut modulus_bytes = [0u8; 32];
         modulus.to_big_endian(&mut modulus_bytes);
@@ -146,7 +128,6 @@ impl CanonicalRepresentationConfig {
             let mut bytes = value.to_bytes();
             bytes.reverse();
             let mut differences_are_zero_so_far = true;
-            let mut rlc = Value::known(Fr::zero());
             for (index, (byte, modulus_byte)) in bytes.iter().zip_eq(&modulus_bytes).enumerate() {
                 self.byte.assign(region, offset, u64::from(*byte));
                 self.modulus_byte
@@ -172,9 +153,6 @@ impl CanonicalRepresentationConfig {
                 differences_are_zero_so_far &= difference.is_zero_vartime();
 
                 self.value.assign(region, offset, *value);
-
-                rlc = rlc * randomness + Value::known(Fr::from(u64::from(*byte)));
-                self.rlc.assign(region, offset, rlc);
 
                 offset += 1
             }
@@ -228,11 +206,18 @@ impl CanonicalRepresentationLookup for CanonicalRepresentationConfig {
     }
 }
 
-impl FrRlcLookup for CanonicalRepresentationConfig {
-    fn lookup<F: FieldExt>(&self) -> [Query<F>; 2] {
+impl FrHiLoLookup for CanonicalRepresentationConfig {
+    fn lookup<F: FieldExt>(&self) -> [Query<F>; 3] {
+        let value_hi = (0..16)
+            .map(|i| self.byte.rotation(i))
+            .fold(Query::zero(), |acc, x| acc * 256 + x)
+            * self.index_is_zero.current();
+        let value_lo = self.value.current() * self.index_is_zero.current()
+            - value_hi.clone() * Query::from(1 << 32).square().square();
         [
-            self.value.current() * self.index_is_31.current(),
-            self.rlc.current() * self.index_is_31.current(),
+            self.value.current() * self.index_is_zero.current(),
+            value_hi,
+            value_lo,
         ]
     }
 }
@@ -252,12 +237,7 @@ mod test {
     }
 
     impl Circuit<Fr> for TestCircuit {
-        type Config = (
-            SelectorColumn,
-            ByteBitGadget,
-            RlcRandomness,
-            CanonicalRepresentationConfig,
-        );
+        type Config = (SelectorColumn, ByteBitGadget, CanonicalRepresentationConfig);
         type FloorPlanner = SimpleFloorPlanner;
 
         fn without_witnesses(&self) -> Self {
@@ -269,11 +249,10 @@ mod test {
             let mut cb = ConstraintBuilder::new(selector);
 
             let byte_bit = ByteBitGadget::configure(cs, &mut cb);
-            let randomness = RlcRandomness::configure(cs);
             let canonical_representation =
-                CanonicalRepresentationConfig::configure(cs, &mut cb, &byte_bit, &randomness);
+                CanonicalRepresentationConfig::configure(cs, &mut cb, &byte_bit);
             cb.build(cs);
-            (selector, byte_bit, randomness, canonical_representation)
+            (selector, byte_bit, canonical_representation)
         }
 
         fn synthesize(
@@ -281,8 +260,7 @@ mod test {
             config: Self::Config,
             mut layouter: impl Layouter<Fr>,
         ) -> Result<(), Error> {
-            let (selector, byte_bit, rlc_randomness, canonical_representation) = config;
-            let randomness = rlc_randomness.value(&layouter);
+            let (selector, byte_bit, canonical_representation) = config;
             layouter.assign_region(
                 || "",
                 |mut region| {
@@ -290,7 +268,7 @@ mod test {
                         selector.enable(&mut region, offset);
                     }
                     byte_bit.assign(&mut region);
-                    canonical_representation.assign(&mut region, randomness, &self.values, 256);
+                    canonical_representation.assign(&mut region, &self.values, 256);
                     Ok(())
                 },
             )

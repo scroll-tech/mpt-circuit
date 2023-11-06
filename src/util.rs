@@ -156,6 +156,10 @@ pub fn lagrange_polynomial<F: FieldExt>(argument: Query<F>, points: &[(Fr, Query
         .expect("points.len() > 0")
 }
 
+pub fn fr_to_u256(x: Fr) -> U256 {
+    U256::from_little_endian(&x.to_bytes())
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -163,5 +167,14 @@ mod test {
     #[test]
     fn test_u256_hi_lo() {
         assert_eq!(u256_hi_lo(&U256::one()), (0, 1));
+    }
+
+    #[test]
+    fn test_fr_to_u256() {
+        assert_eq!(fr_to_u256(Fr::one()), U256::one());
+        assert_eq!(
+            fr_to_u256(Fr::zero() - Fr::one()),
+            U256::from_str_radix(Fr::MODULUS, 16).unwrap() - U256::one()
+        );
     }
 }

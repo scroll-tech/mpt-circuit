@@ -7,7 +7,7 @@ use halo2_proofs::{
     circuit::{Layouter, SimpleFloorPlanner},
     dev::MockProver,
     halo2curves::bn256::{Bn256, Fr},
-    plonk::{keygen_vk, Circuit, ConstraintSystem, Error, FirstPhase},
+    plonk::{keygen_vk, Circuit, ConstraintSystem, Error},
     poly::kzg::commitment::ParamsKZG,
 };
 use mpt_zktrie::state::{builder::HASH_SCHEME_DONE, witness::WitnessGenerator, ZktrieState};
@@ -82,8 +82,7 @@ impl Circuit<Fr> for TestCircuit {
 
     fn configure(cs: &mut ConstraintSystem<Fr>) -> Self::Config {
         let poseidon = PoseidonTable::configure(cs);
-        let challenge = cs.challenge_usable_after(FirstPhase);
-        let mpt_circuit_config = MptCircuitConfig::configure(cs, challenge, &poseidon);
+        let mpt_circuit_config = MptCircuitConfig::configure(cs, &poseidon);
         (poseidon, mpt_circuit_config)
     }
 

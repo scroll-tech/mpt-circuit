@@ -1,5 +1,5 @@
 use crate::{
-    constraint_builder::{AdviceColumn, ConstraintBuilder, Query, SecondPhaseAdviceColumn},
+    constraint_builder::{AdviceColumn, ConstraintBuilder, Query, WordColumns},
     gadgets::{is_zero::IsZeroGadget, poseidon::PoseidonLookup},
     types::HashDomain,
 };
@@ -7,7 +7,7 @@ use halo2_proofs::arithmetic::FieldExt;
 
 pub fn configure<F: FieldExt>(
     cb: &mut ConstraintBuilder<F>,
-    value: SecondPhaseAdviceColumn,
+    value: WordColumns,
     key: AdviceColumn,
     other_key: AdviceColumn,
     key_equals_other_key: IsZeroGadget,

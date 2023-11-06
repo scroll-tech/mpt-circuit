@@ -2,8 +2,8 @@ use crate::{
     gadgets::mpt_update::PathType,
     serde::{AccountData, HexBytes, SMTNode, SMTPath, SMTTrace},
     util::{
-        account_key, check_domain_consistency, domain_hash, fr_from_biguint, rlc,
-        u256_from_biguint, u256_from_hex, u256_to_big_endian,
+        account_key, check_domain_consistency, domain_hash, fr_from_biguint, fr_to_u256,
+        u256_from_biguint, u256_from_hex,
     },
     MPTProofType,
 };
@@ -116,37 +116,31 @@ impl Claim {
         }
     }
 
-    pub fn old_value_assignment(&self, randomness: Fr) -> Fr {
+    pub fn old_value(&self) -> U256 {
         match self.kind {
             ClaimKind::Nonce { old, .. } | ClaimKind::CodeSize { old, .. } => {
-                Fr::from(old.unwrap_or_default())
+                U256::from(old.unwrap_or_default())
             }
-            ClaimKind::PoseidonCodeHash { old, .. } => old.unwrap_or_default(),
+            ClaimKind::PoseidonCodeHash { old, .. } => fr_to_u256(old.unwrap_or_default()),
             ClaimKind::Balance { old, .. } | ClaimKind::CodeHash { old, .. } => {
-                rlc(&u256_to_big_endian(&old.unwrap_or_default()), randomness)
+                old.unwrap_or_default()
             }
-            ClaimKind::Storage { old_value, .. } => rlc(
-                &u256_to_big_endian(&old_value.unwrap_or_default()),
-                randomness,
-            ),
-            ClaimKind::IsEmpty(_) => Fr::zero(),
+            ClaimKind::Storage { old_value, .. } => old_value.unwrap_or_default(),
+            ClaimKind::IsEmpty(_) => U256::zero(),
         }
     }
 
-    pub fn new_value_assignment(&self, randomness: Fr) -> Fr {
+    pub fn new_value(&self) -> U256 {
         match self.kind {
             ClaimKind::Nonce { new, .. } | ClaimKind::CodeSize { new, .. } => {
-                Fr::from(new.unwrap_or_default())
+                U256::from(new.unwrap_or_default())
             }
-            ClaimKind::PoseidonCodeHash { new, .. } => new.unwrap_or_default(),
+            ClaimKind::PoseidonCodeHash { new, .. } => fr_to_u256(new.unwrap_or_default()),
             ClaimKind::Balance { new, .. } | ClaimKind::CodeHash { new, .. } => {
-                rlc(&u256_to_big_endian(&new.unwrap_or_default()), randomness)
+                new.unwrap_or_default()
             }
-            ClaimKind::Storage { new_value, .. } => rlc(
-                &u256_to_big_endian(&new_value.unwrap_or_default()),
-                randomness,
-            ),
-            ClaimKind::IsEmpty(_) => Fr::zero(),
+            ClaimKind::Storage { new_value, .. } => new_value.unwrap_or_default(),
+            ClaimKind::IsEmpty(_) => U256::zero(),
         }
     }
 }
@@ -185,7 +179,7 @@ pub struct Proof {
 pub struct EthAccount {
     pub nonce: u64,
     pub code_size: u64,
-    poseidon_codehash: Fr,
+    pub poseidon_codehash: Fr,
     pub balance: Fr,
     pub keccak_codehash: U256,
     pub storage_root: Fr,
