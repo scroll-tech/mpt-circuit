@@ -28,12 +28,14 @@ impl BinaryColumn {
 
     pub fn configure<F: FieldExt>(
         cs: &mut ConstraintSystem<F>,
-        _cb: &mut ConstraintBuilder<F>,
+        cb: &mut ConstraintBuilder<F>,
     ) -> Self {
-        let advice_column = cs.advice_column();
-        // TODO: constrain to be binary here...
-        // cb.add_constraint()
-        Self(advice_column)
+        let binary_column = Self(cs.advice_column());
+        cb.assert(
+            "binary column is 0 or 1",
+            binary_column.current().or(!binary_column.current()),
+        );
+        binary_column
     }
 
     pub fn assign<F: FieldExt>(&self, region: &mut Region<'_, F>, offset: usize, value: bool) {

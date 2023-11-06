@@ -1,12 +1,14 @@
-use crate::constraint_builder::{AdviceColumn, ConstraintBuilder, FixedColumn, Query};
+use crate::constraint_builder::{AdviceColumn, FixedColumn};
+use halo2_proofs::plonk::{Advice, Column, Fixed};
+#[cfg(test)]
 use halo2_proofs::{
-    arithmetic::FieldExt,
-    plonk::{Advice, Column, Fixed},
+    arithmetic::FieldExt, circuit::Region, halo2curves::bn256::Fr, plonk::ConstraintSystem,
 };
 #[cfg(test)]
-use halo2_proofs::{circuit::Region, halo2curves::bn256::Fr, plonk::ConstraintSystem};
-#[cfg(test)]
 use hash_circuit::hash::Hashable;
+
+#[cfg(test)]
+const MAX_POSEIDON_ROWS: usize = 200;
 
 /// Lookup  represent the poseidon table in zkevm circuit
 pub trait PoseidonLookup {
@@ -17,42 +19,6 @@ pub trait PoseidonLookup {
     fn lookup_columns_generic(&self) -> (Column<Fixed>, [Column<Advice>; 6]) {
         let (fixed, adv) = self.lookup_columns();
         (fixed.0, adv.map(|col| col.0))
-    }
-}
-
-impl<F: FieldExt> ConstraintBuilder<F> {
-    pub fn poseidon_lookup(
-        &mut self,
-        name: &'static str,
-        [left, right, domain, hash]: [Query<F>; 4],
-        poseidon: &impl PoseidonLookup,
-    ) {
-        let extended_queries = [
-            Query::one(),
-            hash,
-            left,
-            right,
-            Query::zero(),
-            domain,
-            Query::one(),
-        ];
-
-        let (q_enable, [hash, left, right, control, domain_spec, head_mark]) =
-            poseidon.lookup_columns();
-
-        self.add_lookup(
-            name,
-            extended_queries,
-            [
-                q_enable.current(),
-                hash.current(),
-                left.current(),
-                right.current(),
-                control.current(),
-                domain_spec.current(),
-                head_mark.current(),
-            ],
-        )
     }
 }
 
@@ -85,6 +51,9 @@ impl PoseidonTable {
     }
 
     pub fn load(&self, region: &mut Region<'_, Fr>, hash_traces: &[([Fr; 2], Fr, Fr)]) {
+        // The test poseidon table starts assigning from the first row, which has a disabled
+        // selector, but this is fine because the poseidon_lookup in the ConstraintBuilder
+        // doesn't include the mpt circuit's selector column.
         for (offset, hash_trace) in hash_traces.iter().enumerate() {
             assert!(
                 Hashable::hash_with_domain([hash_trace.0[0], hash_trace.0[1]], hash_trace.1)
@@ -102,6 +71,12 @@ impl PoseidonTable {
             ] {
                 column.assign(region, offset, value);
             }
+            self.q_enable.assign(region, offset, Fr::one());
+        }
+
+        // We need to do this so that the fixed columns in the tests will not depend on the
+        // number of poseidon hashes that are looked up.
+        for offset in hash_traces.len()..MAX_POSEIDON_ROWS {
             self.q_enable.assign(region, offset, Fr::one());
         }
     }

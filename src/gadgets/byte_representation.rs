@@ -1,5 +1,7 @@
 use super::{byte_bit::RangeCheck256Lookup, is_zero::IsZeroGadget, rlc_randomness::RlcRandomness};
-use crate::constraint_builder::{AdviceColumn, ConstraintBuilder, Query, SecondPhaseAdviceColumn};
+use crate::constraint_builder::{
+    AdviceColumn, ConstraintBuilder, Query, SecondPhaseAdviceColumn, SelectorColumn,
+};
 use ethers_core::types::{Address, H256};
 use halo2_proofs::{
     arithmetic::FieldExt,
@@ -27,6 +29,7 @@ pub struct ByteRepresentationConfig {
     index: AdviceColumn,
 
     // internal columns
+    is_first: SelectorColumn,
     byte: AdviceColumn,
     index_is_zero: IsZeroGadget,
 }
@@ -56,21 +59,25 @@ impl ByteRepresentationConfig {
         range_check: &impl RangeCheck256Lookup,
         randomness: &RlcRandomness,
     ) -> Self {
+        let is_first = SelectorColumn(cs.fixed_column());
         let [value, index, byte] = cb.advice_columns(cs);
         let [rlc] = cb.second_phase_advice_columns(cs);
         let index_is_zero = IsZeroGadget::configure(cs, cb, index);
 
+        cb.condition(is_first.current(), |cb| {
+            cb.assert_zero("index is 0 for first row", index.current())
+        });
         cb.assert_zero(
-            "index increases by 1 or resets to 0",
+            "index is 0 or increases by 1",
             index.current() * (index.current() - index.previous() - 1),
         );
         cb.assert_equal(
-            "current value = previous value * 256 * (index == 0) + byte",
+            "current value = previous value * 256 * (index != 0) + byte",
             value.current(),
             value.previous() * 256 * !index_is_zero.current() + byte.current(),
         );
         cb.assert_equal(
-            "current rlc = previous rlc * randomness * (index == 0) + byte",
+            "current rlc = previous rlc * randomness * (index != 0) + byte",
             rlc.current(),
             rlc.previous() * randomness.query() * !index_is_zero.current() + byte.current(),
         );
@@ -82,25 +89,28 @@ impl ByteRepresentationConfig {
             index,
             index_is_zero,
             byte,
+            is_first,
         }
     }
 
-    // can this we done with an Iterator<Item: impl ToBigEndianBytes> instead?
     pub fn assign<F: FieldExt>(
         &self,
         region: &mut Region<'_, F>,
+        u32s: &[u32],
         u64s: &[u64],
         u128s: &[u128],
         frs: &[Fr],
         randomness: Value<F>,
     ) {
-        let byte_representations = u64s
+        self.is_first.enable(region, 0);
+        let byte_representations = u32s
             .iter()
-            .map(u64_to_big_endian)
+            .map(u32_to_big_endian)
+            .chain(u64s.iter().map(u64_to_big_endian))
             .chain(u128s.iter().map(u128_to_big_endian))
             .chain(frs.iter().map(fr_to_big_endian));
 
-        let mut offset = 0;
+        let mut offset = 1;
         for byte_representation in byte_representations {
             let mut value = F::zero();
             let mut rlc = Value::known(F::zero());
@@ -121,9 +131,23 @@ impl ByteRepresentationConfig {
                 offset += 1;
             }
         }
+
+        let expected_offset = Self::n_rows_required(u32s, u64s, u128s, frs);
+        debug_assert!(
+            offset == expected_offset,
+            "assign used {offset} rows but {expected_offset} rows expected from `n_rows_required`",
+        );
+    }
+
+    pub fn n_rows_required(u32s: &[u32], u64s: &[u64], u128s: &[u128], frs: &[Fr]) -> usize {
+        // +1 because assigment starts on offset = 1 instead of offset = 0.
+        1 + u32s.len() * 4 + u64s.len() * 8 + u128s.len() * 16 + frs.len() * 31
     }
 }
 
+fn u32_to_big_endian(x: &u32) -> Vec<u8> {
+    x.to_be_bytes().to_vec()
+}
 fn u64_to_big_endian(x: &u64) -> Vec<u8> {
     x.to_be_bytes().to_vec()
 }
@@ -164,6 +188,7 @@ mod test {
 
     #[derive(Clone, Default, Debug)]
     struct TestCircuit {
+        u32s: Vec<u32>,
         u64s: Vec<u64>,
         u128s: Vec<u128>,
         frs: Vec<Fr>,
@@ -204,12 +229,13 @@ mod test {
             layouter.assign_region(
                 || "",
                 |mut region| {
-                    for offset in 0..1024 {
+                    for offset in 0..(8 * 256) {
                         selector.enable(&mut region, offset);
                     }
                     byte_bit.assign(&mut region);
                     byte_representation.assign(
                         &mut region,
+                        &self.u32s,
                         &self.u64s,
                         &self.u128s,
                         &self.frs,
@@ -224,6 +250,7 @@ mod test {
     #[test]
     fn test_byte_representation() {
         let circuit = TestCircuit {
+            u32s: vec![0, 1, u32::MAX],
             u64s: vec![u64::MAX],
             u128s: vec![0, 1, u128::MAX],
             frs: vec![Fr::from(2342)],

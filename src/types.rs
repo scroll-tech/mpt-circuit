@@ -13,7 +13,6 @@ use itertools::{EitherOrBoth, Itertools};
 use num_bigint::BigUint;
 use num_traits::identities::Zero;
 
-// mod account;
 pub mod storage;
 pub mod trie;
 use storage::StorageProof;
@@ -228,6 +227,15 @@ impl Proof {
 pub struct Path {
     pub key: Fr,                    // pair hash of address or storage key
     pub leaf_data_hash: Option<Fr>, // leaf data hash for type 0 and type 1, None for type 2.
+}
+
+impl Path {
+    pub fn hash(&self) -> Fr {
+        match self.leaf_data_hash {
+            None => Fr::zero(),
+            Some(data_hash) => domain_hash(self.key, data_hash, HashDomain::Leaf),
+        }
+    }
 }
 
 impl From<(&MPTProofType, &SMTTrace)> for Claim {

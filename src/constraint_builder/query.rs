@@ -1,8 +1,7 @@
 use super::BinaryQuery;
-use ethers_core::k256::elliptic_curve::PrimeField;
 use halo2_proofs::{
     arithmetic::{Field, FieldExt},
-    halo2curves::bn256::Fr,
+    halo2curves::{bn256::Fr, group::ff::PrimeField},
     plonk::{Advice, Challenge, Column, Expression, Fixed, VirtualCells},
     poly::Rotation,
 };
