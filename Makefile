@@ -5,4 +5,4 @@ fmt:
 	@cargo fmt
 
 clippy:
-	@cargo clippy --all-features
+	@cargo clippy --all-features -- -D warnings
