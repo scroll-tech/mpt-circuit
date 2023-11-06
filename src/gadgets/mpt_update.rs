@@ -342,88 +342,29 @@ impl MptUpdateConfig {
         &self,
         region: &mut Region<'_, Fr>,
         proofs: &[Proof],
+        n_rows: usize,
         randomness: Value<Fr>,
-    ) -> usize {
-        self.assign_inner(region, proofs, randomness)
-    }
+    ) {
+        let mut n_rows_used = 1; // selector on first row is disabled.
+        for proof in proofs {
+            n_rows_used += self.assign_proof(region, n_rows_used, proof, randomness);
+        }
 
-    /// Valid assignment proving that the address 0 doesn't exist in an empty MPT.
-    pub fn assign_padding_row(&self, region: &mut Region<'_, Fr>, offset: usize) {
-        self.proof_type
-            .assign(region, offset, MPTProofType::AccountDoesNotExist);
-        self.key.assign(region, offset, *ZERO_PAIR_HASH);
-        self.other_key.assign(region, offset, *ZERO_PAIR_HASH);
-        self.domain.assign(region, offset, HashDomain::Pair);
+        let expected_offset = Self::n_rows_required(proofs);
+        debug_assert!(
+            n_rows_used == expected_offset,
+            "assign used {n_rows_used} rows but {expected_offset} rows expected from `n_rows_required`",
+        );
+
+        for offset in n_rows_used..n_rows {
+            self.assign_padding_row(region, offset);
+        }
     }
 
     pub fn n_rows_required(proofs: &[Proof]) -> usize {
         // +1 because assigment starts on offset = 1 instead of offset = 0.
         proofs.iter().map(Proof::n_rows).sum::<usize>() + 1
     }
-
-    // fn assign_account_trie_rows(
-    //     &self,
-    //     region: &mut Region<'_, Fr>,
-    //     starting_offset: usize,
-    //     rows: &TrieRows,
-    // ) -> usize {
-    //     let n_rows = self.assign_trie_rows(region, starting_offset, rows);
-    //     for i in 0..n_rows {
-    //         self.segment_type
-    //             .assign(region, starting_offset + i, SegmentType::AccountTrie);
-    //     }
-    //     n_rows
-    // }
-
-    // fn assign_storage_trie_rows(
-    //     &self,
-    //     region: &mut Region<'_, Fr>,
-    //     starting_offset: usize,
-    //     rows: &TrieRows,
-    // ) -> usize {
-    //     let n_rows = self.assign_trie_rows(region, starting_offset, rows);
-    //     for i in 0..n_rows {
-    //         self.segment_type
-    //             .assign(region, starting_offset + i, SegmentType::StorageTrie);
-    //     }
-    //     n_rows
-    // }
-
-    // fn assign_trie_rows(
-    //     &self,
-    //     region: &mut Region<'_, Fr>,
-    //     starting_offset: usize,
-    //     rows: &TrieRows,
-    // ) -> usize {
-    //     for (i, row) in rows.0.iter().enumerate() {
-    //         let offset = starting_offset + i;
-    //         self.depth
-    //             .assign(region, offset, u64::try_from(i + 1).unwrap());
-    //         self.path_type.assign(region, offset, row.path_type);
-
-    //         if let Some(next_row) = rows.0.get(i + 1) {
-    //             if !matches!(next_row.path_type, PathType::Start | PathType::Common)
-    //                 && row.path_type == PathType::Common
-    //             {
-    //                 self.intermediate_values[2].assign(
-    //                     region,
-    //                     offset,
-    //                     next_domain(row.domain, row.direction),
-    //                 );
-    //             }
-    //         }
-    //         for (value, column) in [
-    //             (row.sibling, self.sibling),
-    //             (row.old, self.old_hash),
-    //             (row.new, self.new_hash),
-    //             (row.direction.into(), self.direction),
-    //             (row.domain.into(), self.domain),
-    //         ] {
-    //             column.assign(region, offset, value);
-    //         }
-    //     }
-    //     rows.len()
-    // }
 }
 
 fn old_left<F: FieldExt>(config: &MptUpdateConfig) -> Query<F> {
