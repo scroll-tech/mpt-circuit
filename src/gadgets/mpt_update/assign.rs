@@ -18,7 +18,7 @@ use halo2_proofs::{
 use itertools::izip;
 
 impl MptUpdateConfig {
-    fn assign_proof(
+    pub fn assign_proof(
         &self,
         region: &mut Region<'_, Fr>,
         offset: usize,
@@ -257,24 +257,13 @@ impl MptUpdateConfig {
         return proof.n_rows();
     }
 
-    pub fn assign_inner(
-        &self,
-        region: &mut Region<'_, Fr>,
-        proofs: &[Proof],
-        randomness: Value<Fr>,
-    ) -> usize {
-        let mut offset = 1; // selector on first row is disabled.
-        for proof in proofs {
-            offset += self.assign_proof(region, offset, proof, randomness);
-        }
-
-        let expected_offset = Self::n_rows_required(proofs);
-        debug_assert!(
-            offset == expected_offset,
-            "assign used {offset} rows but {expected_offset} rows expected from `n_rows_required`",
-        );
-
-        offset - 1
+    // Valid assignment proving that the address 0 doesn't exist in an empty MPT.
+    pub fn assign_padding_row(&self, region: &mut Region<'_, Fr>, offset: usize) {
+        self.proof_type
+            .assign(region, offset, MPTProofType::AccountDoesNotExist);
+        self.key.assign(region, offset, *ZERO_PAIR_HASH);
+        self.other_key.assign(region, offset, *ZERO_PAIR_HASH);
+        self.domain.assign(region, offset, HashDomain::Pair);
     }
 
     fn assign_storage_trie_rows(
