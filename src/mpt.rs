@@ -1,5 +1,5 @@
 use crate::{
-    constraint_builder::{ConstraintBuilder, SelectorColumn},
+    constraint_builder::{ConstraintBuilder, Query, SelectorColumn},
     gadgets::{
         byte_bit::ByteBitGadget,
         byte_representation::ByteRepresentationConfig,
@@ -76,7 +76,6 @@ impl MptCircuitConfig {
         // exist in an mpt with root = 0 (i.e. the mpt is empty).
         let is_final_row = SelectorColumn(cs.fixed_column());
         let padding_row_expressions = [
-            1.into(),
             0.into(),
             0.into(),
             (MPTProofType::AccountDoesNotExist as u64).into(),
@@ -173,7 +172,12 @@ impl MptCircuitConfig {
     }
 
     pub fn lookup_exprs<F: FieldExt>(&self, meta: &mut VirtualCells<'_, F>) -> [Expression<F>; 8] {
-        self.mpt_update.lookup().map(|q| q.run(meta))
+        std::iter::once(Query::from(self.selector.current()))
+            .chain(self.mpt_update.lookup().into_iter())
+            .map(|q| q.run(meta))
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap()
     }
 
     /// The number of minimum number of rows required for the mpt circuit.

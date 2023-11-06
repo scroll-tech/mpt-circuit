@@ -45,7 +45,7 @@ lazy_static! {
 }
 
 pub trait MptUpdateLookup<F: FieldExt> {
-    fn lookup(&self) -> [Query<F>; 8];
+    fn lookup(&self) -> [Query<F>; 7];
 }
 
 #[derive(Clone)]
@@ -77,8 +77,10 @@ pub struct MptUpdateConfig {
 }
 
 impl<F: FieldExt> MptUpdateLookup<F> for MptUpdateConfig {
-    fn lookup(&self) -> [Query<F>; 8] {
+    fn lookup(&self) -> [Query<F>; 7] {
         let is_start = || self.segment_type.current_matches(&[SegmentType::Start]);
+        // Note that one non-start rows, all 7 queries will be 0. This corresponds to a valid
+        // mpt proof in that in an empty trie, the zero address has nonce = 0.
         let old_root_rlc = self.second_phase_intermediate_values[0].current() * is_start();
         let new_root_rlc = self.second_phase_intermediate_values[1].current() * is_start();
         let proof_type = self.proof_type.current() * is_start();
@@ -90,7 +92,6 @@ impl<F: FieldExt> MptUpdateLookup<F> for MptUpdateConfig {
             * is_start();
         let storage_key_rlc = self.storage_key_rlc.current() * is_start();
         [
-            is_start().into(),
             address,
             storage_key_rlc,
             proof_type,
