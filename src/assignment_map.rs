@@ -4,7 +4,7 @@ use crate::constraint_builder::{
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Region, Value},
-    plonk::Error,
+    plonk::{Assigned, Error},
 };
 use itertools::Itertools;
 use rayon::prelude::*;
@@ -13,11 +13,11 @@ use std::collections::BTreeMap;
 pub struct Assignment<F: FieldExt> {
     pub offset: usize,
     pub column: Column,
-    pub value: Value<F>,
+    pub value: Value<Assigned<F>>,
 }
 
 #[derive(Clone, Default)]
-pub struct AssignmentMap<F: FieldExt>(BTreeMap<usize, Vec<(Column, Value<F>)>>);
+pub struct AssignmentMap<F: FieldExt>(BTreeMap<usize, Vec<(Column, Value<Assigned<F>>)>>);
 
 impl<F: FieldExt> AssignmentMap<F> {
     pub fn new(stream: impl ParallelIterator<Item = Assignment<F>>) -> Self {

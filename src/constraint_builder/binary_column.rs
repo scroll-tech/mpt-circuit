@@ -4,7 +4,7 @@ use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Region, Value},
     plonk::ConstraintSystem,
-    plonk::{Advice, Column},
+    plonk::{Advice, Assigned, Column},
 };
 
 #[derive(Clone, Copy)]
@@ -49,7 +49,7 @@ impl BinaryColumn {
         Assignment {
             offset,
             column: ColumnEnum::from(AdviceColumn(self.0)),
-            value: Value::known(if value { F::one() } else { F::zero() }),
+            value: Value::known(Assigned::Trivial(if value { F::one() } else { F::zero() })),
         }
     }
 }

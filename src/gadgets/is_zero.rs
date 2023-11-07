@@ -38,12 +38,11 @@ impl IsZeroGadget {
     where
         <T as TryInto<F>>::Error: Debug,
     {
+        let value = value.try_into().unwrap();
         [
             self.value.assignment(offset, value),
-            self.inverse_or_zero.assignment(
-                offset,
-                (value.try_into().unwrap()).invert().unwrap_or_else(F::zero),
-            ),
+            self.inverse_or_zero
+                .inverse_or_zero_assignment(offset, value),
         ]
     }
 

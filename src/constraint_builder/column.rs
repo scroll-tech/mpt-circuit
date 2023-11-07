@@ -29,7 +29,7 @@ impl SelectorColumn {
         Assignment {
             offset,
             column: ColumnEnum::from(*self),
-            value: Value::known(if enable { F::one() } else { F::zero() }),
+            value: Value::known(Assigned::Trivial(if enable { F::one() } else { F::zero() })),
         }
     }
 }
@@ -79,7 +79,7 @@ impl FixedColumn {
         Assignment {
             offset,
             column: ColumnEnum::from(*self),
-            value: Value::known(value.try_into().unwrap()),
+            value: Value::known(value.try_into().unwrap()).into(),
         }
     }
 }
@@ -137,7 +137,7 @@ impl AdviceColumn {
         Assignment {
             offset,
             column: ColumnEnum::from(*self),
-            value: Value::known(value.try_into().unwrap()),
+            value: Value::known(Assigned::Trivial(value.try_into().unwrap())),
         }
     }
 
@@ -155,6 +155,18 @@ impl AdviceColumn {
                 || Value::known(Assigned::<F>::from(value).invert()),
             )
             .expect("failed assign_inverse_or_zero");
+    }
+
+    pub fn inverse_or_zero_assignment<F: FieldExt>(
+        &self,
+        offset: usize,
+        value: F,
+    ) -> Assignment<F> {
+        Assignment {
+            offset,
+            column: ColumnEnum::from(*self),
+            value: Value::known(Assigned::Trivial(value).invert()),
+        }
     }
 }
 
@@ -184,7 +196,7 @@ impl SecondPhaseAdviceColumn {
         Assignment {
             offset,
             column: ColumnEnum::from(*self),
-            value,
+            value: value.into(),
         }
     }
 }
