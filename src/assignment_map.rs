@@ -10,13 +10,19 @@ use itertools::Itertools;
 use rayon::prelude::*;
 use std::collections::BTreeMap;
 
+pub struct Assignment<F: FieldExt> {
+    pub offset: usize,
+    pub column: Column,
+    pub value: Value<F>,
+}
+
 #[derive(Clone, Default)]
 pub struct AssignmentMap<F: FieldExt>(BTreeMap<usize, Vec<(Column, Value<F>)>>);
 
 impl<F: FieldExt> AssignmentMap<F> {
-    pub fn new(stream: impl ParallelIterator<Item = ((Column, usize), Value<F>)>) -> Self {
+    pub fn new(stream: impl ParallelIterator<Item = Assignment<F>>) -> Self {
         let mut sorted_by_offset: Vec<_> = stream
-            .map(|((column, offset), value)| (offset, column, value))
+            .map(|a| (a.offset, a.column, a.value))
             .collect();
         sorted_by_offset.sort_by(|x, y| x.0.cmp(&y.0));
         let grouped_by_offset = sorted_by_offset.iter().group_by(|(offset, _, _)| offset);

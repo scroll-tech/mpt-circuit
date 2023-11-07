@@ -3,7 +3,7 @@ use super::super::constraint_builder::{
     SelectorColumn,
 };
 use super::{byte_bit::RangeCheck256Lookup, is_zero::IsZeroGadget, rlc_randomness::RlcRandomness};
-use crate::assignment_map::Column;
+use crate::assignment_map::{Assignment, Column};
 use ethers_core::types::U256;
 use halo2_proofs::{
     arithmetic::{Field, FieldExt},
@@ -140,8 +140,10 @@ impl CanonicalRepresentationConfig {
         n_rows: usize,
     ) {
         let assignments: Vec<_> = self.assignments(values, n_rows, randomness).collect();
-        for ((column, offset), value) in assignments.into_iter() {
-            match column {
+        for assignment in assignments.into_iter() {
+            let offset = assignment.offset;
+            let value = assignment.value;
+            match assignment.column {
                 Column::Selector(s) => region.assign_fixed(|| "selector", s.0, offset, || value),
                 Column::Fixed(s) => region.assign_fixed(|| "fixed", s.0, offset, || value),
                 Column::Advice(s) => region.assign_advice(|| "advice", s.0, offset, || value),
@@ -158,7 +160,7 @@ impl CanonicalRepresentationConfig {
         values: Vec<Fr>,
         n_rows: usize,
         randomness: Value<Fr>,
-    ) -> impl ParallelIterator<Item = ((Column, usize), Value<Fr>)> + '_ {
+    ) -> impl ParallelIterator<Item = Assignment<Fr>> + '_ {
         let modulus = U256::from_str_radix(Fr::MODULUS, 16).unwrap();
         let mut modulus_bytes = [0u8; 32];
         modulus.to_big_endian(&mut modulus_bytes);

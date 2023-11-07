@@ -3,7 +3,7 @@ use super::{
     canonical_representation::CanonicalRepresentationLookup,
 };
 use crate::{
-    assignment_map::Column,
+    assignment_map::{Assignment, Column},
     constraint_builder::{AdviceColumn, ConstraintBuilder, Query, SelectorColumn},
 };
 use halo2_proofs::{
@@ -95,10 +95,10 @@ impl KeyBitConfig {
 
     pub fn assign(&self, region: &mut Region<'_, Fr>, lookups: Vec<(Fr, usize, bool)>) {
         let assignments: Vec<_> = self.assignments(lookups).collect();
-        for ((column, offset), value) in assignments.into_iter() {
-            match column {
+        for assignment in assignments.into_iter() {
+            match assignment.column {
                 Column::Advice(s) => region
-                    .assign_advice(|| "advice", s.0, offset, || value)
+                    .assign_advice(|| "advice", s.0, assignment.offset, || assignment.value)
                     .unwrap(),
                 _ => unreachable!(),
             };
@@ -108,7 +108,7 @@ impl KeyBitConfig {
     pub fn assignments(
         &self,
         lookups: Vec<(Fr, usize, bool)>,
-    ) -> impl ParallelIterator<Item = ((Column, usize), Value<Fr>)> + '_ {
+    ) -> impl ParallelIterator<Item = Assignment<Fr>> + '_ {
         lookups
             .into_par_iter()
             .enumerate()

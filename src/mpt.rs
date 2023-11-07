@@ -1,5 +1,5 @@
 use crate::{
-    assignment_map::{AssignmentMap, Column},
+    assignment_map::{AssignmentMap, Column, Assignment},
     constraint_builder::{ConstraintBuilder, SelectorColumn},
     gadgets::{
         byte_bit::ByteBitGadget,
@@ -179,7 +179,7 @@ impl MptCircuitConfig {
     fn selector_assignments(
         &self,
         n_rows: usize,
-    ) -> impl ParallelIterator<Item = ((Column, usize), Value<Fr>)> + '_ {
+    ) -> impl ParallelIterator<Item = Assignment<Fr>> + '_ {
         (0..n_rows).into_par_iter().flat_map_iter(move |offset| {
             [
                 self.selector.assignment(offset, offset != 0),

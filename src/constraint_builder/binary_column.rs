@@ -1,5 +1,5 @@
 use super::{AdviceColumn, BinaryQuery, ConstraintBuilder, Query};
-use crate::assignment_map::Column as ColumnEnum;
+use crate::assignment_map::{Assignment, Column as ColumnEnum};
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Region, Value},
@@ -45,14 +45,11 @@ impl BinaryColumn {
             .expect("failed assign_advice");
     }
 
-    pub fn assignment<F: FieldExt>(
-        &self,
-        offset: usize,
-        value: bool,
-    ) -> ((ColumnEnum, usize), Value<F>) {
-        (
-            (ColumnEnum::Advice(AdviceColumn(self.0)), offset),
-            Value::known(if value { F::one() } else { F::zero() }),
-        )
+    pub fn assignment<F: FieldExt>(&self, offset: usize, value: bool) -> Assignment<F> {
+        Assignment {
+            offset,
+            column: ColumnEnum::from(AdviceColumn(self.0)),
+            value: Value::known(if value { F::one() } else { F::zero() }),
+        }
     }
 }

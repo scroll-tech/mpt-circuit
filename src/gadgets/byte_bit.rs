@@ -1,5 +1,5 @@
 use super::super::constraint_builder::{ConstraintBuilder, FixedColumn, Query};
-use crate::assignment_map::Column;
+use crate::assignment_map::{Assignment, Column};
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Region, Value},
@@ -38,18 +38,18 @@ impl ByteBitGadget {
 
     pub fn assign<F: FieldExt>(&self, region: &mut Region<'_, F>) {
         let assignments: Vec<_> = self.assignments::<F>().collect();
-        for ((column, offset), value) in assignments.into_iter() {
-            match column {
-                Column::Fixed(s) => region.assign_fixed(|| "fixed", s.0, offset, || value),
+        for assignment in assignments.into_iter() {
+            match assignment.column {
+                Column::Fixed(s) => {
+                    region.assign_fixed(|| "fixed", s.0, assignment.offset, || assignment.value)
+                }
                 _ => unreachable!(),
             }
             .unwrap();
         }
     }
 
-    pub fn assignments<F: FieldExt>(
-        &self,
-    ) -> impl ParallelIterator<Item = ((Column, usize), Value<F>)> + '_ {
+    pub fn assignments<F: FieldExt>(&self) -> impl ParallelIterator<Item = Assignment<F>> + '_ {
         (0..256u64).into_par_iter().flat_map(move |byte| {
             let starting_offset = byte * 8;
             (0..8u64).into_par_iter().flat_map_iter(move |index| {

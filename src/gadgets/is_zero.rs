@@ -1,4 +1,4 @@
-use crate::assignment_map::Column;
+use crate::assignment_map::{Assignment, Column};
 use crate::constraint_builder::{AdviceColumn, BinaryQuery, ConstraintBuilder, Query};
 use halo2_proofs::{
     arithmetic::FieldExt,
@@ -38,7 +38,7 @@ impl IsZeroGadget {
         &self,
         offset: usize,
         value: T,
-    ) -> [((Column, usize), Value<F>); 2]
+    ) -> [Assignment<F>; 2]
     where
         <T as TryInto<F>>::Error: Debug,
     {

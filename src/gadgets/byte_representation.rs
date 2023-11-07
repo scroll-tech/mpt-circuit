@@ -1,6 +1,6 @@
 use super::{byte_bit::RangeCheck256Lookup, is_zero::IsZeroGadget, rlc_randomness::RlcRandomness};
 use crate::{
-    assignment_map::Column,
+    assignment_map::{Assignment, Column},
     constraint_builder::{
         AdviceColumn, ConstraintBuilder, Query, SecondPhaseAdviceColumn, SelectorColumn,
     },
@@ -109,12 +109,12 @@ impl ByteRepresentationConfig {
         let assignments: Vec<_> = self
             .assignments::<F>(u32s, u64s, u128s, frs, randomness)
             .collect();
-        for ((column, offset), value) in assignments.into_iter() {
-            match column {
-                Column::Selector(s) => region.assign_fixed(|| "fixed", s.0, offset, || value),
-                Column::Advice(s) => region.assign_advice(|| "advice", s.0, offset, || value),
+        for assignment in assignments.into_iter() {
+            match assignment.column {
+                Column::Selector(s) => region.assign_fixed(|| "fixed", s.0, assignment.offset, || assignment.value),
+                Column::Advice(s) => region.assign_advice(|| "advice", s.0, assignment.offset, || assignment.value),
                 Column::SecondPhaseAdvice(s) => {
-                    region.assign_advice(|| "second phase advice", s.0, offset, || value)
+                    region.assign_advice(|| "second phase advice", s.0, assignment.offset, || assignment.value)
                 }
                 _ => unreachable!(),
             }
@@ -129,7 +129,7 @@ impl ByteRepresentationConfig {
         u128s: Vec<u128>,
         frs: Vec<Fr>,
         randomness: Value<F>,
-    ) -> impl ParallelIterator<Item = ((Column, usize), Value<F>)> + '_ {
+    ) -> impl ParallelIterator<Item = Assignment<F>> + '_ {
         let starting_offsets: Vec<_> = repeat(4)
             .take(u32s.len())
             .chain(repeat(8).take(u64s.len()))

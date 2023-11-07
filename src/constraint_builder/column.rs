@@ -1,5 +1,5 @@
 use super::{BinaryQuery, Query};
-use crate::assignment_map::Column as ColumnEnum;
+use crate::assignment_map::{Assignment, Column as ColumnEnum};
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Region, Value},
@@ -25,15 +25,12 @@ impl SelectorColumn {
             .expect("failed enable selector");
     }
 
-    pub fn assignment<F: FieldExt>(
-        &self,
-        offset: usize,
-        enable: bool,
-    ) -> ((ColumnEnum, usize), Value<F>) {
-        (
-            (ColumnEnum::from(*self), offset),
-            Value::known(if enable { F::one() } else { F::zero() }),
-        )
+    pub fn assignment<F: FieldExt>(&self, offset: usize, enable: bool) -> Assignment<F> {
+        Assignment {
+            offset,
+            column: ColumnEnum::from(*self),
+            value: Value::known(if enable { F::one() } else { F::zero() }),
+        }
     }
 }
 
@@ -75,14 +72,15 @@ impl FixedColumn {
         &self,
         offset: usize,
         value: T,
-    ) -> ((ColumnEnum, usize), Value<F>)
+    ) -> Assignment<F>
     where
         <T as TryInto<F>>::Error: Debug,
     {
-        (
-            (ColumnEnum::from(*self), offset),
-            Value::known(value.try_into().unwrap()),
-        )
+        Assignment {
+            offset,
+            column: ColumnEnum::from(*self),
+            value: Value::known(value.try_into().unwrap()),
+        }
     }
 }
 
@@ -132,14 +130,15 @@ impl AdviceColumn {
         &self,
         offset: usize,
         value: T,
-    ) -> ((ColumnEnum, usize), Value<F>)
+    ) -> Assignment<F>
     where
         <T as TryInto<F>>::Error: Debug,
     {
-        (
-            (ColumnEnum::from(*self), offset),
-            Value::known(value.try_into().unwrap()),
-        )
+        Assignment {
+            offset,
+            column: ColumnEnum::from(*self),
+            value: Value::known(value.try_into().unwrap()),
+        }
     }
 
     pub fn assign_inverse_or_zero<F: FieldExt>(
@@ -181,11 +180,11 @@ impl SecondPhaseAdviceColumn {
             .expect("failed assign_advice");
     }
 
-    pub fn assignment<F: FieldExt>(
-        &self,
-        offset: usize,
-        value: Value<F>,
-    ) -> ((ColumnEnum, usize), Value<F>) {
-        ((ColumnEnum::from(*self), offset), value)
+    pub fn assignment<F: FieldExt>(&self, offset: usize, value: Value<F>) -> Assignment<F> {
+        Assignment {
+            offset,
+            column: ColumnEnum::from(*self),
+            value,
+        }
     }
 }
