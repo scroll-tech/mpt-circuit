@@ -3,7 +3,7 @@ use crate::assignment_map::Column as ColumnEnum;
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Region, Value},
-    plonk::{Advice, Column, Fixed},
+    plonk::{Advice, Assigned, Column, Fixed},
 };
 use std::fmt::Debug;
 
@@ -140,6 +140,22 @@ impl AdviceColumn {
             (ColumnEnum::from(*self), offset),
             Value::known(value.try_into().unwrap()),
         )
+    }
+
+    pub fn assign_inverse_or_zero<F: FieldExt>(
+        &self,
+        region: &mut Region<'_, F>,
+        offset: usize,
+        value: F,
+    ) {
+        region
+            .assign_advice(
+                || "advice",
+                self.0,
+                offset,
+                || Value::known(Assigned::<F>::from(value).invert()),
+            )
+            .expect("failed assign_inverse_or_zero");
     }
 }
 

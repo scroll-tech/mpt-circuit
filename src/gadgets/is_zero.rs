@@ -30,11 +30,8 @@ impl IsZeroGadget {
     ) where
         <T as TryInto<F>>::Error: Debug,
     {
-        self.inverse_or_zero.assign(
-            region,
-            offset,
-            value.try_into().unwrap().invert().unwrap_or(F::zero()),
-        );
+        self.inverse_or_zero
+            .assign_inverse_or_zero(region, offset, value.try_into().unwrap());
     }
 
     pub fn assignments<F: FieldExt, T: Copy + TryInto<F>>(
@@ -49,7 +46,7 @@ impl IsZeroGadget {
             self.value.assignment(offset, value),
             self.inverse_or_zero.assignment(
                 offset,
-                value.try_into().unwrap().invert().unwrap_or(F::zero()),
+                (value.try_into().unwrap()).invert().unwrap_or_else(F::zero),
             ),
         ]
     }
