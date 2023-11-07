@@ -21,9 +21,7 @@ pub struct AssignmentMap<F: FieldExt>(BTreeMap<usize, Vec<(Column, Value<F>)>>);
 
 impl<F: FieldExt> AssignmentMap<F> {
     pub fn new(stream: impl ParallelIterator<Item = Assignment<F>>) -> Self {
-        let mut sorted_by_offset: Vec<_> = stream
-            .map(|a| (a.offset, a.column, a.value))
-            .collect();
+        let mut sorted_by_offset: Vec<_> = stream.map(|a| (a.offset, a.column, a.value)).collect();
         sorted_by_offset.sort_by(|x, y| x.0.cmp(&y.0));
         let grouped_by_offset = sorted_by_offset.iter().group_by(|(offset, _, _)| offset);
         let y: BTreeMap<_, _> = grouped_by_offset

@@ -111,11 +111,18 @@ impl ByteRepresentationConfig {
             .collect();
         for assignment in assignments.into_iter() {
             match assignment.column {
-                Column::Selector(s) => region.assign_fixed(|| "fixed", s.0, assignment.offset, || assignment.value),
-                Column::Advice(s) => region.assign_advice(|| "advice", s.0, assignment.offset, || assignment.value),
-                Column::SecondPhaseAdvice(s) => {
-                    region.assign_advice(|| "second phase advice", s.0, assignment.offset, || assignment.value)
+                Column::Selector(s) => {
+                    region.assign_fixed(|| "fixed", s.0, assignment.offset, || assignment.value)
                 }
+                Column::Advice(s) => {
+                    region.assign_advice(|| "advice", s.0, assignment.offset, || assignment.value)
+                }
+                Column::SecondPhaseAdvice(s) => region.assign_advice(
+                    || "second phase advice",
+                    s.0,
+                    assignment.offset,
+                    || assignment.value,
+                ),
                 _ => unreachable!(),
             }
             .unwrap();

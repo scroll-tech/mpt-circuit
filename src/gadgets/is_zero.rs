@@ -1,10 +1,6 @@
-use crate::assignment_map::{Assignment, Column};
+use crate::assignment_map::Assignment;
 use crate::constraint_builder::{AdviceColumn, BinaryQuery, ConstraintBuilder, Query};
-use halo2_proofs::{
-    arithmetic::FieldExt,
-    circuit::{Region, Value},
-    plonk::ConstraintSystem,
-};
+use halo2_proofs::{arithmetic::FieldExt, circuit::Region, plonk::ConstraintSystem};
 use std::fmt::Debug;
 
 #[derive(Clone, Copy)]

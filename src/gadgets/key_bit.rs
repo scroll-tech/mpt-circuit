@@ -7,10 +7,7 @@ use crate::{
     constraint_builder::{AdviceColumn, ConstraintBuilder, Query, SelectorColumn},
 };
 use halo2_proofs::{
-    arithmetic::FieldExt,
-    circuit::{Region, Value},
-    halo2curves::bn256::Fr,
-    plonk::ConstraintSystem,
+    arithmetic::FieldExt, circuit::Region, halo2curves::bn256::Fr, plonk::ConstraintSystem,
 };
 use rayon::prelude::*;
 

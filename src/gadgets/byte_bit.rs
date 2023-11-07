@@ -1,10 +1,6 @@
 use super::super::constraint_builder::{ConstraintBuilder, FixedColumn, Query};
 use crate::assignment_map::{Assignment, Column};
-use halo2_proofs::{
-    arithmetic::FieldExt,
-    circuit::{Region, Value},
-    plonk::ConstraintSystem,
-};
+use halo2_proofs::{arithmetic::FieldExt, circuit::Region, plonk::ConstraintSystem};
 use rayon::prelude::*;
 
 // TODO: fix name to configggggggg

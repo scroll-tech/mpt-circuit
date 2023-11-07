@@ -1,5 +1,5 @@
 use crate::{
-    assignment_map::{AssignmentMap, Column, Assignment},
+    assignment_map::{Assignment, AssignmentMap},
     constraint_builder::{ConstraintBuilder, SelectorColumn},
     gadgets::{
         byte_bit::ByteBitGadget,
@@ -18,7 +18,7 @@ use crate::{
 };
 use halo2_proofs::{
     arithmetic::FieldExt,
-    circuit::{Layouter, Value},
+    circuit::Layouter,
     halo2curves::bn256::Fr,
     plonk::{Challenge, ConstraintSystem, Error, Expression, VirtualCells},
 };
