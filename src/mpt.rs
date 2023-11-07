@@ -121,33 +121,26 @@ impl MptCircuitConfig {
         n_rows: usize,
     ) -> Result<(), Error> {
         let randomness = self.rlc_randomness.value(layouter);
-        let (u32s, u64s, u128s, frs) = byte_representations(proofs);
 
-        layouter.assign_region(
-            || "mpt circuit",
-            |mut region| {
-                self.mpt_update
-                    .assign(&mut region, proofs, n_rows, randomness);
-                Ok(())
-            },
+        let proofs_vec: Vec<_> = proofs.iter().cloned().collect();
+        layouter.assign_regions(
+            || "mpt circuit parallel assignment 1",
+            self.mpt_update.assignments(proofs_vec, n_rows, randomness),
         )?;
 
-        let mut keys = mpt_update_keys(proofs);
-        keys.sort();
-        keys.dedup();
-
-        let selector_assignments = self.selector_assignments(n_rows);
-        let byte_bit_assignments = self.byte_bit.assignments();
+        let (u32s, u64s, u128s, frs) = byte_representations(proofs);
         let byte_representation_assignments = self
             .byte_representation
             .assignments(u32s, u64s, u128s, frs, randomness);
-        let canonical_representation_assignments = self
-            .canonical_representation
-            .assignments(keys, n_rows, randomness);
+        let selector_assignments = self.selector_assignments(n_rows);
+        let byte_bit_assignments = self.byte_bit.assignments();
+        let canonical_representation_assignments =
+            self.canonical_representation
+                .assignments(mpt_update_keys(proofs), n_rows, randomness);
         let key_bit_assignments = self.key_bit.assignments(key_bit_lookups(proofs));
 
         layouter.assign_regions(
-            || "mpt circuit parallel assignment",
+            || "mpt circuit parallel assignment 2",
             AssignmentMap::new(
                 selector_assignments
                     .chain(byte_bit_assignments)
