@@ -254,7 +254,7 @@ impl MptUpdateConfig {
             }
         };
         self.assign_storage(region, next_offset, &proof.storage, randomness);
-        return proof.n_rows();
+        proof.n_rows()
     }
 
     // Valid assignment proving that the address 0 doesn't exist in an empty MPT.

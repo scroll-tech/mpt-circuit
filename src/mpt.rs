@@ -122,10 +122,10 @@ impl MptCircuitConfig {
     ) -> Result<(), Error> {
         let randomness = self.rlc_randomness.value(layouter);
 
-        let proofs_vec: Vec<_> = proofs.iter().cloned().collect();
         layouter.assign_regions(
             || "mpt circuit parallel assignment 1",
-            self.mpt_update.assignments(proofs_vec, n_rows, randomness),
+            self.mpt_update
+                .assignments(proofs.to_vec(), n_rows, randomness),
         )?;
 
         let (u32s, u64s, u128s, frs) = byte_representations(proofs);
