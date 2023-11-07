@@ -264,6 +264,7 @@ impl MptUpdateConfig {
         self.key.assign(region, offset, *ZERO_PAIR_HASH);
         self.other_key.assign(region, offset, *ZERO_PAIR_HASH);
         self.domain.assign(region, offset, HashDomain::Pair);
+        self.new_hash.assign(region, offset, 0);
     }
 
     fn assign_storage_trie_rows(
