@@ -381,7 +381,7 @@ impl MptUpdateConfig {
                         self.assign_proof(&mut region, 0, &proof, randomness);
                     } else if i == 0 {
                         // Need make one assignment so region size is calculated correctly.
-                        self.key.assign(&mut region, 0, 0);
+                        self.new_hash.assign(&mut region, 0, 0);
                     } else {
                         self.assign_padding_row(&mut region, 0);
                     }
