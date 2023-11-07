@@ -29,9 +29,10 @@ use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Region, Value},
     halo2curves::{bn256::Fr, group::ff::PrimeField},
-    plonk::ConstraintSystem,
+    plonk::{ConstraintSystem, Error},
 };
 use lazy_static::lazy_static;
+use std::iter::{once, repeat};
 use strum::IntoEnumIterator;
 
 lazy_static! {
@@ -359,6 +360,35 @@ impl MptUpdateConfig {
         for offset in n_rows_used..n_rows {
             self.assign_padding_row(region, offset);
         }
+    }
+
+    pub fn assignments(
+        &self,
+        proofs: Vec<Proof>,
+        n_rows: usize,
+        randomness: Value<Fr>,
+    ) -> Vec<impl FnMut(Region<'_, Fr>) -> Result<(), Error> + '_> {
+        let n_padding_rows = n_rows - Self::n_rows_required(&proofs);
+        let n_closures = 1 + proofs.len() + n_padding_rows;
+        dbg!(n_closures);
+        once(None)
+            .chain(proofs.into_iter().map(Some).chain(repeat(None)))
+            .take(n_closures)
+            .enumerate()
+            .map(move |(i, maybe_proof)| {
+                move |mut region: Region<'_, Fr>| {
+                    if let Some(proof) = maybe_proof.clone() {
+                        self.assign_proof(&mut region, 0, &proof, randomness);
+                    } else if i == 0 {
+                        // Need make one assignment so region size is calculated correctly.
+                        self.key.assign(&mut region, 0, 0);
+                    } else {
+                        self.assign_padding_row(&mut region, 0);
+                    }
+                    Ok(())
+                }
+            })
+            .collect()
     }
 
     pub fn n_rows_required(proofs: &[Proof]) -> usize {
