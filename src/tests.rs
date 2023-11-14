@@ -1108,3 +1108,16 @@ fn test_n_rows_required() {
     let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
     assert_eq!(prover.verify(), Ok(()));
 }
+
+#[test]
+fn verify_benchmark_trace() {
+    let witness: Vec<(MPTProofType, SMTTrace)> =
+        serde_json::from_str(&include_str!("../benches/traces.json")).unwrap();
+    let proofs: Vec<_> = witness.clone().into_iter().map(Proof::from).collect();
+
+    let n_rows_required = MptCircuitConfig::n_rows_required(&proofs);
+
+    let circuit = TestCircuit::new(n_rows_required, witness);
+    let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
+    assert_eq!(prover.verify(), Ok(()));
+}
