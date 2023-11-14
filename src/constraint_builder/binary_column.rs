@@ -1,9 +1,10 @@
-use super::{BinaryQuery, ConstraintBuilder, Query};
+use super::{AdviceColumn, BinaryQuery, ConstraintBuilder, Query};
+use crate::assignment_map::{Assignment, Column as ColumnEnum};
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Region, Value},
     plonk::ConstraintSystem,
-    plonk::{Advice, Column},
+    plonk::{Advice, Assigned, Column},
 };
 
 #[derive(Clone, Copy)]
@@ -42,5 +43,13 @@ impl BinaryColumn {
         region
             .assign_advice(|| "binary", self.0, offset, || Value::known(F::from(value)))
             .expect("failed assign_advice");
+    }
+
+    pub fn assignment<F: FieldExt>(&self, offset: usize, value: bool) -> Assignment<F> {
+        Assignment {
+            offset,
+            column: ColumnEnum::from(AdviceColumn(self.0)),
+            value: Value::known(Assigned::Trivial(if value { F::one() } else { F::zero() })),
+        }
     }
 }

@@ -1,6 +1,9 @@
 use super::{byte_bit::RangeCheck256Lookup, is_zero::IsZeroGadget, rlc_randomness::RlcRandomness};
-use crate::constraint_builder::{
-    AdviceColumn, ConstraintBuilder, Query, SecondPhaseAdviceColumn, SelectorColumn,
+use crate::{
+    assignment_map::{Assignment, Column},
+    constraint_builder::{
+        AdviceColumn, ConstraintBuilder, Query, SecondPhaseAdviceColumn, SelectorColumn,
+    },
 };
 use halo2_proofs::{
     arithmetic::FieldExt,
@@ -8,6 +11,8 @@ use halo2_proofs::{
     halo2curves::bn256::Fr,
     plonk::ConstraintSystem,
 };
+use rayon::prelude::*;
+use std::iter::repeat;
 
 pub trait RlcLookup {
     fn lookup<F: FieldExt>(&self) -> [Query<F>; 3];
@@ -95,47 +100,86 @@ impl ByteRepresentationConfig {
     pub fn assign<F: FieldExt>(
         &self,
         region: &mut Region<'_, F>,
-        u32s: &[u32],
-        u64s: &[u64],
-        u128s: &[u128],
-        frs: &[Fr],
+        u32s: Vec<u32>,
+        u64s: Vec<u64>,
+        u128s: Vec<u128>,
+        frs: Vec<Fr>,
         randomness: Value<F>,
     ) {
-        self.is_first.enable(region, 0);
-        let byte_representations = u32s
-            .iter()
-            .map(u32_to_big_endian)
-            .chain(u64s.iter().map(u64_to_big_endian))
-            .chain(u128s.iter().map(u128_to_big_endian))
-            .chain(frs.iter().map(fr_to_big_endian));
-
-        let mut offset = 1;
-        for byte_representation in byte_representations {
-            let mut value = F::zero();
-            let mut rlc = Value::known(F::zero());
-            for (index, byte) in byte_representation.iter().enumerate() {
-                let byte = F::from(u64::from(*byte));
-                self.byte.assign(region, offset, byte);
-
-                value = value * F::from(256) + byte;
-                self.value.assign(region, offset, value);
-
-                rlc = rlc * randomness + Value::known(byte);
-                self.rlc.assign(region, offset, rlc);
-
-                let index = u64::try_from(index).unwrap();
-                self.index.assign(region, offset, index);
-                self.index_is_zero.assign(region, offset, index);
-
-                offset += 1;
+        let assignments: Vec<_> = self
+            .assignments::<F>(u32s, u64s, u128s, frs, randomness)
+            .collect();
+        for assignment in assignments.into_iter() {
+            match assignment.column {
+                Column::Selector(s) => {
+                    region.assign_fixed(|| "fixed", s.0, assignment.offset, || assignment.value)
+                }
+                Column::Advice(s) => {
+                    region.assign_advice(|| "advice", s.0, assignment.offset, || assignment.value)
+                }
+                Column::SecondPhaseAdvice(s) => region.assign_advice(
+                    || "second phase advice",
+                    s.0,
+                    assignment.offset,
+                    || assignment.value,
+                ),
+                _ => unreachable!(),
             }
+            .unwrap();
         }
+    }
 
-        let expected_offset = Self::n_rows_required(u32s, u64s, u128s, frs);
-        debug_assert!(
-            offset == expected_offset,
-            "assign used {offset} rows but {expected_offset} rows expected from `n_rows_required`",
-        );
+    pub fn assignments<F: FieldExt>(
+        &self,
+        u32s: Vec<u32>,
+        u64s: Vec<u64>,
+        u128s: Vec<u128>,
+        frs: Vec<Fr>,
+        randomness: Value<F>,
+    ) -> impl ParallelIterator<Item = Assignment<F>> + '_ {
+        let starting_offsets: Vec<_> = repeat(4)
+            .take(u32s.len())
+            .chain(repeat(8).take(u64s.len()))
+            .chain(repeat(16).take(u128s.len()))
+            .chain(repeat(31).take(frs.len()))
+            .scan(1, |cumulative_sum, n_rows| {
+                let result = Some(*cumulative_sum);
+                *cumulative_sum += n_rows;
+                result
+            })
+            .collect();
+        u32s.into_par_iter()
+            .map(|x| u32_to_big_endian(&x))
+            .chain(u64s.into_par_iter().map(|x| u64_to_big_endian(&x)))
+            .chain(u128s.into_par_iter().map(|x| u128_to_big_endian(&x)))
+            .chain(frs.into_par_iter().map(|x| fr_to_big_endian(&x)))
+            .zip_eq(starting_offsets.into_par_iter())
+            .enumerate()
+            .flat_map_iter(move |(i, (bytes, starting_offset))| {
+                let mut assignments = vec![];
+                if i == 0 {
+                    assignments.push(self.is_first.assignment(starting_offset, true));
+                }
+                let mut value = F::zero();
+                let mut rlc = Value::known(F::zero());
+                for (index, byte) in bytes.iter().enumerate() {
+                    let byte = F::from(u64::from(*byte));
+                    value = value * F::from(256) + byte;
+                    rlc = rlc * randomness + Value::known(byte);
+
+                    let offset = starting_offset + index;
+                    assignments.extend(vec![
+                        self.byte.assignment(offset, byte),
+                        self.value.assignment(offset, value),
+                        self.rlc.assignment(offset, rlc),
+                    ]);
+                    assignments.extend(
+                        self.index_is_zero
+                            .assignments(offset, u64::try_from(index).unwrap()),
+                    );
+                }
+                assignments.into_iter()
+            })
     }
 
     pub fn n_rows_required(u32s: &[u32], u64s: &[u64], u128s: &[u128], frs: &[Fr]) -> usize {
@@ -226,10 +270,10 @@ mod test {
                     byte_bit.assign(&mut region);
                     byte_representation.assign(
                         &mut region,
-                        &self.u32s,
-                        &self.u64s,
-                        &self.u128s,
-                        &self.frs,
+                        self.u32s.clone(),
+                        self.u64s.clone(),
+                        self.u128s.clone(),
+                        self.frs.clone(),
                         randomness,
                     );
                     Ok(())

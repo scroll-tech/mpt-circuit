@@ -1,3 +1,4 @@
+use crate::assignment_map::Assignment;
 use crate::constraint_builder::{AdviceColumn, BinaryQuery, ConstraintBuilder, Query};
 use halo2_proofs::{arithmetic::FieldExt, circuit::Region, plonk::ConstraintSystem};
 use std::fmt::Debug;
@@ -25,11 +26,24 @@ impl IsZeroGadget {
     ) where
         <T as TryInto<F>>::Error: Debug,
     {
-        self.inverse_or_zero.assign(
-            region,
-            offset,
-            value.try_into().unwrap().invert().unwrap_or(F::zero()),
-        );
+        self.inverse_or_zero
+            .assign_inverse_or_zero(region, offset, value.try_into().unwrap());
+    }
+
+    pub fn assignments<F: FieldExt, T: Copy + TryInto<F>>(
+        &self,
+        offset: usize,
+        value: T,
+    ) -> [Assignment<F>; 2]
+    where
+        <T as TryInto<F>>::Error: Debug,
+    {
+        let value = value.try_into().unwrap();
+        [
+            self.value.assignment(offset, value),
+            self.inverse_or_zero
+                .inverse_or_zero_assignment(offset, value),
+        ]
     }
 
     // TODO: get rid of assign method in favor of it.

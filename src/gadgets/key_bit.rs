@@ -2,10 +2,14 @@ use super::{
     byte_bit::{ByteBitLookup, RangeCheck256Lookup, RangeCheck8Lookup},
     canonical_representation::CanonicalRepresentationLookup,
 };
-use crate::constraint_builder::{AdviceColumn, ConstraintBuilder, Query};
+use crate::{
+    assignment_map::{Assignment, Column},
+    constraint_builder::{AdviceColumn, ConstraintBuilder, Query},
+};
 use halo2_proofs::{
     arithmetic::FieldExt, circuit::Region, halo2curves::bn256::Fr, plonk::ConstraintSystem,
 };
+use rayon::prelude::*;
 
 pub trait KeyBitLookup {
     fn lookup<F: FieldExt>(&self) -> [Query<F>; 3];
@@ -82,29 +86,42 @@ impl KeyBitConfig {
         }
     }
 
-    pub fn assign(&self, region: &mut Region<'_, Fr>, lookups: &[(Fr, usize, bool)]) {
-        // TODO; dedup lookups
-        for (offset, (value, index, bit)) in lookups.iter().enumerate() {
-            // TODO: either move the disabled row to the end of the assigment or get rid of it entirely.
-            let offset = offset + 1; // Start assigning at offet = 1 because the first row is disabled.
-            let bytes = value.to_bytes();
-
-            let index_div_8 = index / 8; // index = (31 - index/8) * 8
-            let index_mod_8 = index % 8;
-            let byte = bytes[index_div_8];
-            // sanity check. TODO: Get rid of bit in the assign fn?
-            assert_eq!(*bit, byte & 1 << index_mod_8 != 0);
-
-            self.value.assign(region, offset, *value);
-            self.index
-                .assign(region, offset, u64::try_from(*index).unwrap());
-            self.bit.assign(region, offset, *bit);
-            self.index_div_8
-                .assign(region, offset, u64::try_from(index_div_8).unwrap());
-            self.index_mod_8
-                .assign(region, offset, u64::try_from(index_mod_8).unwrap());
-            self.byte.assign(region, offset, u64::from(byte));
+    pub fn assign(&self, region: &mut Region<'_, Fr>, lookups: Vec<(Fr, usize, bool)>) {
+        let assignments: Vec<_> = self.assignments(lookups).collect();
+        for assignment in assignments.into_iter() {
+            match assignment.column {
+                Column::Advice(s) => region
+                    .assign_advice(|| "advice", s.0, assignment.offset, || assignment.value)
+                    .unwrap(),
+                _ => unreachable!(),
+            };
         }
+    }
+
+    pub fn assignments(
+        &self,
+        lookups: Vec<(Fr, usize, bool)>,
+    ) -> impl ParallelIterator<Item = Assignment<Fr>> + '_ {
+        lookups
+            .into_par_iter()
+            .enumerate()
+            .flat_map_iter(|(i, (value, index, bit))| {
+                let offset = i + 1;
+                let index_div_8 = index / 8;
+                let index_mod_8 = index % 8;
+                let byte = value.to_bytes()[index_div_8];
+                [
+                    self.value.assignment::<Fr, _>(offset, value),
+                    self.index.assignment(offset, u64::try_from(index).unwrap()),
+                    self.bit.assignment(offset, bit),
+                    self.index_div_8
+                        .assignment(offset, u64::try_from(index_div_8).unwrap()),
+                    self.index_mod_8
+                        .assignment(offset, u64::try_from(index_mod_8).unwrap()),
+                    self.byte.assignment(offset, u64::from(byte)),
+                ]
+                .into_iter()
+            })
     }
 
     pub fn n_rows_required(lookups: &[(Fr, usize, bool)]) -> usize {
@@ -199,9 +216,9 @@ mod test {
                         selector.enable(&mut region, offset);
                     }
 
-                    key_bit.assign(&mut region, &self.lookups);
+                    key_bit.assign(&mut region, self.lookups.clone());
                     byte_bit.assign(&mut region);
-                    canonical_representation.assign(&mut region, randomness, &keys, 256);
+                    canonical_representation.assign(&mut region, randomness, keys.clone(), 256);
                     Ok(())
                 },
             )

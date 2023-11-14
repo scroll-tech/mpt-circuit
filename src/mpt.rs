@@ -1,4 +1,5 @@
 use crate::{
+    assignment_map::{Assignment, AssignmentMap},
     constraint_builder::{ConstraintBuilder, Query, SelectorColumn},
     gadgets::{
         byte_bit::ByteBitGadget,
@@ -22,6 +23,7 @@ use halo2_proofs::{
     plonk::{Challenge, ConstraintSystem, Error, Expression, VirtualCells},
 };
 use itertools::Itertools;
+use rayon::prelude::*;
 
 /// Config for MptCircuit
 #[derive(Clone)]
@@ -118,57 +120,37 @@ impl MptCircuitConfig {
         n_rows: usize,
     ) -> Result<(), Error> {
         let randomness = self.rlc_randomness.value(layouter);
+
+        layouter.assign_regions(
+            || "mpt circuit parallel assignment 1",
+            self.mpt_update
+                .assignments(proofs.to_vec(), n_rows, randomness),
+        )?;
+
         let (u32s, u64s, u128s, frs) = byte_representations(proofs);
+        let byte_representation_assignments = self
+            .byte_representation
+            .assignments(u32s, u64s, u128s, frs, randomness);
+        let selector_assignments = self.selector_assignments(n_rows);
+        let byte_bit_assignments = self.byte_bit.assignments();
+        let canonical_representation_assignments =
+            self.canonical_representation
+                .assignments(mpt_update_keys(proofs), n_rows, randomness);
+        let key_bit_assignments = self.key_bit.assignments(key_bit_lookups(proofs));
 
-        layouter.assign_region(
-            || "mpt circuit",
-            |mut region| {
-                for offset in 1..n_rows {
-                    self.selector.enable(&mut region, offset);
-                }
+        layouter.assign_regions(
+            || "mpt circuit parallel assignment 2",
+            AssignmentMap::new(
+                selector_assignments
+                    .chain(byte_bit_assignments)
+                    .chain(byte_representation_assignments)
+                    .chain(canonical_representation_assignments)
+                    .chain(key_bit_assignments),
+            )
+            .into_vec(),
+        )?;
 
-                // pad canonical_representation to fixed count
-                // notice each input cost 32 rows in canonical_representation, and inside
-                // assign one extra input is added
-                let mut keys = mpt_update_keys(proofs);
-                keys.sort();
-                keys.dedup();
-                let total_rep_size = n_rows / 32 - 1;
-                assert!(
-                    total_rep_size >= keys.len(),
-                    "no enough space for canonical representation of all keys (need {})",
-                    keys.len()
-                );
-
-                self.canonical_representation
-                    .assign(&mut region, randomness, &keys, n_rows);
-                self.key_bit.assign(&mut region, &key_bit_lookups(proofs));
-                self.byte_bit.assign(&mut region);
-                self.byte_representation.assign(
-                    &mut region,
-                    &u32s,
-                    &u64s,
-                    &u128s,
-                    &frs,
-                    randomness,
-                );
-
-                let n_assigned_rows = self.mpt_update.assign(&mut region, proofs, randomness);
-
-                assert!(
-                    2 + n_assigned_rows <= n_rows,
-                    "mpt circuit requires {n_assigned_rows} rows for mpt updates + 1 initial \
-                    all-zero row + at least 1 final padding row. Only {n_rows} rows available."
-                );
-
-                for offset in 1 + n_assigned_rows..n_rows {
-                    self.mpt_update.assign_padding_row(&mut region, offset);
-                }
-                self.is_final_row.enable(&mut region, n_rows - 1);
-
-                Ok(())
-            },
-        )
+        Ok(())
     }
 
     pub fn lookup_exprs<F: FieldExt>(&self, meta: &mut VirtualCells<'_, F>) -> [Expression<F>; 8] {
@@ -196,5 +178,17 @@ impl MptCircuitConfig {
         .iter()
         .max()
         .unwrap()
+    }
+
+    fn selector_assignments(
+        &self,
+        n_rows: usize,
+    ) -> impl ParallelIterator<Item = Assignment<Fr>> + '_ {
+        (0..n_rows).into_par_iter().flat_map_iter(move |offset| {
+            [
+                self.selector.assignment(offset, offset != 0),
+                self.is_final_row.assignment(offset, offset == n_rows - 1),
+            ]
+        })
     }
 }

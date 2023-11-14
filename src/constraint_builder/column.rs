@@ -1,12 +1,13 @@
 use super::{BinaryQuery, Query};
+use crate::assignment_map::{Assignment, Column as ColumnEnum};
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Region, Value},
-    plonk::{Advice, Column, Fixed},
+    plonk::{Advice, Assigned, Column, Fixed},
 };
 use std::fmt::Debug;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Hash, Eq, PartialEq, PartialOrd, Ord)]
 pub struct SelectorColumn(pub Column<Fixed>);
 
 impl SelectorColumn {
@@ -23,9 +24,17 @@ impl SelectorColumn {
             .assign_fixed(|| "selector", self.0, offset, || Value::known(F::one()))
             .expect("failed enable selector");
     }
+
+    pub fn assignment<F: FieldExt>(&self, offset: usize, enable: bool) -> Assignment<F> {
+        Assignment {
+            offset,
+            column: ColumnEnum::from(*self),
+            value: Value::known(Assigned::Trivial(if enable { F::one() } else { F::zero() })),
+        }
+    }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Hash, Eq, PartialEq, PartialOrd, Ord)]
 pub struct FixedColumn(pub Column<Fixed>);
 
 impl FixedColumn {
@@ -58,9 +67,24 @@ impl FixedColumn {
             )
             .expect("failed assign_fixed");
     }
+
+    pub fn assignment<F: FieldExt, T: Copy + TryInto<F>>(
+        &self,
+        offset: usize,
+        value: T,
+    ) -> Assignment<F>
+    where
+        <T as TryInto<F>>::Error: Debug,
+    {
+        Assignment {
+            offset,
+            column: ColumnEnum::from(*self),
+            value: Value::known(value.try_into().unwrap()).into(),
+        }
+    }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Hash, Eq, PartialEq, PartialOrd, Ord)]
 pub struct AdviceColumn(pub Column<Advice>);
 
 impl AdviceColumn {
@@ -101,9 +125,52 @@ impl AdviceColumn {
             )
             .expect("failed assign_advice");
     }
+
+    pub fn assignment<F: FieldExt, T: Copy + TryInto<F>>(
+        &self,
+        offset: usize,
+        value: T,
+    ) -> Assignment<F>
+    where
+        <T as TryInto<F>>::Error: Debug,
+    {
+        Assignment {
+            offset,
+            column: ColumnEnum::from(*self),
+            value: Value::known(Assigned::Trivial(value.try_into().unwrap())),
+        }
+    }
+
+    pub fn assign_inverse_or_zero<F: FieldExt>(
+        &self,
+        region: &mut Region<'_, F>,
+        offset: usize,
+        value: F,
+    ) {
+        region
+            .assign_advice(
+                || "advice",
+                self.0,
+                offset,
+                || Value::known(Assigned::<F>::from(value).invert()),
+            )
+            .expect("failed assign_inverse_or_zero");
+    }
+
+    pub fn inverse_or_zero_assignment<F: FieldExt>(
+        &self,
+        offset: usize,
+        value: F,
+    ) -> Assignment<F> {
+        Assignment {
+            offset,
+            column: ColumnEnum::from(*self),
+            value: Value::known(Assigned::Trivial(value).invert()),
+        }
+    }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Hash, Eq, PartialEq, PartialOrd, Ord)]
 pub struct SecondPhaseAdviceColumn(pub Column<Advice>);
 
 impl SecondPhaseAdviceColumn {
@@ -123,5 +190,13 @@ impl SecondPhaseAdviceColumn {
         region
             .assign_advice(|| "second phase advice", self.0, offset, || value)
             .expect("failed assign_advice");
+    }
+
+    pub fn assignment<F: FieldExt>(&self, offset: usize, value: Value<F>) -> Assignment<F> {
+        Assignment {
+            offset,
+            column: ColumnEnum::from(*self),
+            value: value.into(),
+        }
     }
 }

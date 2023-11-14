@@ -1,6 +1,7 @@
 #![allow(clippy::too_many_arguments)]
 #![deny(unsafe_code)]
 
+mod assignment_map;
 pub mod constraint_builder;
 pub mod gadgets;
 mod mpt_table;
