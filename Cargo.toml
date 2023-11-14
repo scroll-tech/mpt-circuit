@@ -21,6 +21,8 @@ num-bigint = "0.4"
 hex = "0.4"
 thiserror = "1.0"
 log = "0.4"
+mpt-zktrie = { git = "https://github.com/scroll-tech/zkevm-circuits.git", rev = "7d9bc181953cfc6e7baf82ff0ce651281fd70a8a" }
+rand_chacha = "0.3.0"
 
 [patch."https://github.com/privacy-scaling-explorations/halo2.git"]
 halo2_proofs = { git = "https://github.com/scroll-tech/halo2.git", branch = "develop" }
@@ -32,9 +34,8 @@ ethers-core = { git = "https://github.com/scroll-tech/ethers-rs.git", branch = "
 print_layout = ["halo2_proofs/dev-graph"]
 
 [dev-dependencies]
-mpt-zktrie = { git = "https://github.com/scroll-tech/zkevm-circuits.git", rev = "7d9bc181953cfc6e7baf82ff0ce651281fd70a8a" }
+criterion = { version = "0.4", features = ["html_reports"] }
 # mpt-zktrie = { path = "../scroll-circuits/zktrie" }
-rand_chacha = "0.3.0"
 plotters = "0.3"
 bencher = "0.1"
 subtle = "2"
@@ -46,3 +47,8 @@ path = "integration-tests/src/main.rs"
 [profile.test]
 opt-level = 3
 debug-assertions = true
+
+[[bench]]
+name = "parallel_assignment"
+harness = false
+features = [ "test" ]

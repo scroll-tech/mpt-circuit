@@ -58,13 +58,13 @@ fn reverse(trace: SMTTrace) -> SMTTrace {
 }
 
 #[derive(Clone, Debug, Default)]
-struct TestCircuit {
+pub struct TestCircuit {
     n_rows: usize,
     proofs: Vec<Proof>,
 }
 
 impl TestCircuit {
-    fn new(n_rows: usize, traces: Vec<(MPTProofType, SMTTrace)>) -> Self {
+    pub fn new(n_rows: usize, traces: Vec<(MPTProofType, SMTTrace)>) -> Self {
         Self {
             n_rows,
             proofs: traces.into_iter().map(Proof::from).collect(),
