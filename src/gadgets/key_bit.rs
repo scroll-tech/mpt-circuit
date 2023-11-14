@@ -2,7 +2,7 @@ use super::{
     byte_bit::{ByteBitLookup, RangeCheck256Lookup, RangeCheck8Lookup},
     canonical_representation::CanonicalRepresentationLookup,
 };
-use crate::constraint_builder::{AdviceColumn, ConstraintBuilder, Query, SelectorColumn};
+use crate::constraint_builder::{AdviceColumn, ConstraintBuilder, Query};
 use halo2_proofs::circuit::Layouter;
 use halo2_proofs::{
     arithmetic::FieldExt, circuit::Region, halo2curves::bn256::Fr, plonk::ConstraintSystem,
@@ -15,8 +15,6 @@ pub trait KeyBitLookup {
 
 #[derive(Clone)]
 pub struct KeyBitConfig {
-    selector: SelectorColumn, // always enabled selector for constraints we want always enabled.
-
     // Lookup columns
     value: AdviceColumn, // We're proving value.bit(i) = bit in this gadget
     index: AdviceColumn, // 0 <= index < 256
@@ -37,8 +35,7 @@ impl KeyBitConfig {
         range_check_256: &impl RangeCheck256Lookup,
         byte_bit: &impl ByteBitLookup,
     ) -> Self {
-        let ([selector], [], [value, index, bit, index_div_8, index_mod_8, byte]) =
-            cb.build_columns(cs);
+        let ([], [], [value, index, bit, index_div_8, index_mod_8, byte]) = cb.build_columns(cs);
 
         cb.add_lookup(
             "0 <= index < 256",
@@ -78,7 +75,6 @@ impl KeyBitConfig {
         );
 
         Self {
-            selector,
             value,
             index,
             bit,
@@ -185,6 +181,7 @@ mod test {
         rlc_randomness::RlcRandomness,
     };
     use super::*;
+    use crate::constraint_builder::SelectorColumn;
     use halo2_proofs::{
         circuit::{Layouter, SimpleFloorPlanner},
         dev::MockProver,
