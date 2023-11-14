@@ -6,12 +6,14 @@ use ethers_core::types::{Address, U256};
 use halo2_proofs::{
     circuit::{Layouter, SimpleFloorPlanner},
     dev::MockProver,
-    halo2curves::bn256::Fr,
-    plonk::{Circuit, ConstraintSystem, Error, FirstPhase},
+    halo2curves::bn256::{Bn256, Fr},
+    plonk::{keygen_vk, Circuit, ConstraintSystem, Error, FirstPhase},
+    poly::kzg::commitment::ParamsKZG,
 };
 use mpt_zktrie::state::{builder::HASH_SCHEME_DONE, witness::WitnessGenerator, ZktrieState};
+use rand_chacha::rand_core::SeedableRng;
 
-const N_ROWS: usize = 1024;
+const N_ROWS: usize = 8 * 256 + 1;
 const STORAGE_ADDRESS: Address = Address::repeat_byte(1);
 
 fn initial_generator() -> WitnessGenerator {
@@ -116,6 +118,34 @@ fn degree() {
 }
 
 #[test]
+fn verifying_key_constant() {
+    let params = ParamsKZG::<Bn256>::setup(17, rand_chacha::ChaCha20Rng::seed_from_u64(2));
+
+    let no_updates = TestCircuit::new(N_ROWS, vec![]);
+    let one_update = TestCircuit::new(
+        N_ROWS,
+        vec![(
+            MPTProofType::BalanceChanged,
+            serde_json::from_str(&include_str!(
+                "traces/empty_account_type_1_balance_update.json"
+            ))
+            .unwrap(),
+        )],
+    );
+    let vk_no_updates = keygen_vk(&params, &no_updates).unwrap();
+    let vk_one_update = keygen_vk(&params, &one_update).unwrap();
+
+    assert_eq!(
+        vk_no_updates.fixed_commitments(),
+        vk_one_update.fixed_commitments()
+    );
+    assert_eq!(
+        vk_no_updates.permutation().commitments(),
+        vk_one_update.permutation().commitments()
+    );
+}
+
+#[test]
 fn all_padding() {
     mock_prove(vec![]);
 }
@@ -194,9 +224,56 @@ fn empty_account_proofs_for_zero_value_updates() {
             MPTProofType::NonceChanged,
             MPTProofType::CodeSizeExists,
             MPTProofType::CodeHashExists,
+            // poseidon code hash is not in this list because the state (rw) circuit will
+            // translate mpt lookups where the old and new poseidon code hash = 0 in account
+            // nonexistence proof lookups.
         ] {
             mock_prove(vec![(proof_type, trace.clone())]);
         }
+    }
+}
+
+#[test]
+fn empty_mpt_empty_account_proofs_for_zero_value_updates() {
+    assert!(*HASH_SCHEME_DONE);
+    let mut generator = WitnessGenerator::from(&ZktrieState::default());
+    let trace = generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::AccountDoesNotExist,
+        Address::repeat_byte(232),
+        U256::zero(),
+        U256::zero(),
+        None,
+    );
+    let json = serde_json::to_string_pretty(&trace).unwrap();
+    let type_1_trace: SMTTrace = serde_json::from_str(&json).unwrap();
+
+    let mut generator = WitnessGenerator::from(&ZktrieState::default());
+    generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::BalanceChanged,
+        Address::repeat_byte(1),
+        U256::from(23),
+        U256::zero(),
+        None,
+    );
+
+    let trace = generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::AccountDoesNotExist,
+        Address::repeat_byte(2),
+        U256::zero(),
+        U256::zero(),
+        None,
+    );
+    let json = serde_json::to_string_pretty(&trace).unwrap();
+    let type_2_trace: SMTTrace = serde_json::from_str(&json).unwrap();
+
+    for proof_type in [
+        MPTProofType::BalanceChanged,
+        MPTProofType::NonceChanged,
+        MPTProofType::CodeSizeExists,
+        MPTProofType::CodeHashExists,
+    ] {
+        mock_prove(vec![(proof_type, type_1_trace.clone())]);
+        mock_prove(vec![(proof_type, type_2_trace.clone())]);
     }
 }
 
@@ -902,4 +979,132 @@ fn empty_storage_type_2() {
     let trace: SMTTrace = serde_json::from_str(&json).unwrap();
 
     mock_prove(vec![(MPTProofType::StorageDoesNotExist, trace)]);
+}
+
+#[test]
+fn empty_mpt() {
+    assert!(*HASH_SCHEME_DONE);
+    let mut generator = WitnessGenerator::from(&ZktrieState::default());
+    let trace = generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::BalanceChanged,
+        Address::repeat_byte(2),
+        U256::from(1231412),
+        U256::zero(),
+        None,
+    );
+    let json = serde_json::to_string_pretty(&trace).unwrap();
+    let trace: SMTTrace = serde_json::from_str(&json).unwrap();
+
+    mock_prove(vec![(MPTProofType::BalanceChanged, trace)]);
+}
+
+#[test]
+fn empty_mpt_empty_account() {
+    assert!(*HASH_SCHEME_DONE);
+    let mut generator = WitnessGenerator::from(&ZktrieState::default());
+    let trace = generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::AccountDoesNotExist,
+        Address::repeat_byte(232),
+        U256::zero(),
+        U256::zero(),
+        None,
+    );
+    let json = serde_json::to_string_pretty(&trace).unwrap();
+    let trace: SMTTrace = serde_json::from_str(&json).unwrap();
+
+    mock_prove(vec![(MPTProofType::AccountDoesNotExist, trace)]);
+}
+
+#[test]
+fn singleton_mpt() {
+    assert!(*HASH_SCHEME_DONE);
+    let mut generator = WitnessGenerator::from(&ZktrieState::default());
+    generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::BalanceChanged,
+        Address::repeat_byte(1),
+        U256::from(23),
+        U256::zero(),
+        None,
+    );
+
+    let trace = generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::BalanceChanged,
+        Address::repeat_byte(2),
+        U256::from(15),
+        U256::zero(),
+        None,
+    );
+    let json = serde_json::to_string_pretty(&trace).unwrap();
+    let trace: SMTTrace = serde_json::from_str(&json).unwrap();
+
+    mock_prove(vec![(MPTProofType::BalanceChanged, trace)]);
+}
+
+#[test]
+fn singleton_mpt_empty_account() {
+    assert!(*HASH_SCHEME_DONE);
+    let mut generator = WitnessGenerator::from(&ZktrieState::default());
+    generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::BalanceChanged,
+        Address::repeat_byte(1),
+        U256::from(23),
+        U256::zero(),
+        None,
+    );
+
+    let trace = generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::AccountDoesNotExist,
+        Address::repeat_byte(2),
+        U256::zero(),
+        U256::zero(),
+        None,
+    );
+    let json = serde_json::to_string_pretty(&trace).unwrap();
+    let trace: SMTTrace = serde_json::from_str(&json).unwrap();
+
+    mock_prove(vec![(MPTProofType::AccountDoesNotExist, trace)]);
+}
+
+#[test]
+fn create_name_registrator_per_txs_not_enough_gas_d0_g0_v0() {
+    // These mpt updates are by the test case at
+    // https://github.com/ethereum/tests/blob/747a4828f36c5fc8ab4f288d1cf4f1fe6662f3d6/src/GeneralStateTestsFiller/stCallCreateCallCodeTest/createNameRegistratorPerTxsNotEnoughGasFiller.json
+    mock_prove(
+        serde_json::from_str(&include_str!(
+            "traces/createNameRegistratorPerTxsNotEnoughGas_d0_g0_v0.json"
+        ))
+        .unwrap(),
+    );
+}
+
+#[test]
+fn test_n_rows_required() {
+    assert!(*HASH_SCHEME_DONE);
+    let mut generator = WitnessGenerator::from(&ZktrieState::default());
+    generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::BalanceChanged,
+        Address::repeat_byte(1),
+        U256::from(23),
+        U256::zero(),
+        None,
+    );
+
+    let trace = generator.handle_new_state(
+        mpt_zktrie::mpt_circuits::MPTProofType::AccountDoesNotExist,
+        Address::repeat_byte(2),
+        U256::zero(),
+        U256::zero(),
+        None,
+    );
+    let json = serde_json::to_string_pretty(&trace).unwrap();
+    let trace: SMTTrace = serde_json::from_str(&json).unwrap();
+
+    let witness = vec![(MPTProofType::AccountDoesNotExist, trace); 3000];
+    let proofs: Vec<_> = witness.clone().into_iter().map(Proof::from).collect();
+
+    let n_rows_required = MptCircuitConfig::n_rows_required(&proofs);
+
+    let circuit = TestCircuit::new(n_rows_required, witness);
+    let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
+    assert_eq!(prover.verify(), Ok(()));
 }

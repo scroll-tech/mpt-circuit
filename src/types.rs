@@ -13,7 +13,6 @@ use itertools::{EitherOrBoth, Itertools};
 use num_bigint::BigUint;
 use num_traits::identities::Zero;
 
-// mod account;
 pub mod storage;
 pub mod trie;
 use storage::StorageProof;
@@ -186,7 +185,6 @@ pub struct Proof {
 pub struct EthAccount {
     pub nonce: u64,
     pub code_size: u64,
-    poseidon_codehash: Fr,
     pub balance: Fr,
     pub keccak_codehash: U256,
     pub storage_root: Fr,
@@ -197,7 +195,6 @@ impl From<AccountData> for EthAccount {
         Self {
             nonce: account_data.nonce,
             code_size: account_data.code_size,
-            poseidon_codehash: fr_from_biguint(&account_data.poseidon_code_hash),
             balance: fr_from_biguint(&account_data.balance),
             keccak_codehash: u256_from_biguint(&account_data.code_hash),
             storage_root: Fr::zero(), // TODO: fixmeeee!!!
@@ -230,6 +227,15 @@ pub struct Path {
     pub leaf_data_hash: Option<Fr>, // leaf data hash for type 0 and type 1, None for type 2.
 }
 
+impl Path {
+    pub fn hash(&self) -> Fr {
+        match self.leaf_data_hash {
+            None => Fr::zero(),
+            Some(data_hash) => domain_hash(self.key, data_hash, HashDomain::Leaf),
+        }
+    }
+}
+
 impl From<(&MPTProofType, &SMTTrace)> for Claim {
     fn from((proof_type, trace): (&MPTProofType, &SMTTrace)) -> Self {
         let [old_root, new_root] = trace.account_path.clone().map(|path| fr(path.root));
@@ -254,7 +260,11 @@ impl From<(&MPTProofType, &SMTTrace)> for ClaimKind {
             match update {
                 [None, None] => (),
                 [Some(old), Some(new)] => {
-                    // The account must exist, because only contracts with bytecode can modify their own storage slots.
+                    // Accesses to the MPT happen in the order defined in the state (aka rw) circuit, which is not the
+                    // same as the order they occur in the EVM. In the state circuit, nonce and balance modifications
+                    // will precede storage modifications for a given address, which means that the MPT circuit only
+                    // needs to handle storage modifications for existing accounts, even though this is not true in the
+                    // EVM, where the storage of an account can be modified during its construction.
                     if !(account_old == account_new
                         || (account_old.is_none() && account_new == &Some(Default::default())))
                     {
@@ -947,37 +957,8 @@ fn check_hash_traces_new(traces: &[(bool, HashDomain, Fr, Fr, Fr, bool, bool)]) 
     }
 }
 
-fn bits(x: usize, len: usize) -> Vec<bool> {
-    let mut bits = vec![];
-    let mut x = x;
-    while x != 0 {
-        bits.push(x % 2 == 1);
-        x /= 2;
-    }
-    bits.resize(len, false);
-    bits.reverse();
-    bits
-}
-
 fn fr(x: HexBytes<32>) -> Fr {
     Fr::from_bytes(&x.0).unwrap()
-}
-
-fn split_word(x: U256) -> (Fr, Fr) {
-    let mut bytes = [0; 32];
-    x.to_big_endian(&mut bytes);
-    let high_bytes: [u8; 16] = bytes[..16].try_into().unwrap();
-    let low_bytes: [u8; 16] = bytes[16..].try_into().unwrap();
-
-    let high = Fr::from_u128(u128::from_be_bytes(high_bytes));
-    let low = Fr::from_u128(u128::from_be_bytes(low_bytes));
-    (high, low)
-
-    // TODO: what's wrong with this?
-    // let [limb_0, limb_1, limb_2, limb_3] = key.0;
-    // let key_high = Fr::from_u128(u128::from(limb_2) + u128::from(limb_3) << 64);
-    // let key_low = Fr::from_u128(u128::from(limb_0) + u128::from(limb_1) << 64);
-    // hash(key_high, key_low)
 }
 
 fn big_uint_to_fr(i: &BigUint) -> Fr {

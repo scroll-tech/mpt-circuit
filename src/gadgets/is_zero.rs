@@ -57,7 +57,8 @@ impl IsZeroGadget {
         );
         cb.assert_zero(
             "inverse_or_zero is 0 or inverse_or_zero is inverse of value",
-            inverse_or_zero.current() * (Query::one() - value.current() * inverse_or_zero.current()),
+            inverse_or_zero.current()
+                * (Query::one() - value.current() * inverse_or_zero.current()),
         );
         Self {
             value,
