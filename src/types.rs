@@ -260,7 +260,11 @@ impl From<(&MPTProofType, &SMTTrace)> for ClaimKind {
             match update {
                 [None, None] => (),
                 [Some(old), Some(new)] => {
-                    // The account must exist, because only contracts with bytecode can modify their own storage slots.
+                    // Accesses to the MPT happen in the order defined in the state (aka rw) circuit, which is not the
+                    // same as the order they occur in the EVM. In the state circuit, nonce and balance modifications
+                    // will precede storage modifications for a given address, which means that the MPT circuit only
+                    // needs to handle storage modifications for existing accounts, even though this is not true in the
+                    // EVM, where the storage of an account can be modified during its construction.
                     if !(account_old == account_new
                         || (account_old.is_none() && account_new == &Some(Default::default())))
                     {
