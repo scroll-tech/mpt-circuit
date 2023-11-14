@@ -31,7 +31,7 @@ use ethers_core::types::Address;
 use halo2_proofs::{
     arithmetic::{Field, FieldExt},
     circuit::{Region, Value},
-    halo2curves::{bn256::Fr, group::ff::PrimeField},
+    halo2curves::bn256::Fr,
     plonk::ConstraintSystem,
 };
 use itertools::izip;
@@ -901,13 +901,6 @@ fn new_left<F: FieldExt>(config: &MptUpdateConfig) -> Query<F> {
 fn new_right<F: FieldExt>(config: &MptUpdateConfig) -> Query<F> {
     config.direction.current() * config.new_hash.current()
         + (Query::one() - config.direction.current()) * config.sibling.current()
-}
-
-fn address_to_fr(a: Address) -> Fr {
-    let mut bytes = [0u8; 32];
-    bytes[32 - 20..].copy_from_slice(a.as_bytes());
-    bytes.reverse();
-    Fr::from_repr(bytes).unwrap()
 }
 
 fn configure_segment_transitions<F: FieldExt>(
