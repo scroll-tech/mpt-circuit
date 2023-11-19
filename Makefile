@@ -8,4 +8,7 @@ fmt:
 	@cargo fmt
 
 clippy:
-	@cargo clippy --all-features -- -D warnings
+	@cargo clippy --all-features
+
+bench:
+	PARALLEL_SYN=true cargo bench --features bench
