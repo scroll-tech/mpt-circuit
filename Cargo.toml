@@ -35,7 +35,7 @@ ethers-core = { git = "https://github.com/scroll-tech/ethers-rs.git", branch = "
 # printout the layout of circuits for demo and some unittests
 print_layout = ["halo2_proofs/dev-graph"]
 bench = [ "default", "dep:criterion" ]
-default = ["halo2_proofs/mock-batch-inv", "halo2_proofs/parallel_syn"]
+default = ["halo2_proofs/mock-batch-inv"]
 
 [dev-dependencies]
 # mpt-zktrie = { path = "../scroll-circuits/zktrie" }
