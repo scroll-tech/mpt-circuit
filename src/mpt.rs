@@ -121,9 +121,17 @@ impl MptCircuitConfig {
         let randomness = self.rlc_randomness.value(layouter);
         let (u32s, u64s, u128s, frs) = byte_representations(proofs);
 
+        let mut is_first_call = true;
+
         layouter.assign_region(
             || "mpt circuit",
-            |mut region| {
+            move |mut region| {
+                if is_first_call {
+                    is_first_call = false;
+                    self.selector.enable(&mut region, n_rows - 1);
+                    return Ok(())
+                }
+
                 for offset in 1..n_rows {
                     self.selector.enable(&mut region, offset);
                 }
