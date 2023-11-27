@@ -118,8 +118,6 @@ impl MptCircuitConfig {
         proofs: &[Proof],
         n_rows: usize,
     ) -> Result<(), Error> {
-        // std::thread::sleep(std::time::Duration::from_millis(1000));
-
         let randomness = self.rlc_randomness.value(layouter);
         let (u32s, u64s, u128s, frs) = byte_representations(proofs);
 
