@@ -1260,8 +1260,8 @@ name = "halo2-mpt-circuits"
 version = "0.1.0"
 dependencies = [
  "bencher",
- "env_logger 0.9.3",
  "criterion",
+ "env_logger",
  "ethers-core",
  "halo2_proofs",
  "hex",
@@ -1314,7 +1314,6 @@ dependencies = [
  "blake2b_simd",
  "cfg-if 0.1.10",
  "crossbeam",
- "env_logger 0.8.4",
  "ff 0.12.1",
  "group 0.12.1",
  "halo2curves 0.3.1 (git+https://github.com/scroll-tech/halo2curves.git?branch=0.3.1-derive-serde)",
@@ -1429,6 +1428,12 @@ dependencies = [
  "generic-array",
  "hmac 0.8.1",
 ]
+
+[[package]]
+name = "humantime"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a3a5bfb195931eeb336b2a7b4d761daec841b97f947d34394601737a7bba5e4"
 
 [[package]]
 name = "iana-time-zone"
@@ -2633,6 +2638,15 @@ dependencies = [
  "redox_syscall",
  "rustix",
  "windows-sys",
+]
+
+[[package]]
+name = "termcolor"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff1bc3d3f05aff0403e8ac0d92ced918ec05b666a43f83297ccef5bea8a3d449"
+dependencies = [
+ "winapi-util",
 ]
 
 [[package]]
