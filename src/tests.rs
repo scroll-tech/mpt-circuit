@@ -765,6 +765,7 @@ fn empty_storage_type_1_update_c() {
 
 #[test]
 fn multiple_updates() {
+    env_logger::init();
     let witness = vec![
         (
             MPTProofType::StorageChanged,

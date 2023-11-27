@@ -1,6 +1,9 @@
 test:
 	@cargo test
 
+test_par:
+	PARALLEL_SYN=true cargo test -- --nocapture
+
 fmt:
 	@cargo fmt
 

@@ -1,4 +1,5 @@
 use super::{BinaryQuery, Query};
+use halo2_proofs::plonk::Assigned;
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Region, Value},
@@ -99,6 +100,17 @@ impl AdviceColumn {
                 offset,
                 || Value::known(value.try_into().unwrap()),
             )
+            .expect("failed assign_advice");
+    }
+
+    pub fn assign_rational<F: FieldExt>(
+        &self,
+        region: &mut Region<'_, F>,
+        offset: usize,
+        value: Assigned<F>,
+    ) {
+        region
+            .assign_advice(|| "advice", self.0, offset, || Value::known(value))
             .expect("failed assign_advice");
     }
 }
