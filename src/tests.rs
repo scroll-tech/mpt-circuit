@@ -1,13 +1,9 @@
-use crate::{
-    gadgets::poseidon::PoseidonTable, hash_traces, serde::SMTTrace, types::Proof, MPTProofType,
-    MptCircuitConfig,
-};
+use crate::{circuit::TestCircuit, serde::SMTTrace, types::Proof, MPTProofType, MptCircuitConfig};
 use ethers_core::types::{Address, U256};
 use halo2_proofs::{
-    circuit::{Layouter, SimpleFloorPlanner},
     dev::MockProver,
     halo2curves::bn256::{Bn256, Fr},
-    plonk::{keygen_vk, Circuit, ConstraintSystem, Error, FirstPhase},
+    plonk::{keygen_vk, Circuit, ConstraintSystem},
     poly::kzg::commitment::ParamsKZG,
 };
 use mpt_zktrie::state::{builder::HASH_SCHEME_DONE, witness::WitnessGenerator, ZktrieState};
@@ -55,53 +51,6 @@ fn reverse(trace: SMTTrace) -> SMTTrace {
         update.reverse()
     }
     reversed
-}
-
-#[derive(Clone, Debug, Default)]
-struct TestCircuit {
-    n_rows: usize,
-    proofs: Vec<Proof>,
-}
-
-impl TestCircuit {
-    fn new(n_rows: usize, traces: Vec<(MPTProofType, SMTTrace)>) -> Self {
-        Self {
-            n_rows,
-            proofs: traces.into_iter().map(Proof::from).collect(),
-        }
-    }
-}
-
-impl Circuit<Fr> for TestCircuit {
-    type Config = (PoseidonTable, MptCircuitConfig);
-    type FloorPlanner = SimpleFloorPlanner;
-
-    fn without_witnesses(&self) -> Self {
-        Self::default()
-    }
-
-    fn configure(cs: &mut ConstraintSystem<Fr>) -> Self::Config {
-        let poseidon = PoseidonTable::configure(cs);
-        let challenge = cs.challenge_usable_after(FirstPhase);
-        let mpt_circuit_config = MptCircuitConfig::configure(cs, challenge, &poseidon);
-        (poseidon, mpt_circuit_config)
-    }
-
-    fn synthesize(
-        &self,
-        config: Self::Config,
-        mut layouter: impl Layouter<Fr>,
-    ) -> Result<(), Error> {
-        let (poseidon, mpt_circuit_config) = config;
-        mpt_circuit_config.assign(&mut layouter, &self.proofs, self.n_rows)?;
-        layouter.assign_region(
-            || "load poseidon table",
-            |mut region| {
-                poseidon.load(&mut region, &hash_traces(&self.proofs));
-                Ok(())
-            },
-        )
-    }
 }
 
 fn mock_prove(witness: Vec<(MPTProofType, SMTTrace)>) {
@@ -1101,6 +1050,19 @@ fn test_n_rows_required() {
     let trace: SMTTrace = serde_json::from_str(&json).unwrap();
 
     let witness = vec![(MPTProofType::AccountDoesNotExist, trace); 3000];
+    let proofs: Vec<_> = witness.clone().into_iter().map(Proof::from).collect();
+
+    let n_rows_required = MptCircuitConfig::n_rows_required(&proofs);
+
+    let circuit = TestCircuit::new(n_rows_required, witness);
+    let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
+    assert_eq!(prover.verify(), Ok(()));
+}
+
+#[test]
+fn verify_benchmark_trace() {
+    let witness: Vec<(MPTProofType, SMTTrace)> =
+        serde_json::from_str(&include_str!("../benches/traces.json")).unwrap();
     let proofs: Vec<_> = witness.clone().into_iter().map(Proof::from).collect();
 
     let n_rows_required = MptCircuitConfig::n_rows_required(&proofs);
