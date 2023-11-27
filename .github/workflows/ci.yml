@@ -34,7 +34,6 @@ jobs:
           toolchain: nightly-2022-12-10
           override: true
       - run: make test
-
   par-test:
     runs-on: ubuntu-latest
     steps:
@@ -45,8 +44,7 @@ jobs:
           toolchain: nightly-2022-12-10
           override: true
       - run: make test_par
-
-   bench:
+  bench:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
