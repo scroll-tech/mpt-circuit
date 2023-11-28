@@ -829,8 +829,6 @@ impl Proof {
             self.new_account_hash_traces[5][2],
             self.address_hash_traces.get(0).unwrap().3
         );
-        // if this still the case????
-
         if let Some(old_leaf) = self.leafs[0] {
             assert_eq!(
                 domain_hash(old_leaf.key, old_leaf.value_hash, HashDomain::Leaf),
