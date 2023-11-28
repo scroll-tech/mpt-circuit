@@ -1,5 +1,7 @@
 use crate::constraint_builder::{AdviceColumn, BinaryQuery, ConstraintBuilder, Query};
-use halo2_proofs::{circuit::Region, halo2curves::ff::FromUniformBytes, plonk::ConstraintSystem};
+use halo2_proofs::{
+    circuit::Region, halo2curves::ff::FromUniformBytes, plonk::Assigned, plonk::ConstraintSystem,
+};
 use std::fmt::Debug;
 
 #[derive(Clone, Copy)]
@@ -25,10 +27,11 @@ impl IsZeroGadget {
     ) where
         <T as TryInto<F>>::Error: Debug,
     {
-        self.inverse_or_zero.assign(
+        self.inverse_or_zero.assign_rational(
             region,
             offset,
-            value.try_into().unwrap().invert().unwrap_or(F::ZERO),
+            // invert is deferred and then batched by the real/mock prover
+            Assigned::<F>::from(value.try_into().unwrap()).invert(),
         );
     }
 

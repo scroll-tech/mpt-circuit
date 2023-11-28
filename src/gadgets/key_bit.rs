@@ -2,12 +2,14 @@ use super::{
     byte_bit::{ByteBitLookup, RangeCheck256Lookup, RangeCheck8Lookup},
     canonical_representation::CanonicalRepresentationLookup,
 };
-use crate::constraint_builder::{AdviceColumn, ConstraintBuilder, Query, SelectorColumn};
+use crate::constraint_builder::{AdviceColumn, ConstraintBuilder, Query};
+use halo2_proofs::circuit::Layouter;
 use halo2_proofs::{
     circuit::Region,
     halo2curves::{bn256::Fr, ff::FromUniformBytes},
     plonk::ConstraintSystem,
 };
+use itertools::Itertools;
 
 pub trait KeyBitLookup {
     fn lookup<F: FromUniformBytes<64> + Ord>(&self) -> [Query<F>; 3];
@@ -15,8 +17,6 @@ pub trait KeyBitLookup {
 
 #[derive(Clone)]
 pub struct KeyBitConfig {
-    selector: SelectorColumn, // always enabled selector for constraints we want always enabled.
-
     // Lookup columns
     value: AdviceColumn, // We're proving value.bit(i) = bit in this gadget
     index: AdviceColumn, // 0 <= index < 256
@@ -37,8 +37,7 @@ impl KeyBitConfig {
         range_check_256: &impl RangeCheck256Lookup,
         byte_bit: &impl ByteBitLookup,
     ) -> Self {
-        let ([selector], [], [value, index, bit, index_div_8, index_mod_8, byte]) =
-            cb.build_columns(cs);
+        let ([], [], [value, index, bit, index_div_8, index_mod_8, byte]) = cb.build_columns(cs);
 
         cb.add_lookup(
             "0 <= index < 256",
@@ -78,7 +77,6 @@ impl KeyBitConfig {
         );
 
         Self {
-            selector,
             value,
             index,
             bit,
@@ -89,8 +87,22 @@ impl KeyBitConfig {
     }
 
     pub fn assign(&self, region: &mut Region<'_, Fr>, lookups: &[(Fr, usize, bool)]) {
+        self.assign_internal(region, lookups, false)
+    }
+    pub fn assign_internal(
+        &self,
+        region: &mut Region<'_, Fr>,
+        lookups: &[(Fr, usize, bool)],
+        use_par: bool,
+    ) {
         // TODO; dedup lookups
         for (offset, (value, index, bit)) in lookups.iter().enumerate() {
+            // TODO: either move the disabled row to the end of the assigment or get rid of it entirely.
+            let offset = if !use_par {
+                offset + 1 // Start assigning at offet = 1 because the first row is disabled.
+            } else {
+                offset
+            };
             let bytes = value.to_bytes();
 
             let index_div_8 = index / 8; // index = (31 - index/8) * 8
@@ -109,6 +121,48 @@ impl KeyBitConfig {
                 .assign(region, offset, u64::try_from(index_mod_8).unwrap());
             self.byte.assign(region, offset, u64::from(byte));
         }
+    }
+
+    pub fn assign_par(&self, layouter: &mut impl Layouter<Fr>, lookups: &[(Fr, usize, bool)]) {
+        let num_threads = std::thread::available_parallelism()
+            .expect("get num threads")
+            .get();
+        let chunk_size = (lookups.len() + num_threads - 1) / num_threads;
+        let mut is_first_pass = vec![true; num_threads];
+        let assignments = lookups
+            .chunks(chunk_size)
+            .zip(is_first_pass.iter_mut())
+            .enumerate()
+            .map(|(i, (lookups, is_first_pass))| {
+                move |mut region: Region<'_, Fr>| {
+                    if *is_first_pass {
+                        *is_first_pass = false;
+
+                        if !lookups.is_empty() {
+                            // only meant to get region's shape.
+                            let last_off = if i == 0 {
+                                // 1st row is disabled.
+                                lookups.len()
+                            } else {
+                                lookups.len() - 1
+                            };
+                            self.byte.assign(&mut region, last_off, 0_u64);
+                        }
+                        return Ok(());
+                    }
+                    self.assign_internal(&mut region, lookups, true);
+
+                    Ok(())
+                }
+            })
+            .collect_vec();
+
+        layouter.assign_regions(|| "key_bit", assignments).unwrap();
+    }
+
+    pub fn n_rows_required(lookups: &[(Fr, usize, bool)]) -> usize {
+        // +1 because assigment starts on offset = 1 instead of offset = 0.
+        1 + lookups.len()
     }
 }
 
@@ -129,6 +183,7 @@ mod test {
         rlc_randomness::RlcRandomness,
     };
     use super::*;
+    use crate::constraint_builder::SelectorColumn;
     use halo2_proofs::{
         circuit::{Layouter, SimpleFloorPlanner},
         dev::MockProver,
@@ -193,13 +248,13 @@ mod test {
             layouter.assign_region(
                 || "",
                 |mut region| {
-                    for offset in 0..(8 * 256) {
+                    for offset in 1..(1 + 8 * 256) {
                         selector.enable(&mut region, offset);
                     }
 
                     key_bit.assign(&mut region, &self.lookups);
                     byte_bit.assign(&mut region);
-                    canonical_representation.assign(&mut region, randomness, &keys);
+                    canonical_representation.assign(&mut region, randomness, &keys, 256);
                     Ok(())
                 },
             )

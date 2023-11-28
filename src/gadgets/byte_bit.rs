@@ -31,7 +31,7 @@ impl ByteBitGadget {
     }
 
     pub fn assign<F: FromUniformBytes<64> + Ord>(&self, region: &mut Region<'_, F>) {
-        let mut offset = 0;
+        let mut offset = 1;
         for byte in 0..256 {
             for index in 0..8 {
                 self.byte.assign(region, offset, byte);
@@ -41,6 +41,17 @@ impl ByteBitGadget {
                 offset += 1;
             }
         }
+
+        let expected_offset = Self::n_rows_required();
+        debug_assert!(
+            offset == expected_offset,
+            "assign used {offset} rows but {expected_offset} rows expected from `n_rows_required`",
+        );
+    }
+
+    pub fn n_rows_required() -> usize {
+        // +1 because assigment starts on offset = 1 instead of offset = 0.
+        256 * 8 + 1
     }
 }
 

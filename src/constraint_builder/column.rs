@@ -1,4 +1,5 @@
 use super::{BinaryQuery, Query};
+use halo2_proofs::plonk::Assigned;
 use halo2_proofs::{
     circuit::{Region, Value},
     halo2curves::ff::FromUniformBytes,
@@ -51,7 +52,7 @@ impl FixedColumn {
     {
         region
             .assign_fixed(
-                || "asdfasdfawe",
+                || "fixed",
                 self.0,
                 offset,
                 || Value::known(value.try_into().unwrap()),
@@ -99,6 +100,17 @@ impl AdviceColumn {
                 offset,
                 || Value::known(value.try_into().unwrap()),
             )
+            .expect("failed assign_advice");
+    }
+
+    pub fn assign_rational<F: FromUniformBytes<64> + Ord>(
+        &self,
+        region: &mut Region<'_, F>,
+        offset: usize,
+        value: Assigned<F>,
+    ) {
+        region
+            .assign_advice(|| "advice", self.0, offset, || Value::known(value))
             .expect("failed assign_advice");
     }
 }

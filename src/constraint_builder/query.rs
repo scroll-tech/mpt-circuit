@@ -6,13 +6,6 @@ use halo2_proofs::{
     poly::Rotation,
 };
 
-#[derive(Clone, Copy)]
-pub enum ColumnType {
-    Advice,
-    Fixed,
-    Challenge,
-}
-
 #[derive(Clone)]
 pub enum Query<F: Clone> {
     Constant(F),
