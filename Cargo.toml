@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 ethers-core = "2.0.7"
 itertools = "0.10.5"
-hash-circuit = { package = "poseidon-circuit", git = "https://github.com/scroll-tech/poseidon-circuit.git", branch = "sync-ff-0.13" }
+hash-circuit = { package = "poseidon-circuit", git = "https://github.com/scroll-tech/poseidon-circuit.git", branch = "scroll-dev-1201" }
 halo2_proofs = { git = "https://github.com/privacy-scaling-explorations/halo2.git", tag = "v2022_09_10" }
 rand = "0.8"
 lazy_static = "1.4.0"
