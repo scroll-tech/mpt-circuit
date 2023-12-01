@@ -121,7 +121,7 @@ impl MptCircuitConfig {
         let (u32s, u64s, u128s, frs) = byte_representations(proofs);
 
         let mpt_updates_assign_dur = Instant::now();
-        let use_par = std::env::var("PARALLEL_SYN").map_or(false, |s| s == *"true");
+        let use_par = std::env::var("PARALLEL_SYN").map_or(true, |s| s == *"true");
         if use_par {
             let n_assigned_rows = self.mpt_update.assign_par(layouter, proofs, randomness);
 
