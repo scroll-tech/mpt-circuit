@@ -1,7 +1,8 @@
 use super::{BinaryQuery, Query};
+use halo2_proofs::plonk::Assigned;
 use halo2_proofs::{
-    arithmetic::FieldExt,
     circuit::{Region, Value},
+    halo2curves::ff::FromUniformBytes,
     plonk::{Advice, Column, Fixed},
 };
 use std::fmt::Debug;
@@ -10,17 +11,17 @@ use std::fmt::Debug;
 pub struct SelectorColumn(pub Column<Fixed>);
 
 impl SelectorColumn {
-    pub fn current<F: FieldExt>(self) -> BinaryQuery<F> {
+    pub fn current<F: FromUniformBytes<64> + Ord>(self) -> BinaryQuery<F> {
         self.rotation(0)
     }
 
-    pub fn rotation<F: FieldExt>(self, i: i32) -> BinaryQuery<F> {
+    pub fn rotation<F: FromUniformBytes<64> + Ord>(self, i: i32) -> BinaryQuery<F> {
         BinaryQuery(Query::Fixed(self.0, i))
     }
 
-    pub fn enable<F: FieldExt>(&self, region: &mut Region<'_, F>, offset: usize) {
+    pub fn enable<F: FromUniformBytes<64> + Ord>(&self, region: &mut Region<'_, F>, offset: usize) {
         region
-            .assign_fixed(|| "selector", self.0, offset, || Value::known(F::one()))
+            .assign_fixed(|| "selector", self.0, offset, || Value::known(F::ONE))
             .expect("failed enable selector");
     }
 }
@@ -29,19 +30,19 @@ impl SelectorColumn {
 pub struct FixedColumn(pub Column<Fixed>);
 
 impl FixedColumn {
-    pub fn rotation<F: FieldExt>(self, i: i32) -> Query<F> {
+    pub fn rotation<F: FromUniformBytes<64> + Ord>(self, i: i32) -> Query<F> {
         Query::Fixed(self.0, i)
     }
 
-    pub fn current<F: FieldExt>(self) -> Query<F> {
+    pub fn current<F: FromUniformBytes<64> + Ord>(self) -> Query<F> {
         self.rotation(0)
     }
 
-    pub fn previous<F: FieldExt>(self) -> Query<F> {
+    pub fn previous<F: FromUniformBytes<64> + Ord>(self) -> Query<F> {
         self.rotation(-1)
     }
 
-    pub fn assign<F: FieldExt, T: Copy + TryInto<F>>(
+    pub fn assign<F: FromUniformBytes<64> + Ord, T: Copy + TryInto<F>>(
         &self,
         region: &mut Region<'_, F>,
         offset: usize,
@@ -64,27 +65,27 @@ impl FixedColumn {
 pub struct AdviceColumn(pub Column<Advice>);
 
 impl AdviceColumn {
-    pub fn rotation<F: FieldExt>(self, i: i32) -> Query<F> {
+    pub fn rotation<F: FromUniformBytes<64> + Ord>(self, i: i32) -> Query<F> {
         Query::Advice(self.0, i)
     }
 
-    pub fn current<F: FieldExt>(self) -> Query<F> {
+    pub fn current<F: FromUniformBytes<64> + Ord>(self) -> Query<F> {
         self.rotation(0)
     }
 
-    pub fn previous<F: FieldExt>(self) -> Query<F> {
+    pub fn previous<F: FromUniformBytes<64> + Ord>(self) -> Query<F> {
         self.rotation(-1)
     }
 
-    pub fn next<F: FieldExt>(self) -> Query<F> {
+    pub fn next<F: FromUniformBytes<64> + Ord>(self) -> Query<F> {
         self.rotation(1)
     }
 
-    pub fn delta<F: FieldExt>(self) -> Query<F> {
+    pub fn delta<F: FromUniformBytes<64> + Ord>(self) -> Query<F> {
         self.current() - self.previous()
     }
 
-    pub fn assign<F: FieldExt, T: Copy + TryInto<F>>(
+    pub fn assign<F: FromUniformBytes<64> + Ord, T: Copy + TryInto<F>>(
         &self,
         region: &mut Region<'_, F>,
         offset: usize,
@@ -101,25 +102,41 @@ impl AdviceColumn {
             )
             .expect("failed assign_advice");
     }
+
+    pub fn assign_rational<F: FromUniformBytes<64> + Ord>(
+        &self,
+        region: &mut Region<'_, F>,
+        offset: usize,
+        value: Assigned<F>,
+    ) {
+        region
+            .assign_advice(|| "advice", self.0, offset, || Value::known(value))
+            .expect("failed assign_advice");
+    }
 }
 
 #[derive(Clone, Copy)]
 pub struct SecondPhaseAdviceColumn(pub Column<Advice>);
 
 impl SecondPhaseAdviceColumn {
-    fn rotation<F: FieldExt>(self, i: i32) -> Query<F> {
+    fn rotation<F: FromUniformBytes<64> + Ord>(self, i: i32) -> Query<F> {
         Query::Advice(self.0, i)
     }
 
-    pub fn current<F: FieldExt>(self) -> Query<F> {
+    pub fn current<F: FromUniformBytes<64> + Ord>(self) -> Query<F> {
         self.rotation(0)
     }
 
-    pub fn previous<F: FieldExt>(self) -> Query<F> {
+    pub fn previous<F: FromUniformBytes<64> + Ord>(self) -> Query<F> {
         self.rotation(-1)
     }
 
-    pub fn assign<F: FieldExt>(&self, region: &mut Region<'_, F>, offset: usize, value: Value<F>) {
+    pub fn assign<F: FromUniformBytes<64> + Ord>(
+        &self,
+        region: &mut Region<'_, F>,
+        offset: usize,
+        value: Value<F>,
+    ) {
         region
             .assign_advice(|| "second phase advice", self.0, offset, || value)
             .expect("failed assign_advice");

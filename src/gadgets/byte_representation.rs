@@ -2,20 +2,18 @@ use super::{byte_bit::RangeCheck256Lookup, is_zero::IsZeroGadget, rlc_randomness
 use crate::constraint_builder::{
     AdviceColumn, ConstraintBuilder, Query, SecondPhaseAdviceColumn, SelectorColumn,
 };
-use ethers_core::types::{Address, H256};
 use halo2_proofs::{
-    arithmetic::FieldExt,
     circuit::{Region, Value},
-    halo2curves::bn256::Fr,
+    halo2curves::{bn256::Fr, ff::FromUniformBytes},
     plonk::ConstraintSystem,
 };
 
 pub trait RlcLookup {
-    fn lookup<F: FieldExt>(&self) -> [Query<F>; 3];
+    fn lookup<F: FromUniformBytes<64> + Ord>(&self) -> [Query<F>; 3];
 }
 
 pub trait BytesLookup {
-    fn lookup<F: FieldExt>(&self) -> [Query<F>; 2];
+    fn lookup<F: FromUniformBytes<64> + Ord>(&self) -> [Query<F>; 2];
 }
 
 // Right the byte order is big endian, which means that e.g. proving that 0x01 fits into 3
@@ -37,7 +35,7 @@ pub struct ByteRepresentationConfig {
 // WARNING: it is a soundness issue if the index lookup is >= 31 (i.e. the value can
 // overflow in the field if it has 32 or more bytes).
 impl RlcLookup for ByteRepresentationConfig {
-    fn lookup<F: FieldExt>(&self) -> [Query<F>; 3] {
+    fn lookup<F: FromUniformBytes<64> + Ord>(&self) -> [Query<F>; 3] {
         [
             self.value.current(),
             self.index.current(),
@@ -47,13 +45,13 @@ impl RlcLookup for ByteRepresentationConfig {
 }
 
 impl BytesLookup for ByteRepresentationConfig {
-    fn lookup<F: FieldExt>(&self) -> [Query<F>; 2] {
+    fn lookup<F: FromUniformBytes<64> + Ord>(&self) -> [Query<F>; 2] {
         [self.value.current(), self.index.current()]
     }
 }
 
 impl ByteRepresentationConfig {
-    pub fn configure<F: FieldExt>(
+    pub fn configure<F: FromUniformBytes<64> + Ord>(
         cs: &mut ConstraintSystem<F>,
         cb: &mut ConstraintBuilder<F>,
         range_check: &impl RangeCheck256Lookup,
@@ -93,7 +91,7 @@ impl ByteRepresentationConfig {
         }
     }
 
-    pub fn assign<F: FieldExt>(
+    pub fn assign<F: FromUniformBytes<64> + Ord>(
         &self,
         region: &mut Region<'_, F>,
         u32s: &[u32],
@@ -112,8 +110,8 @@ impl ByteRepresentationConfig {
 
         let mut offset = 1;
         for byte_representation in byte_representations {
-            let mut value = F::zero();
-            let mut rlc = Value::known(F::zero());
+            let mut value = F::ZERO;
+            let mut rlc = Value::known(F::ZERO);
             for (index, byte) in byte_representation.iter().enumerate() {
                 let byte = F::from(u64::from(*byte));
                 self.byte.assign(region, offset, byte);
@@ -154,14 +152,6 @@ fn u64_to_big_endian(x: &u64) -> Vec<u8> {
 
 fn u128_to_big_endian(x: &u128) -> Vec<u8> {
     x.to_be_bytes().to_vec()
-}
-
-fn address_to_big_endian(x: &Address) -> Vec<u8> {
-    x.0.to_vec()
-}
-
-fn h256_to_big_endian(x: &H256) -> Vec<u8> {
-    x.0.to_vec()
 }
 
 fn fr_to_big_endian(x: &Fr) -> Vec<u8> {

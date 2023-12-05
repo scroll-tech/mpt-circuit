@@ -1,5 +1,7 @@
 use crate::constraint_builder::{AdviceColumn, BinaryQuery, ConstraintBuilder, Query};
-use halo2_proofs::{arithmetic::FieldExt, circuit::Region, plonk::ConstraintSystem};
+use halo2_proofs::{
+    circuit::Region, halo2curves::ff::FromUniformBytes, plonk::Assigned, plonk::ConstraintSystem,
+};
 use std::fmt::Debug;
 
 #[derive(Clone, Copy)]
@@ -9,15 +11,15 @@ pub struct IsZeroGadget {
 }
 
 impl IsZeroGadget {
-    pub fn current<F: FieldExt>(self) -> BinaryQuery<F> {
+    pub fn current<F: FromUniformBytes<64> + Ord>(self) -> BinaryQuery<F> {
         BinaryQuery(Query::one() - self.value.current() * self.inverse_or_zero.current())
     }
 
-    pub fn previous<F: FieldExt>(self) -> BinaryQuery<F> {
+    pub fn previous<F: FromUniformBytes<64> + Ord>(self) -> BinaryQuery<F> {
         BinaryQuery(Query::one() - self.value.previous() * self.inverse_or_zero.previous())
     }
 
-    pub fn assign<F: FieldExt, T: Copy + TryInto<F>>(
+    pub fn assign<F: FromUniformBytes<64> + Ord, T: Copy + TryInto<F>>(
         &self,
         region: &mut Region<'_, F>,
         offset: usize,
@@ -25,15 +27,16 @@ impl IsZeroGadget {
     ) where
         <T as TryInto<F>>::Error: Debug,
     {
-        self.inverse_or_zero.assign(
+        self.inverse_or_zero.assign_rational(
             region,
             offset,
-            value.try_into().unwrap().invert().unwrap_or(F::zero()),
+            // invert is deferred and then batched by the real/mock prover
+            Assigned::<F>::from(value.try_into().unwrap()).invert(),
         );
     }
 
     // TODO: get rid of assign method in favor of it.
-    pub fn assign_value_and_inverse<F: FieldExt, T: Copy + TryInto<F>>(
+    pub fn assign_value_and_inverse<F: FromUniformBytes<64> + Ord, T: Copy + TryInto<F>>(
         &self,
         region: &mut Region<'_, F>,
         offset: usize,
@@ -45,7 +48,7 @@ impl IsZeroGadget {
         self.assign(region, offset, value);
     }
 
-    pub fn configure<F: FieldExt>(
+    pub fn configure<F: FromUniformBytes<64> + Ord>(
         cs: &mut ConstraintSystem<F>,
         cb: &mut ConstraintBuilder<F>,
         value: AdviceColumn, // TODO: make this a query once Query is clonable/copyable.....

@@ -1,13 +1,9 @@
-use crate::{
-    gadgets::poseidon::PoseidonTable, hash_traces, serde::SMTTrace, types::Proof, MPTProofType,
-    MptCircuitConfig,
-};
+use crate::{circuit::TestCircuit, serde::SMTTrace, types::Proof, MPTProofType, MptCircuitConfig};
 use ethers_core::types::{Address, U256};
 use halo2_proofs::{
-    circuit::{Layouter, SimpleFloorPlanner},
     dev::MockProver,
     halo2curves::bn256::{Bn256, Fr},
-    plonk::{keygen_vk, Circuit, ConstraintSystem, Error, FirstPhase},
+    plonk::{keygen_vk, Circuit, ConstraintSystem},
     poly::kzg::commitment::ParamsKZG,
 };
 use mpt_zktrie::state::{builder::HASH_SCHEME_DONE, witness::WitnessGenerator, ZktrieState};
@@ -57,53 +53,6 @@ fn reverse(trace: SMTTrace) -> SMTTrace {
     reversed
 }
 
-#[derive(Clone, Debug, Default)]
-struct TestCircuit {
-    n_rows: usize,
-    proofs: Vec<Proof>,
-}
-
-impl TestCircuit {
-    fn new(n_rows: usize, traces: Vec<(MPTProofType, SMTTrace)>) -> Self {
-        Self {
-            n_rows,
-            proofs: traces.into_iter().map(Proof::from).collect(),
-        }
-    }
-}
-
-impl Circuit<Fr> for TestCircuit {
-    type Config = (PoseidonTable, MptCircuitConfig);
-    type FloorPlanner = SimpleFloorPlanner;
-
-    fn without_witnesses(&self) -> Self {
-        Self::default()
-    }
-
-    fn configure(cs: &mut ConstraintSystem<Fr>) -> Self::Config {
-        let poseidon = PoseidonTable::configure(cs);
-        let challenge = cs.challenge_usable_after(FirstPhase);
-        let mpt_circuit_config = MptCircuitConfig::configure(cs, challenge, &poseidon);
-        (poseidon, mpt_circuit_config)
-    }
-
-    fn synthesize(
-        &self,
-        config: Self::Config,
-        mut layouter: impl Layouter<Fr>,
-    ) -> Result<(), Error> {
-        let (poseidon, mpt_circuit_config) = config;
-        mpt_circuit_config.assign(&mut layouter, &self.proofs, self.n_rows)?;
-        layouter.assign_region(
-            || "load poseidon table",
-            |mut region| {
-                poseidon.load(&mut region, &hash_traces(&self.proofs));
-                Ok(())
-            },
-        )
-    }
-}
-
 fn mock_prove(witness: Vec<(MPTProofType, SMTTrace)>) {
     let circuit = TestCircuit::new(N_ROWS, witness);
     let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
@@ -126,7 +75,7 @@ fn verifying_key_constant() {
         N_ROWS,
         vec![(
             MPTProofType::BalanceChanged,
-            serde_json::from_str(&include_str!(
+            serde_json::from_str(include_str!(
                 "traces/empty_account_type_1_balance_update.json"
             ))
             .unwrap(),
@@ -215,8 +164,8 @@ fn empty_account_type_2() {
 #[test]
 fn empty_account_proofs_for_zero_value_updates() {
     let traces: [SMTTrace; 2] = [
-        serde_json::from_str(&include_str!("traces/empty_account_type_1.json")).unwrap(),
-        serde_json::from_str(&include_str!("traces/empty_account_type_2.json")).unwrap(),
+        serde_json::from_str(include_str!("traces/empty_account_type_1.json")).unwrap(),
+        serde_json::from_str(include_str!("traces/empty_account_type_2.json")).unwrap(),
     ];
     for trace in traces {
         for proof_type in [
@@ -816,29 +765,30 @@ fn empty_storage_type_1_update_c() {
 
 #[test]
 fn multiple_updates() {
+    env_logger::init();
     let witness = vec![
         (
             MPTProofType::StorageChanged,
-            serde_json::from_str(&include_str!("traces/empty_storage_type_1_update_c.json"))
+            serde_json::from_str(include_str!("traces/empty_storage_type_1_update_c.json"))
                 .unwrap(),
         ),
         (
             MPTProofType::CodeHashExists,
-            serde_json::from_str(&include_str!(
+            serde_json::from_str(include_str!(
                 "traces/existing_account_keccak_codehash_update.json"
             ))
             .unwrap(),
         ),
         (
             MPTProofType::BalanceChanged,
-            serde_json::from_str(&include_str!(
+            serde_json::from_str(include_str!(
                 "traces/empty_account_type_2_balance_update.json"
             ))
             .unwrap(),
         ),
         (
             MPTProofType::AccountDoesNotExist,
-            serde_json::from_str(&include_str!("traces/empty_account_type_1.json")).unwrap(),
+            serde_json::from_str(include_str!("traces/empty_account_type_1.json")).unwrap(),
         ),
     ];
     mock_prove(witness);
@@ -903,7 +853,7 @@ fn depth_1_type_1_storage() {
     // because of an insertion or deletion.
 
     let trace: SMTTrace =
-        serde_json::from_str(&include_str!("traces/depth_1_type_1_storage.json")).unwrap();
+        serde_json::from_str(include_str!("traces/depth_1_type_1_storage.json")).unwrap();
     mock_prove(vec![(MPTProofType::StorageChanged, trace.clone())]);
     mock_prove(vec![(MPTProofType::StorageChanged, reverse(trace))]);
 }
@@ -1070,7 +1020,7 @@ fn create_name_registrator_per_txs_not_enough_gas_d0_g0_v0() {
     // These mpt updates are by the test case at
     // https://github.com/ethereum/tests/blob/747a4828f36c5fc8ab4f288d1cf4f1fe6662f3d6/src/GeneralStateTestsFiller/stCallCreateCallCodeTest/createNameRegistratorPerTxsNotEnoughGasFiller.json
     mock_prove(
-        serde_json::from_str(&include_str!(
+        serde_json::from_str(include_str!(
             "traces/createNameRegistratorPerTxsNotEnoughGas_d0_g0_v0.json"
         ))
         .unwrap(),
@@ -1100,6 +1050,19 @@ fn test_n_rows_required() {
     let trace: SMTTrace = serde_json::from_str(&json).unwrap();
 
     let witness = vec![(MPTProofType::AccountDoesNotExist, trace); 3000];
+    let proofs: Vec<_> = witness.clone().into_iter().map(Proof::from).collect();
+
+    let n_rows_required = MptCircuitConfig::n_rows_required(&proofs);
+
+    let circuit = TestCircuit::new(n_rows_required, witness);
+    let prover = MockProver::<Fr>::run(14, &circuit, vec![]).unwrap();
+    assert_eq!(prover.verify(), Ok(()));
+}
+
+#[test]
+fn verify_benchmark_trace() {
+    let witness: Vec<(MPTProofType, SMTTrace)> =
+        serde_json::from_str(include_str!("../benches/traces.json")).unwrap();
     let proofs: Vec<_> = witness.clone().into_iter().map(Proof::from).collect();
 
     let n_rows_required = MptCircuitConfig::n_rows_required(&proofs);

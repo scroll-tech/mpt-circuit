@@ -1,13 +1,11 @@
 use crate::constraint_builder::{AdviceColumn, FixedColumn};
 use halo2_proofs::plonk::{Advice, Column, Fixed};
-#[cfg(test)]
-use halo2_proofs::{
-    arithmetic::FieldExt, circuit::Region, halo2curves::bn256::Fr, plonk::ConstraintSystem,
-};
-#[cfg(test)]
+#[cfg(any(test, feature = "bench"))]
+use halo2_proofs::{circuit::Region, halo2curves::bn256::Fr, plonk::ConstraintSystem};
+#[cfg(any(test, feature = "bench"))]
 use hash_circuit::hash::Hashable;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "bench"))]
 const MAX_POSEIDON_ROWS: usize = 200;
 
 /// Lookup  represent the poseidon table in zkevm circuit
@@ -22,7 +20,7 @@ pub trait PoseidonLookup {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "bench"))]
 #[derive(Clone, Copy)]
 pub struct PoseidonTable {
     q_enable: FixedColumn,
@@ -34,9 +32,11 @@ pub struct PoseidonTable {
     head_mark: AdviceColumn,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "bench"))]
 impl PoseidonTable {
-    pub fn configure<F: FieldExt>(cs: &mut ConstraintSystem<F>) -> Self {
+    pub fn configure<F: halo2_proofs::halo2curves::ff::FromUniformBytes<64> + Ord>(
+        cs: &mut ConstraintSystem<F>,
+    ) -> Self {
         let [hash, left, right, control, domain_spec, head_mark] =
             [0; 6].map(|_| AdviceColumn(cs.advice_column()));
         Self {
@@ -82,7 +82,7 @@ impl PoseidonTable {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "bench"))]
 impl PoseidonLookup for PoseidonTable {
     fn lookup_columns(&self) -> (FixedColumn, [AdviceColumn; 6]) {
         (

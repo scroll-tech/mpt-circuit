@@ -1,11 +1,12 @@
+use halo2_proofs::halo2curves::ff::FromUniformBytes;
+
 use crate::{
     constraint_builder::{AdviceColumn, ConstraintBuilder, Query, SecondPhaseAdviceColumn},
     gadgets::{is_zero::IsZeroGadget, poseidon::PoseidonLookup},
     types::HashDomain,
 };
-use halo2_proofs::arithmetic::FieldExt;
 
-pub fn configure<F: FieldExt>(
+pub fn configure<F: FromUniformBytes<64> + Ord>(
     cb: &mut ConstraintBuilder<F>,
     value: SecondPhaseAdviceColumn,
     key: AdviceColumn,
