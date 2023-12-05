@@ -3,25 +3,25 @@ use super::super::constraint_builder::{
     SelectorColumn,
 };
 use super::{byte_bit::RangeCheck256Lookup, is_zero::IsZeroGadget, rlc_randomness::RlcRandomness};
+use ethers_core::k256::elliptic_curve::PrimeField;
 use ethers_core::types::U256;
-use halo2_proofs::circuit::Layouter;
-use halo2_proofs::plonk::Error;
 use halo2_proofs::{
-    arithmetic::{Field, FieldExt},
+    arithmetic::Field,
     circuit::{Region, Value},
     halo2curves::bn256::Fr,
     plonk::ConstraintSystem,
 };
+use halo2_proofs::{circuit::Layouter, halo2curves::ff::FromUniformBytes, plonk::Error};
 use itertools::Itertools;
 use num_traits::Zero;
 
 pub trait CanonicalRepresentationLookup {
-    fn lookup<F: FieldExt>(&self) -> [Query<F>; 3];
+    fn lookup<F: FromUniformBytes<64> + Ord>(&self) -> [Query<F>; 3];
 }
 
 // Lookup to prove that Rlc(x: Fr) = y
 pub trait FrRlcLookup {
-    fn lookup<F: FieldExt>(&self) -> [Query<F>; 2];
+    fn lookup<F: FromUniformBytes<64> + Ord>(&self) -> [Query<F>; 2];
 }
 
 #[derive(Clone)]
@@ -312,7 +312,7 @@ impl CanonicalRepresentationConfig {
 }
 
 impl CanonicalRepresentationLookup for CanonicalRepresentationConfig {
-    fn lookup<F: FieldExt>(&self) -> [Query<F>; 3] {
+    fn lookup<F: FromUniformBytes<64> + Ord>(&self) -> [Query<F>; 3] {
         [
             self.value.current(),
             self.index.current(),
@@ -322,7 +322,7 @@ impl CanonicalRepresentationLookup for CanonicalRepresentationConfig {
 }
 
 impl FrRlcLookup for CanonicalRepresentationConfig {
-    fn lookup<F: FieldExt>(&self) -> [Query<F>; 2] {
+    fn lookup<F: FromUniformBytes<64> + Ord>(&self) -> [Query<F>; 2] {
         [
             self.value.current() * self.index_is_31.current(),
             self.rlc.current() * self.index_is_31.current(),

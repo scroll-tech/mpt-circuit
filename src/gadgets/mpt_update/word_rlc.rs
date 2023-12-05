@@ -7,14 +7,13 @@ use crate::{
     types::HashDomain,
     util::{rlc, u256_hi_lo},
 };
-use ethers_core::types::U256;
+use ethers_core::{k256::elliptic_curve::PrimeField, types::U256};
 use halo2_proofs::{
-    arithmetic::FieldExt,
     circuit::{Region, Value},
-    halo2curves::bn256::Fr,
+    halo2curves::{bn256::Fr, ff::FromUniformBytes},
 };
 
-pub fn configure<F: FieldExt>(
+pub fn configure<F: FromUniformBytes<64> + Ord>(
     cb: &mut ConstraintBuilder<F>,
     [word_hash, high, low]: [AdviceColumn; 3],
     [rlc_word, rlc_high, rlc_low]: [SecondPhaseAdviceColumn; 3],

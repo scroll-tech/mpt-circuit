@@ -1,9 +1,7 @@
 use crate::constraint_builder::{AdviceColumn, FixedColumn};
 use halo2_proofs::plonk::{Advice, Column, Fixed};
 #[cfg(any(test, feature = "bench"))]
-use halo2_proofs::{
-    arithmetic::FieldExt, circuit::Region, halo2curves::bn256::Fr, plonk::ConstraintSystem,
-};
+use halo2_proofs::{circuit::Region, halo2curves::bn256::Fr, plonk::ConstraintSystem};
 #[cfg(any(test, feature = "bench"))]
 use hash_circuit::hash::Hashable;
 
@@ -36,7 +34,9 @@ pub struct PoseidonTable {
 
 #[cfg(any(test, feature = "bench"))]
 impl PoseidonTable {
-    pub fn configure<F: FieldExt>(cs: &mut ConstraintSystem<F>) -> Self {
+    pub fn configure<F: halo2_proofs::halo2curves::ff::FromUniformBytes<64> + Ord>(
+        cs: &mut ConstraintSystem<F>,
+    ) -> Self {
         let [hash, left, right, control, domain_spec, head_mark] =
             [0; 6].map(|_| AdviceColumn(cs.advice_column()));
         Self {

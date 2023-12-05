@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 ethers-core = "2.0.7"
 itertools = "0.10.5"
-hash-circuit = { package = "poseidon-circuit", git = "https://github.com/scroll-tech/poseidon-circuit.git", branch = "scroll-dev-0901"}
+hash-circuit = { package = "poseidon-circuit", git = "https://github.com/scroll-tech/poseidon-circuit.git", branch = "scroll-dev-1201" }
 halo2_proofs = { git = "https://github.com/privacy-scaling-explorations/halo2.git", tag = "v2022_09_10" }
 rand = "0.8"
 lazy_static = "1.4.0"
@@ -21,15 +21,15 @@ num-bigint = "0.4"
 hex = "0.4"
 thiserror = "1.0"
 log = "0.4"
-env_logger = "0.9.0"
-mpt-zktrie = { git = "https://github.com/scroll-tech/zkevm-circuits.git", rev = "7d9bc181953cfc6e7baf82ff0ce651281fd70a8a" }
+env_logger = "0.10"
+# mpt-zktrie = { git = "https://github.com/scroll-tech/zkevm-circuits.git", rev = "7d9bc181953cfc6e7baf82ff0ce651281fd70a8a" }
 rand_chacha = "0.3.0"
 criterion = { version = "0.4", optional = true}
 
 [patch."https://github.com/privacy-scaling-explorations/halo2.git"]
-halo2_proofs = { git = "https://github.com/scroll-tech/halo2.git", branch = "develop" }
+halo2_proofs = { git = "https://github.com/scroll-tech/halo2.git", branch = "v1.0" }
 [patch.crates-io]
-ethers-core = { git = "https://github.com/scroll-tech/ethers-rs.git", branch = "v2.0.7" }
+ethers-core = { git = "https://github.com/scroll-tech/ethers-rs.git", branch = "v2.0.7",  features = ["scroll"] }
 
 [features]
 # printout the layout of circuits for demo and some unittests
@@ -38,7 +38,8 @@ default = ["halo2_proofs/mock-batch-inv", "halo2_proofs/parallel_syn"]
 bench = ["dep:criterion"]
 
 [dev-dependencies]
-# mpt-zktrie = { path = "../scroll-circuits/zktrie" }
+mpt-zktrie = { git = "https://github.com/scroll-tech/zkevm-circuits.git", rev = "d14464379107ca80b6280d4b9238eeb60e1fbf15" }
+# mpt-zktrie = { path = "../zkevm-circuits/zktrie" }
 plotters = "0.3"
 bencher = "0.1"
 subtle = "2"

@@ -30,9 +30,9 @@ use crate::{
 use ethers_core::types::Address;
 use halo2_proofs::circuit::Layouter;
 use halo2_proofs::{
-    arithmetic::{Field, FieldExt},
+    arithmetic::Field,
     circuit::{Region, Value},
-    halo2curves::bn256::Fr,
+    halo2curves::{bn256::Fr, ff::FromUniformBytes, group::ff::PrimeField},
     plonk::ConstraintSystem,
 };
 use itertools::{izip, Itertools};
@@ -45,7 +45,7 @@ lazy_static! {
         domain_hash(Fr::zero(), *ZERO_PAIR_HASH, HashDomain::AccountFields);
 }
 
-pub trait MptUpdateLookup<F: FieldExt> {
+pub trait MptUpdateLookup<F: FromUniformBytes<64> + Ord> {
     fn lookup(&self) -> [Query<F>; 7];
 }
 
@@ -77,7 +77,7 @@ pub struct MptUpdateConfig {
     is_zero_gadgets: [IsZeroGadget; 4],      // can be 3
 }
 
-impl<F: FieldExt> MptUpdateLookup<F> for MptUpdateConfig {
+impl<F: FromUniformBytes<64> + Ord> MptUpdateLookup<F> for MptUpdateConfig {
     fn lookup(&self) -> [Query<F>; 7] {
         let is_start = || self.segment_type.current_matches(&[SegmentType::Start]);
         // Note that one non-start rows, all 7 queries will be 0. This corresponds to a valid
@@ -105,7 +105,7 @@ impl<F: FieldExt> MptUpdateLookup<F> for MptUpdateConfig {
 }
 
 impl MptUpdateConfig {
-    pub fn configure<F: FieldExt>(
+    pub fn configure<F: FromUniformBytes<64> + Ord>(
         cs: &mut ConstraintSystem<F>,
         cb: &mut ConstraintBuilder<F>,
         poseidon: &impl PoseidonLookup,
@@ -940,27 +940,27 @@ impl MptUpdateConfig {
     }
 }
 
-fn old_left<F: FieldExt>(config: &MptUpdateConfig) -> Query<F> {
+fn old_left<F: FromUniformBytes<64> + Ord>(config: &MptUpdateConfig) -> Query<F> {
     config.direction.current() * config.sibling.current()
         + (Query::one() - config.direction.current()) * config.old_hash.current()
 }
 
-fn old_right<F: FieldExt>(config: &MptUpdateConfig) -> Query<F> {
+fn old_right<F: FromUniformBytes<64> + Ord>(config: &MptUpdateConfig) -> Query<F> {
     config.direction.current() * config.old_hash.current()
         + (Query::one() - config.direction.current()) * config.sibling.current()
 }
 
-fn new_left<F: FieldExt>(config: &MptUpdateConfig) -> Query<F> {
+fn new_left<F: FromUniformBytes<64> + Ord>(config: &MptUpdateConfig) -> Query<F> {
     config.direction.current() * config.sibling.current()
         + (Query::one() - config.direction.current()) * config.new_hash.current()
 }
 
-fn new_right<F: FieldExt>(config: &MptUpdateConfig) -> Query<F> {
+fn new_right<F: FromUniformBytes<64> + Ord>(config: &MptUpdateConfig) -> Query<F> {
     config.direction.current() * config.new_hash.current()
         + (Query::one() - config.direction.current()) * config.sibling.current()
 }
 
-fn configure_segment_transitions<F: FieldExt>(
+fn configure_segment_transitions<F: FromUniformBytes<64> + Ord>(
     cb: &mut ConstraintBuilder<F>,
     segment: &OneHot<SegmentType>,
     proof: MPTProofType,
@@ -980,7 +980,7 @@ fn configure_segment_transitions<F: FieldExt>(
     }
 }
 
-fn configure_common_path<F: FieldExt>(
+fn configure_common_path<F: FromUniformBytes<64> + Ord>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
@@ -1179,7 +1179,7 @@ fn configure_common_path<F: FieldExt>(
     );
 }
 
-fn configure_extension_old<F: FieldExt>(
+fn configure_extension_old<F: FromUniformBytes<64> + Ord>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
@@ -1266,7 +1266,7 @@ fn configure_extension_old<F: FieldExt>(
     );
 }
 
-fn configure_extension_new<F: FieldExt>(
+fn configure_extension_new<F: FromUniformBytes<64> + Ord>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
@@ -1353,7 +1353,7 @@ fn configure_extension_new<F: FieldExt>(
     );
 }
 
-fn configure_nonce<F: FieldExt>(
+fn configure_nonce<F: FromUniformBytes<64> + Ord>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
     bytes: &impl BytesLookup,
@@ -1483,7 +1483,7 @@ fn configure_nonce<F: FieldExt>(
     }
 }
 
-fn configure_code_size<F: FieldExt>(
+fn configure_code_size<F: FromUniformBytes<64> + Ord>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
     bytes: &impl BytesLookup,
@@ -1567,7 +1567,7 @@ fn configure_code_size<F: FieldExt>(
     }
 }
 
-fn configure_balance<F: FieldExt>(
+fn configure_balance<F: FromUniformBytes<64> + Ord>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
@@ -1696,7 +1696,7 @@ fn configure_balance<F: FieldExt>(
     }
 }
 
-fn configure_poseidon_code_hash<F: FieldExt>(
+fn configure_poseidon_code_hash<F: FromUniformBytes<64> + Ord>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
 ) {
@@ -1727,7 +1727,7 @@ fn configure_poseidon_code_hash<F: FieldExt>(
     }
 }
 
-fn configure_keccak_code_hash<F: FieldExt>(
+fn configure_keccak_code_hash<F: FromUniformBytes<64> + Ord>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
@@ -1810,7 +1810,7 @@ fn configure_keccak_code_hash<F: FieldExt>(
     }
 }
 
-fn configure_storage<F: FieldExt>(
+fn configure_storage<F: FromUniformBytes<64> + Ord>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
@@ -1903,7 +1903,7 @@ fn configure_storage<F: FieldExt>(
     }
 }
 
-fn configure_empty_storage<F: FieldExt>(
+fn configure_empty_storage<F: FromUniformBytes<64> + Ord>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
@@ -1984,7 +1984,7 @@ fn configure_empty_storage<F: FieldExt>(
     }
 }
 
-fn configure_empty_account<F: FieldExt>(
+fn configure_empty_account<F: FromUniformBytes<64> + Ord>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
