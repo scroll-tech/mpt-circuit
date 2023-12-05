@@ -38,7 +38,7 @@ default = ["halo2_proofs/mock-batch-inv", "halo2_proofs/parallel_syn"]
 bench = ["dep:criterion"]
 
 [dev-dependencies]
-mpt-zktrie = { git = "https://github.com/scroll-tech/zkevm-circuits.git", rev = "b9fb603244e949f42669acd20711e09b274620fa" }
+mpt-zktrie = { git = "https://github.com/scroll-tech/zkevm-circuits.git", rev = "d14464379107ca80b6280d4b9238eeb60e1fbf15" }
 # mpt-zktrie = { path = "../zkevm-circuits/zktrie" }
 plotters = "0.3"
 bencher = "0.1"
