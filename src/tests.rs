@@ -75,7 +75,7 @@ fn verifying_key_constant() {
         N_ROWS,
         vec![(
             MPTProofType::BalanceChanged,
-            serde_json::from_str(&include_str!(
+            serde_json::from_str(include_str!(
                 "traces/empty_account_type_1_balance_update.json"
             ))
             .unwrap(),
@@ -164,8 +164,8 @@ fn empty_account_type_2() {
 #[test]
 fn empty_account_proofs_for_zero_value_updates() {
     let traces: [SMTTrace; 2] = [
-        serde_json::from_str(&include_str!("traces/empty_account_type_1.json")).unwrap(),
-        serde_json::from_str(&include_str!("traces/empty_account_type_2.json")).unwrap(),
+        serde_json::from_str(include_str!("traces/empty_account_type_1.json")).unwrap(),
+        serde_json::from_str(include_str!("traces/empty_account_type_2.json")).unwrap(),
     ];
     for trace in traces {
         for proof_type in [
@@ -769,26 +769,26 @@ fn multiple_updates() {
     let witness = vec![
         (
             MPTProofType::StorageChanged,
-            serde_json::from_str(&include_str!("traces/empty_storage_type_1_update_c.json"))
+            serde_json::from_str(include_str!("traces/empty_storage_type_1_update_c.json"))
                 .unwrap(),
         ),
         (
             MPTProofType::CodeHashExists,
-            serde_json::from_str(&include_str!(
+            serde_json::from_str(include_str!(
                 "traces/existing_account_keccak_codehash_update.json"
             ))
             .unwrap(),
         ),
         (
             MPTProofType::BalanceChanged,
-            serde_json::from_str(&include_str!(
+            serde_json::from_str(include_str!(
                 "traces/empty_account_type_2_balance_update.json"
             ))
             .unwrap(),
         ),
         (
             MPTProofType::AccountDoesNotExist,
-            serde_json::from_str(&include_str!("traces/empty_account_type_1.json")).unwrap(),
+            serde_json::from_str(include_str!("traces/empty_account_type_1.json")).unwrap(),
         ),
     ];
     mock_prove(witness);
@@ -853,7 +853,7 @@ fn depth_1_type_1_storage() {
     // because of an insertion or deletion.
 
     let trace: SMTTrace =
-        serde_json::from_str(&include_str!("traces/depth_1_type_1_storage.json")).unwrap();
+        serde_json::from_str(include_str!("traces/depth_1_type_1_storage.json")).unwrap();
     mock_prove(vec![(MPTProofType::StorageChanged, trace.clone())]);
     mock_prove(vec![(MPTProofType::StorageChanged, reverse(trace))]);
 }
@@ -1020,7 +1020,7 @@ fn create_name_registrator_per_txs_not_enough_gas_d0_g0_v0() {
     // These mpt updates are by the test case at
     // https://github.com/ethereum/tests/blob/747a4828f36c5fc8ab4f288d1cf4f1fe6662f3d6/src/GeneralStateTestsFiller/stCallCreateCallCodeTest/createNameRegistratorPerTxsNotEnoughGasFiller.json
     mock_prove(
-        serde_json::from_str(&include_str!(
+        serde_json::from_str(include_str!(
             "traces/createNameRegistratorPerTxsNotEnoughGas_d0_g0_v0.json"
         ))
         .unwrap(),
@@ -1062,7 +1062,7 @@ fn test_n_rows_required() {
 #[test]
 fn verify_benchmark_trace() {
     let witness: Vec<(MPTProofType, SMTTrace)> =
-        serde_json::from_str(&include_str!("../benches/traces.json")).unwrap();
+        serde_json::from_str(include_str!("../benches/traces.json")).unwrap();
     let proofs: Vec<_> = witness.clone().into_iter().map(Proof::from).collect();
 
     let n_rows_required = MptCircuitConfig::n_rows_required(&proofs);

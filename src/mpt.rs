@@ -258,7 +258,7 @@ impl MptCircuitConfig {
         meta: &mut VirtualCells<'_, F>,
     ) -> [Expression<F>; 8] {
         std::iter::once(Query::from(self.selector.current()))
-            .chain(self.mpt_update.lookup().into_iter())
+            .chain(self.mpt_update.lookup())
             .map(|q| q.run(meta))
             .collect::<Vec<_>>()
             .try_into()

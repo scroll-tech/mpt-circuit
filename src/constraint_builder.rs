@@ -79,7 +79,7 @@ impl<F: FromUniformBytes<64> + Ord> ConstraintBuilder<F> {
         let mut lookup: Vec<_> = left
             .into_iter()
             .map(|q| q * condition.clone())
-            .zip(right.into_iter())
+            .zip(right)
             .collect();
         // If condition is true, every_row_selector must be enabled.
         lookup.push((condition.into(), self.every_row_selector().into()));

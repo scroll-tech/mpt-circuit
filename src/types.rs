@@ -825,12 +825,12 @@ impl Proof {
 
         assert_eq!(
             self.old_account_hash_traces[5][2],
-            self.address_hash_traces.get(0).unwrap().2
+            self.address_hash_traces.first().unwrap().2
         );
 
         assert_eq!(
             self.new_account_hash_traces[5][2],
-            self.address_hash_traces.get(0).unwrap().3
+            self.address_hash_traces.first().unwrap().3
         );
         if let Some(old_leaf) = self.leafs[0] {
             assert_eq!(
