@@ -94,7 +94,7 @@ version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9b39be18770d11421cdb1b9947a45dd3f37e93092cbf377614828a319d5fee8"
 dependencies = [
- "hermit-abi",
+ "hermit-abi 0.1.19",
  "libc",
  "winapi",
 ]
@@ -876,6 +876,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "env_logger"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95b3f3e67048839cb0d0781f445682a35113da7121f7c949db0e2be96a4fbece"
+dependencies = [
+ "humantime",
+ "is-terminal",
+ "log",
+ "regex",
+ "termcolor",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -916,19 +929,19 @@ dependencies = [
 [[package]]
 name = "eth-types"
 version = "0.1.0"
-source = "git+https://github.com/scroll-tech/zkevm-circuits.git?branch=sync-ff-0.13#168c98138d3e15fd4e671ac38b55e4c5f74db957"
+source = "git+https://github.com/scroll-tech/zkevm-circuits.git?rev=b9fb603244e949f42669acd20711e09b274620fa#b9fb603244e949f42669acd20711e09b274620fa"
 dependencies = [
  "ethers-core",
  "ethers-signers",
  "halo2-base",
- "halo2_proofs 0.2.0 (git+https://github.com/scroll-tech/halo2.git?branch=sync-ff-0.13)",
+ "halo2_proofs",
  "hex",
  "itertools",
  "lazy_static",
  "num",
  "num-bigint",
  "once_cell",
- "poseidon-circuit 0.1.0 (git+https://github.com/scroll-tech/poseidon-circuit.git?branch=sync-ff-0.13)",
+ "poseidon-circuit",
  "regex",
  "serde",
  "serde_json",
@@ -1195,8 +1208,7 @@ dependencies = [
 [[package]]
 name = "gobuild"
 version = "0.1.0-alpha.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71e156a4ddbf3deb5e8116946c111413bd9a5679bdc1536c78a60618a7a9ac9e"
+source = "git+https://github.com/scroll-tech/gobuild.git#24935c2b8f677841f22acd6710957621bb294e0e"
 dependencies = [
  "cc",
 ]
@@ -1221,10 +1233,10 @@ checksum = "eabb4a44450da02c90444cf74558da904edde8fb4e9035a9a6a4e15445af0bd7"
 [[package]]
 name = "halo2-base"
 version = "0.2.2"
-source = "git+https://github.com/scroll-tech/halo2-lib?branch=sync-ff-0.13#17318039da63711d307fac5013a4ada227b456fe"
+source = "git+https://github.com/scroll-tech/halo2-lib?branch=develop#b7c53bb7456063936f4ca6df8fa8e751d9c17d85"
 dependencies = [
  "ff",
- "halo2_proofs 0.2.0 (git+https://github.com/scroll-tech/halo2.git?branch=sync-ff-0.13)",
+ "halo2_proofs",
  "itertools",
  "num-bigint",
  "num-integer",
@@ -1239,9 +1251,9 @@ version = "0.1.0"
 dependencies = [
  "bencher",
  "criterion",
- "env_logger",
+ "env_logger 0.10.1",
  "ethers-core",
- "halo2_proofs 0.2.0 (git+https://github.com/scroll-tech/halo2.git?branch=v1.0)",
+ "halo2_proofs",
  "hex",
  "itertools",
  "lazy_static",
@@ -1250,7 +1262,7 @@ dependencies = [
  "num-bigint",
  "num-traits",
  "plotters",
- "poseidon-circuit 0.1.0 (git+https://github.com/scroll-tech/poseidon-circuit.git?branch=scroll-dev-1201)",
+ "poseidon-circuit",
  "rand",
  "rand_chacha",
  "serde",
@@ -1264,18 +1276,18 @@ dependencies = [
 [[package]]
 name = "halo2-mpt-circuits"
 version = "0.1.0"
-source = "git+https://github.com/scroll-tech/mpt-circuit.git?branch=sync-ff-0.13#b427da9559c1a5167970b11c740c005987c177d9"
+source = "git+https://github.com/scroll-tech/mpt-circuit.git?rev=94892b5c8286ab22f3d291437c465f09181d970e#94892b5c8286ab22f3d291437c465f09181d970e"
 dependencies = [
- "env_logger",
+ "env_logger 0.9.3",
  "ethers-core",
- "halo2_proofs 0.2.0 (git+https://github.com/scroll-tech/halo2.git?branch=v1.0)",
+ "halo2_proofs",
  "hex",
  "itertools",
  "lazy_static",
  "log",
  "num-bigint",
  "num-traits",
- "poseidon-circuit 0.1.0 (git+https://github.com/scroll-tech/poseidon-circuit.git?branch=sync-ff-0.13)",
+ "poseidon-circuit",
  "rand",
  "rand_chacha",
  "serde",
@@ -1283,29 +1295,6 @@ dependencies = [
  "strum",
  "strum_macros",
  "thiserror",
-]
-
-[[package]]
-name = "halo2_proofs"
-version = "0.2.0"
-source = "git+https://github.com/scroll-tech/halo2.git?branch=sync-ff-0.13#2f5ee1040e3cdef22e13d35865ecddce4a6130c7"
-dependencies = [
- "ark-std",
- "blake2b_simd",
- "cfg-if 0.1.10",
- "crossbeam",
- "ff",
- "group",
- "halo2curves",
- "log",
- "num-bigint",
- "num-integer",
- "poseidon",
- "rand_core",
- "rayon",
- "sha3 0.9.1",
- "subtle",
- "tracing",
 ]
 
 [[package]]
@@ -1381,6 +1370,12 @@ checksum = "62b467343b94ba476dcb2500d242dadbb39557df889310ac77c5d99100aaac33"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "hermit-abi"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d77f7ec81a6d05a3abb01ab6eb7590f6083d08449fe5a1c8b1e620283546ccb7"
 
 [[package]]
 name = "hex"
@@ -1515,6 +1510,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "is-terminal"
+version = "0.4.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb0889898416213fab133e1d33a0e5858a48177452750691bde3666d0fdbaf8b"
+dependencies = [
+ "hermit-abi 0.3.3",
+ "rustix",
+ "windows-sys 0.48.0",
+]
+
+[[package]]
 name = "itertools"
 version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1643,16 +1649,16 @@ dependencies = [
 [[package]]
 name = "mpt-zktrie"
 version = "0.1.0"
-source = "git+https://github.com/scroll-tech/zkevm-circuits.git?branch=sync-ff-0.13#168c98138d3e15fd4e671ac38b55e4c5f74db957"
+source = "git+https://github.com/scroll-tech/zkevm-circuits.git?rev=b9fb603244e949f42669acd20711e09b274620fa#b9fb603244e949f42669acd20711e09b274620fa"
 dependencies = [
  "eth-types",
- "halo2-mpt-circuits 0.1.0 (git+https://github.com/scroll-tech/mpt-circuit.git?branch=sync-ff-0.13)",
- "halo2_proofs 0.2.0 (git+https://github.com/scroll-tech/halo2.git?branch=sync-ff-0.13)",
+ "halo2-mpt-circuits 0.1.0 (git+https://github.com/scroll-tech/mpt-circuit.git?rev=94892b5c8286ab22f3d291437c465f09181d970e)",
+ "halo2_proofs",
  "hex",
  "lazy_static",
  "log",
  "num-bigint",
- "poseidon-circuit 0.1.0 (git+https://github.com/scroll-tech/poseidon-circuit.git?branch=sync-ff-0.13)",
+ "poseidon-circuit",
  "zktrie",
 ]
 
@@ -1985,22 +1991,7 @@ source = "git+https://github.com/scroll-tech/poseidon-circuit.git?branch=scroll-
 dependencies = [
  "bitvec",
  "ff",
- "halo2_proofs 0.2.0 (git+https://github.com/scroll-tech/halo2.git?branch=v1.0)",
- "lazy_static",
- "log",
- "rand",
- "rand_xorshift",
- "thiserror",
-]
-
-[[package]]
-name = "poseidon-circuit"
-version = "0.1.0"
-source = "git+https://github.com/scroll-tech/poseidon-circuit.git?branch=sync-ff-0.13#cdc20edfa1265cd396f1a1d02b6c2781a1910f7f"
-dependencies = [
- "bitvec",
- "ff",
- "halo2_proofs 0.2.0 (git+https://github.com/scroll-tech/halo2.git?branch=v1.0)",
+ "halo2_proofs",
  "lazy_static",
  "log",
  "rand",
@@ -3061,7 +3052,7 @@ checksum = "525b4ec142c6b68a2d10f01f7bbf6755599ca3f81ea53b8431b7dd348f5fdb2d"
 [[package]]
 name = "zktrie"
 version = "0.2.0"
-source = "git+https://github.com/scroll-tech/zktrie.git?branch=sync-ff-0.13#ae71daa9a2913640816b982c926c713eec82bec1"
+source = "git+https://github.com/scroll-tech/zktrie.git?tag=v0.7.1#a12f2f262ad3e82301e39ecdf9bfe235befc7074"
 dependencies = [
  "gobuild",
 ]

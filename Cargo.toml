@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ethers-core = "2.0.7"
+ethers-core = { git = "https://github.com/scroll-tech/ethers-rs.git", branch = "v2.0.7", features = ["scroll"] }
 itertools = "0.10.5"
 hash-circuit = { package = "poseidon-circuit", git = "https://github.com/scroll-tech/poseidon-circuit.git", branch = "scroll-dev-1201" }
 halo2_proofs = { git = "https://github.com/privacy-scaling-explorations/halo2.git", tag = "v2022_09_10" }
@@ -21,7 +21,7 @@ num-bigint = "0.4"
 hex = "0.4"
 thiserror = "1.0"
 log = "0.4"
-env_logger = "0.9.0"
+env_logger = "0.10"
 # mpt-zktrie = { git = "https://github.com/scroll-tech/zkevm-circuits.git", rev = "7d9bc181953cfc6e7baf82ff0ce651281fd70a8a" }
 rand_chacha = "0.3.0"
 criterion = { version = "0.4", optional = true}
@@ -38,8 +38,8 @@ default = ["halo2_proofs/mock-batch-inv", "halo2_proofs/parallel_syn"]
 bench = ["dep:criterion"]
 
 [dev-dependencies]
-mpt-zktrie = { git = "https://github.com/scroll-tech/zkevm-circuits.git", branch = "sync-ff-0.13" }
-# mpt-zktrie = { path = "../scroll-circuits/zktrie" }
+mpt-zktrie = { git = "https://github.com/scroll-tech/zkevm-circuits.git", rev = "b9fb603244e949f42669acd20711e09b274620fa" }
+# mpt-zktrie = { path = "../zkevm-circuits/zktrie" }
 plotters = "0.3"
 bencher = "0.1"
 subtle = "2"
