@@ -9,8 +9,6 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: nightly-2022-12-10
-          override: true
           components: rustfmt
       - run: make fmt
   clippy:
@@ -20,8 +18,6 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: nightly-2022-12-10
-          override: true
           components: clippy
       - run: make clippy
   test:
@@ -31,8 +27,6 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: nightly-2022-12-10
-          override: true
       - run: make test
   par-test:
     runs-on: ubuntu-latest
@@ -41,8 +35,6 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: nightly-2022-12-10
-          override: true
       - run: make test_par
   bench:
     runs-on: ubuntu-latest
@@ -51,6 +43,4 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: nightly-2022-12-10
-          override: true
       - run: make bench
