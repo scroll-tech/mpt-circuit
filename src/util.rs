@@ -1,7 +1,7 @@
 use crate::{constraint_builder::Query, serde::HexBytes, types::HashDomain};
 use ethers_core::types::{Address, U256};
 use halo2_proofs::{
-    arithmetic::{Field, FieldExt},
+    arithmetic::Field,
     halo2curves::{bn256::Fr, group::ff::PrimeField},
 };
 use hash_circuit::hash::Hashable;
@@ -127,7 +127,10 @@ pub fn check_domain_consistency(before: HashDomain, after: HashDomain, direction
     }
 }
 
-pub fn lagrange_polynomial<F: FieldExt>(argument: Query<F>, points: &[(Fr, Query<F>)]) -> Query<F> {
+pub fn lagrange_polynomial<F: PrimeField>(
+    argument: Query<F>,
+    points: &[(Fr, Query<F>)],
+) -> Query<F> {
     let x_coordinates = points.iter().map(|p| p.0);
     let mut basis_polynomials = vec![];
     for (i, xi) in x_coordinates.clone().enumerate() {

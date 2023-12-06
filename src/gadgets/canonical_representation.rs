@@ -3,22 +3,20 @@ use super::super::constraint_builder::{
 };
 use super::{byte_bit::RangeCheck256Lookup, is_zero::IsZeroGadget};
 use ethers_core::types::U256;
+use halo2_proofs::halo2curves::ff::PrimeField;
 use halo2_proofs::{
-    arithmetic::{Field, FieldExt},
-    circuit::Region,
-    halo2curves::bn256::Fr,
-    plonk::ConstraintSystem,
+    arithmetic::Field, circuit::Region, halo2curves::bn256::Fr, plonk::ConstraintSystem,
 };
 use itertools::Itertools;
 use num_traits::Zero;
 
 pub trait CanonicalRepresentationLookup {
-    fn lookup<F: FieldExt>(&self) -> [Query<F>; 3];
+    fn lookup<F: PrimeField>(&self) -> [Query<F>; 3];
 }
 
 // Lookup to prove that for (hi: u128, lo: u128, x: Fr) hi << 128 + lo = x and no smaller hi exists.
 pub trait FrHiLoLookup {
-    fn lookup<F: FieldExt>(&self) -> [Query<F>; 3];
+    fn lookup<F: PrimeField>(&self) -> [Query<F>; 3];
 }
 
 #[derive(Clone)]
@@ -197,7 +195,7 @@ impl CanonicalRepresentationConfig {
 }
 
 impl CanonicalRepresentationLookup for CanonicalRepresentationConfig {
-    fn lookup<F: FieldExt>(&self) -> [Query<F>; 3] {
+    fn lookup<F: PrimeField>(&self) -> [Query<F>; 3] {
         [
             self.value.current(),
             self.index.current(),
@@ -207,7 +205,7 @@ impl CanonicalRepresentationLookup for CanonicalRepresentationConfig {
 }
 
 impl FrHiLoLookup for CanonicalRepresentationConfig {
-    fn lookup<F: FieldExt>(&self) -> [Query<F>; 3] {
+    fn lookup<F: PrimeField>(&self) -> [Query<F>; 3] {
         let value_hi = (0..16)
             .map(|i| self.byte.rotation(i))
             .fold(Query::zero(), |acc, x| acc * 256 + x)

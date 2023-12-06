@@ -1,5 +1,6 @@
 use crate::gadgets::poseidon::PoseidonLookup;
-use halo2_proofs::{arithmetic::FieldExt, plonk::ConstraintSystem};
+use halo2_proofs::halo2curves::ff::PrimeField;
+use halo2_proofs::plonk::ConstraintSystem;
 use itertools::Itertools;
 
 mod binary_column;
@@ -16,7 +17,7 @@ pub use query::Query;
 use to_queries::ToQueries;
 pub use word_columns::WordColumns;
 
-pub struct ConstraintBuilder<F: FieldExt> {
+pub struct ConstraintBuilder<F: PrimeField> {
     constraints: Vec<(&'static str, Query<F>)>,
     #[allow(clippy::type_complexity)]
     lookups: Vec<(&'static str, Vec<(Query<F>, Query<F>)>)>,
@@ -24,7 +25,7 @@ pub struct ConstraintBuilder<F: FieldExt> {
     conditions: Vec<BinaryQuery<F>>,
 }
 
-impl<F: FieldExt> ConstraintBuilder<F> {
+impl<F: PrimeField> ConstraintBuilder<F> {
     pub fn new(every_row: SelectorColumn) -> Self {
         Self {
             constraints: vec![],

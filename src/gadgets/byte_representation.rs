@@ -1,12 +1,11 @@
 use super::{byte_bit::RangeCheck256Lookup, is_zero::IsZeroGadget};
 use crate::constraint_builder::{AdviceColumn, ConstraintBuilder, Query, SelectorColumn};
 use ethers_core::types::{Address, H256};
-use halo2_proofs::{
-    arithmetic::FieldExt, circuit::Region, halo2curves::bn256::Fr, plonk::ConstraintSystem,
-};
+use halo2_proofs::halo2curves::ff::PrimeField;
+use halo2_proofs::{circuit::Region, halo2curves::bn256::Fr, plonk::ConstraintSystem};
 
 pub trait BytesLookup {
-    fn lookup<F: FieldExt>(&self) -> [Query<F>; 2];
+    fn lookup<F: PrimeField>(&self) -> [Query<F>; 2];
 }
 
 // Right the byte order is big endian, which means that e.g. proving that 0x01 fits into 3
@@ -25,13 +24,13 @@ pub struct ByteRepresentationConfig {
 }
 
 impl BytesLookup for ByteRepresentationConfig {
-    fn lookup<F: FieldExt>(&self) -> [Query<F>; 2] {
+    fn lookup<F: PrimeField>(&self) -> [Query<F>; 2] {
         [self.value.current(), self.index.current()]
     }
 }
 
 impl ByteRepresentationConfig {
-    pub fn configure<F: FieldExt>(
+    pub fn configure<F: PrimeField>(
         cs: &mut ConstraintSystem<F>,
         cb: &mut ConstraintBuilder<F>,
         range_check: &impl RangeCheck256Lookup,
@@ -63,7 +62,7 @@ impl ByteRepresentationConfig {
         }
     }
 
-    pub fn assign<F: FieldExt>(
+    pub fn assign<F: PrimeField>(
         &self,
         region: &mut Region<'_, F>,
         u32s: &[u32],
@@ -81,7 +80,7 @@ impl ByteRepresentationConfig {
 
         let mut offset = 1;
         for byte_representation in byte_representations {
-            let mut value = F::zero();
+            let mut value = F::ZERO;
             for (index, byte) in byte_representation.iter().enumerate() {
                 let byte = F::from(u64::from(*byte));
                 self.byte.assign(region, offset, byte);

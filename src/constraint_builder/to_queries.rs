@@ -1,17 +1,17 @@
 use super::Query;
-use halo2_proofs::arithmetic::FieldExt;
+use halo2_proofs::halo2curves::ff::PrimeField;
 
-pub trait ToQueries<F: FieldExt, const N: usize> {
+pub trait ToQueries<F: PrimeField, const N: usize> {
     fn to_queries(&self) -> [Query<F>; N];
 }
 
-impl<F: FieldExt> ToQueries<F, 1> for Query<F> {
+impl<F: PrimeField> ToQueries<F, 1> for Query<F> {
     fn to_queries(&self) -> [Query<F>; 1] {
         [self.clone()]
     }
 }
 
-impl<F: FieldExt, const N: usize> ToQueries<F, N> for [Query<F>; N] {
+impl<F: PrimeField, const N: usize> ToQueries<F, N> for [Query<F>; N] {
     fn to_queries(&self) -> [Query<F>; N] {
         self.clone()
     }

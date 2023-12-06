@@ -3,9 +3,9 @@ use crate::{
     gadgets::{is_zero::IsZeroGadget, poseidon::PoseidonLookup},
     types::HashDomain,
 };
-use halo2_proofs::arithmetic::FieldExt;
+use halo2_proofs::halo2curves::ff::PrimeField;
 
-pub fn configure<F: FieldExt>(
+pub fn configure<F: PrimeField>(
     cb: &mut ConstraintBuilder<F>,
     value: WordColumns,
     key: AdviceColumn,

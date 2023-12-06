@@ -8,7 +8,8 @@ use crate::{
     MPTProofType,
 };
 use ethers_core::types::{Address, U256};
-use halo2_proofs::{arithmetic::FieldExt, halo2curves::bn256::Fr};
+use halo2_proofs::halo2curves::bn256::Fr;
+use halo2_proofs::halo2curves::ff::PrimeField;
 use itertools::{EitherOrBoth, Itertools};
 use num_bigint::BigUint;
 use num_traits::identities::Zero;

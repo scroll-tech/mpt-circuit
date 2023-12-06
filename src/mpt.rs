@@ -14,8 +14,8 @@ use crate::{
     mpt_table::MPTProofType,
     types::Proof,
 };
+use halo2_proofs::halo2curves::ff::PrimeField;
 use halo2_proofs::{
-    arithmetic::FieldExt,
     circuit::Layouter,
     halo2curves::bn256::Fr,
     plonk::{ConstraintSystem, Error, Expression, VirtualCells},
@@ -159,7 +159,10 @@ impl MptCircuitConfig {
         )
     }
 
-    pub fn lookup_exprs<F: FieldExt>(&self, meta: &mut VirtualCells<'_, F>) -> [Expression<F>; 13] {
+    pub fn lookup_exprs<F: PrimeField>(
+        &self,
+        meta: &mut VirtualCells<'_, F>,
+    ) -> [Expression<F>; 13] {
         self.mpt_update.lookup().map(|q| q.run(meta))
     }
 

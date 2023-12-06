@@ -3,12 +3,11 @@ use super::{
     canonical_representation::CanonicalRepresentationLookup,
 };
 use crate::constraint_builder::{AdviceColumn, ConstraintBuilder, Query, SelectorColumn};
-use halo2_proofs::{
-    arithmetic::FieldExt, circuit::Region, halo2curves::bn256::Fr, plonk::ConstraintSystem,
-};
+use halo2_proofs::halo2curves::ff::PrimeField;
+use halo2_proofs::{circuit::Region, halo2curves::bn256::Fr, plonk::ConstraintSystem};
 
 pub trait KeyBitLookup {
-    fn lookup<F: FieldExt>(&self) -> [Query<F>; 3];
+    fn lookup<F: PrimeField>(&self) -> [Query<F>; 3];
 }
 
 #[derive(Clone)]
@@ -27,7 +26,7 @@ pub struct KeyBitConfig {
 }
 
 impl KeyBitConfig {
-    pub fn configure<F: FieldExt>(
+    pub fn configure<F: PrimeField>(
         cs: &mut ConstraintSystem<F>,
         cb: &mut ConstraintBuilder<F>,
         representation: &impl CanonicalRepresentationLookup,
@@ -118,7 +117,7 @@ impl KeyBitConfig {
 }
 
 impl KeyBitLookup for KeyBitConfig {
-    fn lookup<F: FieldExt>(&self) -> [Query<F>; 3] {
+    fn lookup<F: PrimeField>(&self) -> [Query<F>; 3] {
         [
             self.value.current(),
             self.index.current(),

@@ -20,7 +20,7 @@ use crate::{
 };
 use ethers_core::types::Address;
 use halo2_proofs::{
-    arithmetic::{Field, FieldExt},
+    arithmetic::Field,
     circuit::Region,
     halo2curves::{bn256::Fr, group::ff::PrimeField},
     plonk::ConstraintSystem,
@@ -35,7 +35,7 @@ lazy_static! {
         domain_hash(Fr::zero(), *ZERO_PAIR_HASH, HashDomain::AccountFields);
 }
 
-pub trait MptUpdateLookup<F: FieldExt> {
+pub trait MptUpdateLookup<F: PrimeField> {
     fn lookup(&self) -> [Query<F>; 13];
 }
 
@@ -66,7 +66,7 @@ pub struct MptUpdateConfig {
     is_zero_gadgets: [IsZeroGadget; 4],      // can be 3
 }
 
-impl<F: FieldExt> MptUpdateLookup<F> for MptUpdateConfig {
+impl<F: PrimeField> MptUpdateLookup<F> for MptUpdateConfig {
     fn lookup(&self) -> [Query<F>; 13] {
         let is_start = || self.segment_type.current_matches(&[SegmentType::Start]);
         let proof_type = self.proof_type.current() * is_start();
@@ -103,7 +103,7 @@ impl<F: FieldExt> MptUpdateLookup<F> for MptUpdateConfig {
 }
 
 impl MptUpdateConfig {
-    pub fn configure<F: FieldExt>(
+    pub fn configure<F: PrimeField>(
         cs: &mut ConstraintSystem<F>,
         cb: &mut ConstraintBuilder<F>,
         poseidon: &impl PoseidonLookup,
@@ -788,22 +788,22 @@ impl MptUpdateConfig {
     }
 }
 
-fn old_left<F: FieldExt>(config: &MptUpdateConfig) -> Query<F> {
+fn old_left<F: PrimeField>(config: &MptUpdateConfig) -> Query<F> {
     config.direction.current() * config.sibling.current()
         + (Query::one() - config.direction.current()) * config.old_hash.current()
 }
 
-fn old_right<F: FieldExt>(config: &MptUpdateConfig) -> Query<F> {
+fn old_right<F: PrimeField>(config: &MptUpdateConfig) -> Query<F> {
     config.direction.current() * config.old_hash.current()
         + (Query::one() - config.direction.current()) * config.sibling.current()
 }
 
-fn new_left<F: FieldExt>(config: &MptUpdateConfig) -> Query<F> {
+fn new_left<F: PrimeField>(config: &MptUpdateConfig) -> Query<F> {
     config.direction.current() * config.sibling.current()
         + (Query::one() - config.direction.current()) * config.new_hash.current()
 }
 
-fn new_right<F: FieldExt>(config: &MptUpdateConfig) -> Query<F> {
+fn new_right<F: PrimeField>(config: &MptUpdateConfig) -> Query<F> {
     config.direction.current() * config.new_hash.current()
         + (Query::one() - config.direction.current()) * config.sibling.current()
 }
@@ -815,7 +815,7 @@ fn address_to_fr(a: Address) -> Fr {
     Fr::from_repr(bytes).unwrap()
 }
 
-fn configure_segment_transitions<F: FieldExt>(
+fn configure_segment_transitions<F: PrimeField>(
     cb: &mut ConstraintBuilder<F>,
     segment: &OneHot<SegmentType>,
     proof: MPTProofType,
@@ -835,7 +835,7 @@ fn configure_segment_transitions<F: FieldExt>(
     }
 }
 
-fn configure_common_path<F: FieldExt>(
+fn configure_common_path<F: PrimeField>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
@@ -1034,7 +1034,7 @@ fn configure_common_path<F: FieldExt>(
     );
 }
 
-fn configure_extension_old<F: FieldExt>(
+fn configure_extension_old<F: PrimeField>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
@@ -1116,7 +1116,7 @@ fn configure_extension_old<F: FieldExt>(
     );
 }
 
-fn configure_extension_new<F: FieldExt>(
+fn configure_extension_new<F: PrimeField>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
@@ -1203,7 +1203,7 @@ fn configure_extension_new<F: FieldExt>(
     );
 }
 
-fn configure_nonce<F: FieldExt>(
+fn configure_nonce<F: PrimeField>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
     bytes: &impl BytesLookup,
@@ -1335,7 +1335,7 @@ fn configure_nonce<F: FieldExt>(
     }
 }
 
-fn configure_code_size<F: FieldExt>(
+fn configure_code_size<F: PrimeField>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
     bytes: &impl BytesLookup,
@@ -1433,7 +1433,7 @@ fn configure_code_size<F: FieldExt>(
     }
 }
 
-fn configure_balance<F: FieldExt>(
+fn configure_balance<F: PrimeField>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
@@ -1554,7 +1554,7 @@ fn configure_balance<F: FieldExt>(
     }
 }
 
-fn configure_poseidon_code_hash<F: FieldExt>(
+fn configure_poseidon_code_hash<F: PrimeField>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
     fr_hi_lo: &impl FrHiLoLookup,
@@ -1608,7 +1608,7 @@ fn configure_poseidon_code_hash<F: FieldExt>(
     }
 }
 
-fn configure_keccak_code_hash<F: FieldExt>(
+fn configure_keccak_code_hash<F: PrimeField>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
@@ -1692,7 +1692,7 @@ fn configure_keccak_code_hash<F: FieldExt>(
     }
 }
 
-fn configure_storage<F: FieldExt>(
+fn configure_storage<F: PrimeField>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
@@ -1795,7 +1795,7 @@ fn configure_storage<F: FieldExt>(
     }
 }
 
-fn configure_empty_storage<F: FieldExt>(
+fn configure_empty_storage<F: PrimeField>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
@@ -1874,7 +1874,7 @@ fn configure_empty_storage<F: FieldExt>(
     }
 }
 
-fn configure_empty_account<F: FieldExt>(
+fn configure_empty_account<F: PrimeField>(
     cb: &mut ConstraintBuilder<F>,
     config: &MptUpdateConfig,
     poseidon: &impl PoseidonLookup,
