@@ -255,18 +255,18 @@ impl TrieRows {
                     );
                 }
                 PathType::ExtensionOld => {
-                    self.0
-                        .get(i + 1)
-                        .map(|row| assert_eq!(row.path_type, PathType::ExtensionOld));
+                    if let Some(row) = self.0.get(i + 1) {
+                        assert_eq!(row.path_type, PathType::ExtensionOld);
+                    }
                     assert_eq!(
                         domain_hash(old_left, old_right, row.domain),
                         expected_old_hash
                     );
                 }
                 PathType::ExtensionNew => {
-                    self.0
-                        .get(i + 1)
-                        .map(|row| assert_eq!(row.path_type, PathType::ExtensionNew));
+                    if let Some(row) = self.0.get(i + 1) {
+                        assert_eq!(row.path_type, PathType::ExtensionNew);
+                    }
                     assert_eq!(
                         domain_hash(new_left, new_right, row.domain),
                         expected_new_hash

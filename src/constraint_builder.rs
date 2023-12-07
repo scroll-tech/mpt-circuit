@@ -1,5 +1,5 @@
 use crate::gadgets::poseidon::PoseidonLookup;
-use halo2_proofs::{arithmetic::FieldExt, plonk::ConstraintSystem};
+use halo2_proofs::{halo2curves::ff::FromUniformBytes, plonk::ConstraintSystem};
 use itertools::Itertools;
 
 mod binary_column;
@@ -16,7 +16,7 @@ pub use query::Query;
 use to_queries::ToQueries;
 pub use word_columns::WordColumns;
 
-pub struct ConstraintBuilder<F: FieldExt> {
+pub struct ConstraintBuilder<F: FromUniformBytes<64> + Ord> {
     constraints: Vec<(&'static str, Query<F>)>,
     #[allow(clippy::type_complexity)]
     lookups: Vec<(&'static str, Vec<(Query<F>, Query<F>)>)>,
@@ -24,7 +24,7 @@ pub struct ConstraintBuilder<F: FieldExt> {
     conditions: Vec<BinaryQuery<F>>,
 }
 
-impl<F: FieldExt> ConstraintBuilder<F> {
+impl<F: FromUniformBytes<64> + Ord> ConstraintBuilder<F> {
     pub fn new(every_row: SelectorColumn) -> Self {
         Self {
             constraints: vec![],
@@ -103,7 +103,7 @@ impl<F: FieldExt> ConstraintBuilder<F> {
         let mut lookup: Vec<_> = left
             .into_iter()
             .map(|q| q * condition.clone())
-            .zip(right.into_iter())
+            .zip(right)
             .collect();
         // If condition is true, every_row_selector must be enabled.
         lookup.push((condition.into(), self.every_row_selector().into()));

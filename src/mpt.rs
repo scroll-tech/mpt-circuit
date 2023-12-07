@@ -15,12 +15,12 @@ use crate::{
     types::Proof,
 };
 use halo2_proofs::{
-    arithmetic::FieldExt,
     circuit::Layouter,
-    halo2curves::bn256::Fr,
+    halo2curves::{bn256::Fr, ff::FromUniformBytes},
     plonk::{ConstraintSystem, Error, Expression, VirtualCells},
 };
 use itertools::Itertools;
+use std::time::Instant;
 
 /// Config for MptCircuit
 #[derive(Clone)]
@@ -114,44 +114,126 @@ impl MptCircuitConfig {
     ) -> Result<(), Error> {
         let (u32s, u64s, u128s, frs) = byte_representations(proofs);
 
+        let mpt_updates_assign_dur = Instant::now();
+        let use_par = std::env::var("PARALLEL_SYN").map_or(true, |s| s == *"true");
+        if use_par {
+            let n_assigned_rows = self.mpt_update.assign_par(layouter, proofs);
+
+            layouter.assign_region(
+                || "mpt update padding rows",
+                |mut region| {
+                    if n_assigned_rows == 0 {
+                        // first row is all-zeroes row
+                        for offset in 1..n_rows {
+                            self.mpt_update.assign_padding_row(&mut region, offset);
+                        }
+                    } else {
+                        for offset in 0..(n_rows - (1 + n_assigned_rows)) {
+                            self.mpt_update.assign_padding_row(&mut region, offset);
+                        }
+                    }
+                    Ok(())
+                },
+            )?;
+        } else {
+            layouter.assign_region(
+                || "mpt update",
+                |mut region| {
+                    let n_assigned_rows = self.mpt_update.assign(&mut region, proofs);
+
+                    assert!(
+                        2 + n_assigned_rows <= n_rows,
+                        "mpt circuit requires {n_assigned_rows} rows for mpt updates + 1 initial \
+                    all-zero row + at least 1 final padding row. Only {n_rows} rows available."
+                    );
+
+                    for offset in (1 + n_assigned_rows)..n_rows {
+                        self.mpt_update.assign_padding_row(&mut region, offset);
+                    }
+
+                    Ok(())
+                },
+            )?;
+        }
+        log::debug!(
+            "mpt updates assignment(use_par = {}) took {:?}",
+            use_par,
+            mpt_updates_assign_dur.elapsed()
+        );
+
+        if use_par {
+            let key_bit_time = {
+                let dur = Instant::now();
+                self.key_bit.assign_par(layouter, &key_bit_lookups(proofs));
+                dur.elapsed()
+            };
+            log::debug!("mpt key_bit assignment took {:?}", key_bit_time);
+        }
+
+        // pad canonical_representation to fixed count
+        // notice each input cost 32 rows in canonical_representation, and inside
+        // assign one extra input is added
+        let (keys, get_keys_time) = {
+            let dur = Instant::now();
+            let mut keys = mpt_update_keys(proofs);
+            keys.sort();
+            keys.dedup();
+            (keys, dur.elapsed())
+        };
+        let total_rep_size = n_rows / 32 - 1;
+        assert!(
+            total_rep_size >= keys.len(),
+            "no enough space for canonical representation of all keys (need {})",
+            keys.len()
+        );
+        log::debug!("get keys took {:?}", get_keys_time);
+
+        if use_par {
+            let canon_repr_time = {
+                let dur = Instant::now();
+                self.canonical_representation
+                    .assign_par(layouter, &keys, n_rows);
+                dur.elapsed()
+            };
+            log::debug!("canonical_repr assignment took {:?}", canon_repr_time);
+        }
+
         layouter.assign_region(
-            || "mpt circuit",
+            || "mpt keys",
             |mut region| {
                 for offset in 1..n_rows {
                     self.selector.enable(&mut region, offset);
                 }
 
-                // pad canonical_representation to fixed count
-                // notice each input cost 32 rows in canonical_representation, and inside
-                // assign one extra input is added
-                let mut keys = mpt_update_keys(proofs);
-                keys.sort();
-                keys.dedup();
-                let total_rep_size = n_rows / 32 - 1;
-                assert!(
-                    total_rep_size >= keys.len(),
-                    "no enough space for canonical representation of all keys (need {})",
-                    keys.len()
-                );
-
-                self.canonical_representation
-                    .assign(&mut region, &keys, n_rows);
-                self.key_bit.assign(&mut region, &key_bit_lookups(proofs));
-                self.byte_bit.assign(&mut region);
-                self.byte_representation
-                    .assign(&mut region, &u32s, &u64s, &u128s, &frs);
-
-                let n_assigned_rows = self.mpt_update.assign(&mut region, proofs);
-
-                assert!(
-                    2 + n_assigned_rows <= n_rows,
-                    "mpt circuit requires {n_assigned_rows} rows for mpt updates + 1 initial \
-                    all-zero row + at least 1 final padding row. Only {n_rows} rows available."
-                );
-
-                for offset in 1 + n_assigned_rows..n_rows {
-                    self.mpt_update.assign_padding_row(&mut region, offset);
+                let keys_assign_dur = Instant::now();
+                if !use_par {
+                    self.canonical_representation
+                        .assign(&mut region, &keys, n_rows);
+                    self.key_bit.assign(&mut region, &key_bit_lookups(proofs));
                 }
+
+                let byte_bit_time = {
+                    let dur = Instant::now();
+                    self.byte_bit.assign(&mut region);
+                    dur.elapsed()
+                };
+                let byte_repr_time = {
+                    let dur = Instant::now();
+                    self.byte_representation
+                        .assign(&mut region, &u32s, &u64s, &u128s, &frs);
+                    dur.elapsed()
+                };
+                let keys_assign_time = keys_assign_dur.elapsed();
+                log::debug!("keys assignment took {:?}", keys_assign_time);
+                log::debug!(
+                    "byte_bit: {}",
+                    byte_bit_time.as_micros() as f64 / keys_assign_time.as_micros() as f64
+                );
+                log::debug!(
+                    "byte_repr: {}",
+                    byte_repr_time.as_micros() as f64 / keys_assign_time.as_micros() as f64
+                );
+
                 self.is_final_row.enable(&mut region, n_rows - 1);
 
                 Ok(())
@@ -159,7 +241,10 @@ impl MptCircuitConfig {
         )
     }
 
-    pub fn lookup_exprs<F: FieldExt>(&self, meta: &mut VirtualCells<'_, F>) -> [Expression<F>; 13] {
+    pub fn lookup_exprs<F: FromUniformBytes<64> + Ord>(
+        &self,
+        meta: &mut VirtualCells<'_, F>,
+    ) -> [Expression<F>; 13] {
         self.mpt_update.lookup().map(|q| q.run(meta))
     }
 

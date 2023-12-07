@@ -1,5 +1,5 @@
 use crate::constraint_builder::{BinaryColumn, BinaryQuery, ConstraintBuilder, Query};
-use halo2_proofs::{arithmetic::FieldExt, circuit::Region, plonk::ConstraintSystem};
+use halo2_proofs::{circuit::Region, halo2curves::ff::FromUniformBytes, plonk::ConstraintSystem};
 use std::{cmp::Eq, collections::BTreeMap, hash::Hash};
 use strum::IntoEnumIterator;
 
@@ -12,7 +12,7 @@ pub struct OneHot<T: Hash + PartialOrd + Ord> {
 }
 
 impl<T: IntoEnumIterator + Hash + Eq + PartialOrd + Ord> OneHot<T> {
-    pub fn configure<F: FieldExt>(
+    pub fn configure<F: FromUniformBytes<64> + Ord>(
         cs: &mut ConstraintSystem<F>,
         cb: &mut ConstraintBuilder<F>,
     ) -> Self {
@@ -28,25 +28,30 @@ impl<T: IntoEnumIterator + Hash + Eq + PartialOrd + Ord> OneHot<T> {
         config
     }
 
-    pub fn assign<F: FieldExt>(&self, region: &mut Region<'_, F>, offset: usize, value: T) {
+    pub fn assign<F: FromUniformBytes<64> + Ord>(
+        &self,
+        region: &mut Region<'_, F>,
+        offset: usize,
+        value: T,
+    ) {
         if let Some(c) = self.columns.get(&value) {
             c.assign(region, offset, true)
         }
     }
 
-    pub fn previous_matches<F: FieldExt>(&self, values: &[T]) -> BinaryQuery<F> {
+    pub fn previous_matches<F: FromUniformBytes<64> + Ord>(&self, values: &[T]) -> BinaryQuery<F> {
         self.matches(values, -1)
     }
 
-    pub fn current_matches<F: FieldExt>(&self, values: &[T]) -> BinaryQuery<F> {
+    pub fn current_matches<F: FromUniformBytes<64> + Ord>(&self, values: &[T]) -> BinaryQuery<F> {
         self.matches(values, 0)
     }
 
-    pub fn next_matches<F: FieldExt>(&self, values: &[T]) -> BinaryQuery<F> {
+    pub fn next_matches<F: FromUniformBytes<64> + Ord>(&self, values: &[T]) -> BinaryQuery<F> {
         self.matches(values, 1)
     }
 
-    fn matches<F: FieldExt>(&self, values: &[T], r: i32) -> BinaryQuery<F> {
+    fn matches<F: FromUniformBytes<64> + Ord>(&self, values: &[T], r: i32) -> BinaryQuery<F> {
         let query = values
             .iter()
             .map(|v| {
@@ -59,7 +64,7 @@ impl<T: IntoEnumIterator + Hash + Eq + PartialOrd + Ord> OneHot<T> {
         BinaryQuery(query)
     }
 
-    pub fn current<F: FieldExt>(&self) -> Query<F> {
+    pub fn current<F: FromUniformBytes<64> + Ord>(&self) -> Query<F> {
         T::iter().enumerate().fold(Query::zero(), |acc, (i, t)| {
             acc + Query::from(u64::try_from(i).unwrap())
                 * self
@@ -69,7 +74,7 @@ impl<T: IntoEnumIterator + Hash + Eq + PartialOrd + Ord> OneHot<T> {
         })
     }
 
-    pub fn previous<F: FieldExt>(&self) -> Query<F> {
+    pub fn previous<F: FromUniformBytes<64> + Ord>(&self) -> Query<F> {
         T::iter().enumerate().fold(Query::zero(), |acc, (i, t)| {
             acc + Query::from(u64::try_from(i).unwrap())
                 * self
@@ -79,7 +84,7 @@ impl<T: IntoEnumIterator + Hash + Eq + PartialOrd + Ord> OneHot<T> {
         })
     }
 
-    fn sum<F: FieldExt>(&self, r: i32) -> BinaryQuery<F> {
+    fn sum<F: FromUniformBytes<64> + Ord>(&self, r: i32) -> BinaryQuery<F> {
         BinaryQuery(
             self.columns
                 .values()

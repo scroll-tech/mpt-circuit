@@ -1,17 +1,10 @@
 use super::BinaryQuery;
 use halo2_proofs::{
-    arithmetic::{Field, FieldExt},
-    halo2curves::{bn256::Fr, group::ff::PrimeField},
+    arithmetic::Field,
+    halo2curves::{bn256::Fr, ff::FromUniformBytes, group::ff::PrimeField},
     plonk::{Advice, Challenge, Column, Expression, Fixed, VirtualCells},
     poly::Rotation,
 };
-
-#[derive(Clone, Copy)]
-pub enum ColumnType {
-    Advice,
-    Fixed,
-    Challenge,
-}
 
 #[derive(Debug, Clone)]
 pub enum Query<F: Clone> {
@@ -24,7 +17,7 @@ pub enum Query<F: Clone> {
     Mul(Box<Self>, Box<Self>),
 }
 
-impl<F: FieldExt> Query<F> {
+impl<F: FromUniformBytes<64> + Ord> Query<F> {
     pub fn zero() -> Self {
         Self::from(0)
     }
@@ -43,7 +36,7 @@ impl<F: FieldExt> Query<F> {
             Query::Advice(c, r) => meta.query_advice(*c, Rotation(*r)),
             Query::Fixed(c, r) => meta.query_fixed(*c, Rotation(*r)),
             Query::Challenge(c) => meta.query_challenge(*c),
-            Query::Neg(q) => Expression::Constant(F::zero()) - q.run(meta),
+            Query::Neg(q) => Expression::Constant(F::ZERO) - q.run(meta),
             Query::Add(q, u) => q.run(meta) + u.run(meta),
             Query::Mul(q, u) => q.run(meta) * u.run(meta),
         }
@@ -54,13 +47,13 @@ impl<F: FieldExt> Query<F> {
     }
 }
 
-impl<F: FieldExt> From<u64> for Query<F> {
+impl<F: FromUniformBytes<64> + Ord> From<u64> for Query<F> {
     fn from(x: u64) -> Self {
         Self::Constant(F::from(x))
     }
 }
 
-impl<F: FieldExt> From<Fr> for Query<F> {
+impl<F: FromUniformBytes<64> + Ord> From<Fr> for Query<F> {
     fn from(x: Fr) -> Self {
         let little_endian_bytes = x.to_repr();
         let little_endian_limbs = little_endian_bytes
@@ -73,7 +66,7 @@ impl<F: FieldExt> From<Fr> for Query<F> {
     }
 }
 
-impl<F: FieldExt> From<BinaryQuery<F>> for Query<F> {
+impl<F: FromUniformBytes<64> + Ord> From<BinaryQuery<F>> for Query<F> {
     fn from(b: BinaryQuery<F>) -> Self {
         b.0
     }
