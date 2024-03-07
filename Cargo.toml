@@ -37,7 +37,8 @@ ethers-etherscan = { git = "https://github.com/scroll-tech/ethers-rs.git", branc
 [features]
 # printout the layout of circuits for demo and some unittests
 print_layout = ["halo2_proofs/dev-graph"]
-default = ["halo2_proofs/mock-batch-inv", "halo2_proofs/parallel_syn"]
+default = ["halo2_proofs/mock-batch-inv", "parallel_syn"]
+parallel_syn = ["halo2_proofs/parallel_syn"]
 bench = ["dep:criterion"]
 
 [dev-dependencies]
