@@ -239,7 +239,7 @@ There are 2 cases to constrain based on the path directed by the provided non-ex
 In this case, due to our construction of the old and new paths of `SMTTrace`, the old path (when inserting)/new path (when deleting) must be directed to this leaf node. The prefix key provided by the old/new path must end at a bit position <i>before</i> the last bit of the leaf key that is to be proved non-exist. So we constrain that the non-existing account/storage must have its key that is not equal to the key at this leaf node. Circuit columns `other_key`, `other_key_hash`, `other_leafnode_hash` and an IsEqualGadget `key_equals_other_key` are used to provide witness to these constraints and to constrain.
 
 - <b>Type 2 non-existence proof</b> (insert to fill/delete from fill): the path ended at an empty node. Illustration figure shown below:
-![AccounNotExist_Empty](https://i.imgur.com/FLxg11Q.png)
+![AccountNotExist_Empty](https://i.imgur.com/FLxg11Q.png)
 In this case, due to our construction of the old and new paths of `SMTTrace`, the old path (when inserting)/new path (when deleting) must be directed to this empty node. So we constrain the emptiness of these nodes. Circuit provides two IsZeroGadgets `old_hash_is_zero` and`new_hash_is_zero` to constrain this case.
 
 

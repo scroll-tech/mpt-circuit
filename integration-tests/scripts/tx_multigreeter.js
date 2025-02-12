@@ -8,7 +8,7 @@ const deploy = require("./deploy.json")
 
 async function main() {
 
-    const Greeter = await hre.ethers.getContractFactory("MutipleGreeter");
+    const Greeter = await hre.ethers.getContractFactory("MultipleGreeter");
     const dualAddr = deploy.dualgreeter
     if (!dualAddr){
       throw 'no addr for dual greeter contract'
