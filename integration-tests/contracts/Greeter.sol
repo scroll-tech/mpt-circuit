@@ -46,7 +46,7 @@ contract Greeter {
  * @title MultiGreeter
  * @dev Store & retrieve value in a variable, has 2 slots
  */
-contract MutipleGreeter {
+contract MultipleGreeter {
     mapping(uint => uint256) public values;
 
     constructor() {
